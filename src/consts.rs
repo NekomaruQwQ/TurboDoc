@@ -6,3 +6,7 @@ pub const FRONTEND_URL: &str = "http://localhost:9680/";
 pub const KNOWN_URL: &[&str] = &[
     "https://docs.rs",
 ];
+
+pub fn is_known_url(url: &str) -> bool {
+    KNOWN_URL.iter().any(|&known| url.starts_with(known))
+}

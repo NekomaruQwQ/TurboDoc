@@ -1,5 +1,3 @@
-use std::cell::{Cell, LazyCell};
-use std::rc::Rc;
 use windows::Win32::Foundation::HWND;
 use winit::window::Window;
 
@@ -24,7 +22,6 @@ pub fn run() {
     use crate::server::WebServer;
     use crate::webview::WebView;
 
-
     let cache_dir = EXECUTABLE_DIR.join("turbodoc.exe.WebCache");
     let server = RefCell::new(WebServer::new(&cache_dir));
     log::info!("cache directory: {}", cache_dir.display());
@@ -42,41 +39,44 @@ pub fn run() {
     let window = Rc::new(window);
     let window_handle = get_window_handle(&window);
 
-    log::info!("creating WebView2 components...");
-    let webview = Rc::new(WebView::new(window_handle));
+    log::info!("creating WebView2...");
+    let webview = Rc::new(WebView::new(window_handle).unwrap());
 
-    invoke_with_lazy_result::<Box<dyn Fn()>, _>(|remove_handler_callback| {
-        webview.on_navigation_completed({
-            let window = Rc::clone(&window);
-            let webview = Rc::clone(&webview);
-            move || {
-                LazyCell::force(&remove_handler_callback)();
+    log::info!("configuring WebView2...");
+    webview.on_next_navigation_completed({
+        let window = Rc::clone(&window);
+        let webview = Rc::clone(&webview);
+        move |result| match result {
+            Ok(()) => {
                 window.set_visible(true);
-                webview.set_visible(true);
+                let _ =
+                    webview
+                        .set_visible(true)
+                        .inspect_err(|err| log::error!("{err}"));
                 log::info!("showing main window...");
-            }
-        })
-    });
+            },
+            Err(err) =>
+                panic!("navigation failed with status {err:?}"),
+        }
+    }).unwrap();
 
-    let _ = webview.on_web_resource_requested(move |request| {
+    webview.on_web_resource_requested(move |request| {
         use http::Method;
-        if
-        request.method() == Method::GET &&
-            KNOWN_URL.iter().any(|&known| request.uri().to_string().starts_with(known)) {
+        if request.method() == Method::GET && is_known_url(&request.uri().to_string()) {
             Some(server.borrow_mut().handle_request(request))
         } else {
             log::info!("(direct) {} {}", request.method(), request.uri());
             None
         }
-    });
+    }).unwrap();
 
-    let _ = webview.on_frame_navigation_starting(|url, cancel_navigation| {
+    webview.on_frame_navigation_starting(|url, cancel_navigation| {
         log::info!("navigating to {url}");
-        if !KNOWN_URL.iter().any(|&known| url.starts_with(known)) {
-            log::info!(" -> external URL, cancelling navigation");
+        if !is_known_url(url) {
+            log::info!(" -> external link, navigation cancelled");
             cancel_navigation();
         }
-    });
+    }).unwrap();
 
     log::info!("loading frontend...");
     webview.navigate(FRONTEND_URL).unwrap();
@@ -88,40 +88,22 @@ pub fn run() {
                     WindowEvent::CloseRequested =>
                         event_loop.exit(),
                     WindowEvent::Resized(size) => {
-                        let result = unsafe {
-                            webview.controller.SetBounds(RECT {
+                        let _ = webview
+                            .set_bounds(RECT {
                                 left: 0,
                                 top: 0,
                                 right: size.width as _,
                                 bottom: size.height as _,
                             })
-                        };
-
-                        if let Err(err) = result {
-                            log::error!("ICoreWebView2Controller::SetBounds failed: {err:?}");
-                        }
+                            .inspect_err(|err| log::error!("{err}"));
                     },
                     _ => {},
                 }
             } else {
-                log::warn!("received event for unknown window: {window_id:?}");
+                log::warn!("ignoring event for unknown window {window_id:?}: {event:?}");
             }
         }
     }).unwrap();
-}
-
-
-/// Invokes a function that lazily consumes its return value.
-fn invoke_with_lazy_result<T: 'static, F>(f: F)
-where
-    F: Sized + FnOnce(LazyCell<T, Box<dyn Fn() -> T>>) -> T, {
-    let cell = Rc::new(Cell::new(None));
-    let cell_clone = Rc::clone(&cell);
-    cell.set(Some(f(LazyCell::new(Box::new(move || {
-        cell_clone
-            .take()
-            .expect("Cell not set or already taken")
-    })))));
 }
 
 fn get_window_handle(window: &Window) -> HWND {

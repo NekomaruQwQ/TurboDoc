@@ -1,7 +1,9 @@
+use std::result::Result;
+use std::sync::mpsc;
+
 use anyhow::Context as _;
 use windows::core::*;
 use windows::Win32::Foundation::*;
-use windows::Win32::System::Com::*;
 use webview2_com::*;
 use webview2_com::Microsoft::Web::WebView2::Win32::*;
 
@@ -14,7 +16,7 @@ pub struct WebView {
 }
 
 impl WebView {
-    pub fn new(hwnd: HWND) -> Self {
+    pub fn new(hwnd: HWND) -> anyhow::Result<Self> {
         let environment =
             blocking::create_core_webview2_environment();
         let controller =
@@ -22,7 +24,7 @@ impl WebView {
         let core = unsafe {
             controller
                 .CoreWebView2()
-                .expect("failed to get property CoreWebView2 from ICoreWebView2Controller")
+                .context("failed to get property CoreWebView2 from ICoreWebView2Controller")?
         };
 
         // We would like to intercept all web resource requests, so we add an `*` filter here.
@@ -36,23 +38,25 @@ impl WebView {
         // for more details on intercepting requests from `<iframe>`.
         unsafe {
             core.cast::<ICoreWebView2_22>()
-                .expect("failed to cast from ICoreWebView2 to ICoreWebView2_22")
+                .context("failed to cast from ICoreWebView2 to ICoreWebView2_22")?
                 .AddWebResourceRequestedFilterWithRequestSourceKinds(
                     w!("*"),
                     COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL,
                     COREWEBVIEW2_WEB_RESOURCE_REQUEST_SOURCE_KINDS_DOCUMENT)
-                .expect("ICoreWebView2::AddWebResourceRequestedFilter failed");
+                .context("ICoreWebView2::AddWebResourceRequestedFilter failed")?;
         }
 
-        Self { environment, controller, core }
+        Ok(Self { environment, controller, core })
     }
 
-    pub fn set_visible(&self, visible: bool) {
-        unsafe {
-            self.controller
-                .SetIsVisible(visible)
-                .expect("ICoreWebView2Controller::SetIsVisible failed");
-        }
+    pub fn set_visible(&self, visible: bool) -> anyhow::Result<()> {
+        unsafe { self.controller.SetIsVisible(visible) }
+            .context("ICoreWebView2Controller::SetIsVisible failed")
+    }
+    
+    pub fn set_bounds(&self, bounds: RECT) -> anyhow::Result<()> {
+        unsafe { self.controller.SetBounds(bounds) }
+            .context("ICoreWebView2Controller::SetBounds failed")
     }
 
     pub fn navigate(&self, url: &str) -> anyhow::Result<()> {
@@ -64,126 +68,168 @@ impl WebView {
         Ok(())
     }
 
-    /// Registers a callback to be invoked when navigation is completed successfully.
+    /// Registers a callback to be invoked when the next navigation is completed successfully.
     /// Returns a callback that removes the event handler when invoked.
-    ///
-    /// Note that [`ICoreWebView2::add_NavigationCompleted`] is fired for both successful
-    /// and failed navigations, while this method only invokes the callback for successful
-    /// navigations and panics on failed navigations.
-    pub fn on_navigation_completed<F: FnMut() + 'static>(&self, mut callback: F) -> Box<dyn Fn()> {
-        let mut token = 0i64;
-        unsafe {
-            self.core
-                .add_NavigationCompleted(
-                    &NavigationCompletedEventHandler::create(Box::new(move |_, args| {
-                        let args = args.ok_or(E_POINTER)?;
-                        let mut success = BOOL(0);
-                        args.IsSuccess(&raw mut success)?;
-                        assert!(success.as_bool(), "ICoreWebView2 navigation failed: {:?}", {
-                            let mut status = COREWEBVIEW2_WEB_ERROR_STATUS_UNKNOWN;
-                            args.WebErrorStatus(&raw mut status)
-                                .map_or_else(
-                                    |_| "<unknown>".into(),
-                                    |()| format!("{status:?}"))
-                        });
-                        callback();
-                        Ok(())
-                    })),
-                    &raw mut token)
-                .expect("ICoreWebView2::add_NavigationCompleted failed");
-        }
+    pub fn on_next_navigation_completed<F>(&self, callback: F) -> anyhow::Result<()>
+    where
+        F: FnOnce(Result<(), COREWEBVIEW2_WEB_ERROR_STATUS>) + 'static {
+        let (token_tx, token_rx) = mpsc::sync_channel::<i64>(1);
+        let mut state = Some((self.core.clone(), token_rx, callback));
 
-        let core_cloned = self.core.clone();
-        Box::new(move || unsafe {
-            core_cloned
-                .remove_NavigationCompleted(token)
-                .expect("ICoreWebView2::remove_NavigationCompleted failed");
-        })
+        let handler = NavigationCompletedEventHandler::create(Box::new(move |_, args| {
+            let Some(args) = args else {
+                log::error!("NavigationCompleted event args is null");
+                return Err(E_UNEXPECTED.into());
+            };
+
+            let Some((webview, token_rx, callback)) = state.take() else {
+                log::error!("NavigationCompleted event handler called multiple times");
+                return Err(E_UNEXPECTED.into());
+            };
+
+            let token = match token_rx.recv() {
+                Ok(token) => token,
+                Err(err) => {
+                    log::error!("failed to receive from mpsc channel: {err:?}");
+                    return Err(E_UNEXPECTED.into());
+                }
+            };
+
+            match unsafe { webview.remove_NavigationCompleted(token) } {
+                Ok(()) => (),
+                Err(err) => {
+                    log::error!("ICoreWebView2::remove_NavigationCompleted failed: {err:?}");
+                    return Err(err);
+                }
+            }
+
+            let success = {
+                let mut success = BOOL(0);
+                match unsafe { args.IsSuccess(&raw mut success) } {
+                    Ok(()) => success.as_bool(),
+                    Err(err) => {
+                        log::error!("ICoreWebView2NavigationCompletedEventArgs::IsSuccess failed: {err:?}");
+                        return Err(err);
+                    }
+                }
+            };
+
+            let result = if success {
+                Ok(())
+            } else {
+                let mut status = COREWEBVIEW2_WEB_ERROR_STATUS_UNKNOWN;
+                match unsafe { args.WebErrorStatus(&raw mut status) } {
+                    Ok(()) => Err(status),
+                    Err(err) => {
+                        log::error!("ICoreWebView2NavigationCompletedEventArgs::WebErrorStatus failed: {err:?}");
+                        return Err(err);
+                    }
+                }
+            };
+
+            callback(result);
+            Ok(())
+        }));
+
+        let mut token = 0i64;
+        unsafe { self.core.add_NavigationCompleted(&handler, &raw mut token) }
+            .context("ICoreWebView2::add_NavigationCompleted failed")?;
+        token_tx
+            .send(token)
+            .context("failed to send over mpsc channel")?;
+        Ok(())
     }
 
-    pub fn on_frame_navigation_starting<F>(&self, mut callback: F) -> Box<dyn Fn()>
+    pub fn on_frame_navigation_starting<F>(&self, mut callback: F) -> anyhow::Result<()>
     where
         F: FnMut(&str, Box<dyn FnOnce()>) + 'static, {
+        let handler = NavigationStartingEventHandler::create(Box::new(move |_, args| {
+            let Some(args) = args else {
+                log::error!("FrameNavigationStarting event args is null");
+                return Err(E_UNEXPECTED.into());
+            };
+
+            let mut uri = PWSTR::null();
+            match unsafe { args.Uri(&raw mut uri) } {
+                Ok(()) => (),
+                Err(err) => {
+                    log::error!("ICoreWebView2FrameNavigationStartingEventArgs::get_Uri failed: {err:?}");
+                    return Err(err);
+                }
+            }
+
+            let uri = match unsafe { widestring::U16CString::from_raw(uri.0) }.to_string() {
+                Ok(uri) => uri,
+                Err(err) => {
+                    log::error!("ICoreWebView2FrameNavigationStartingEventArgs::get_Uri returns invalid UTF-16: {err:?}");
+                    return Err(E_UNEXPECTED.into());
+                }
+            };
+
+            callback(&uri, Box::new(move || match unsafe { args.SetCancel(true) } {
+                Ok(()) => (),
+                Err(err) =>
+                    log::error!("ICoreWebView2FrameNavigationStartingEventArgs::SetCancel failed: {err:?}"),
+            }));
+
+            Ok(())
+        }));
+
         let mut token = 0i64;
-        unsafe {
-            self.core
-                .add_FrameNavigationStarting(
-                    &NavigationStartingEventHandler::create(Box::new(move |_, args| {
-                        let args = args.ok_or(E_POINTER)?;
-
-                        let mut uri = PWSTR::null();
-                        args.Uri(&raw mut uri)?;
-                        let uri =
-                            widestring::U16CString::from_raw(uri.0)
-                                .to_string()
-                                .expect("ICoreWebView2FrameNavigationStartingEventArgs::get_Uri returns invalid UTF-16");
-
-                        callback(uri.as_str(), Box::new(move || {
-                            args.SetCancel(true)
-                                .expect("ICoreWebView2FrameNavigationStartingEventArgs::Cancel failed");
-                        }));
-
-                        Ok(())
-                    })),
-                    &raw mut token)
-                .expect("ICoreWebView2::add_FrameNavigationStarting failed");
-        }
-
-        let core_cloned = self.core.clone();
-        Box::new(move || unsafe {
-            core_cloned
-                .remove_FrameNavigationStarting(token)
-                .expect("ICoreWebView2::remove_FrameNavigationStarting failed");
-        })
+        unsafe { self.core.add_FrameNavigationStarting(&handler, &raw mut token) }
+            .context("ICoreWebView2::add_FrameNavigationStarting failed")
     }
 
-    pub fn on_web_resource_requested<F>(&self, mut callback: F) -> Box<dyn Fn()>
+    pub fn on_web_resource_requested<F>(&self, mut callback: F) -> anyhow::Result<()>
     where
         F: FnMut(WebRequest) -> Option<WebResponse> + 'static, {
         let environment = self.environment.clone();
-        self.on_web_resource_requested_internal(move |args| {
-            let request =
-                convert::convert_request(&unsafe {
-                    args.Request()
-                        .expect("failed to get property Request from ICoreWebView2WebResourceRequestedEventArgs")
-                });
-            let request =
-                request
-                    .expect("convert::convert_request failed");
+        let handler = WebResourceRequestedEventHandler::create(Box::new(move |_, args| {
+            let Some(args) = args else {
+                log::error!("WebResourceRequested event args is null");
+                return Err(E_UNEXPECTED.into());
+            };
+
+            let request = match unsafe { args.Request() } {
+                Ok(request) => request,
+                Err(err) => {
+                    log::error!("ICoreWebView2WebResourceRequestedEventArgs::Request failed: {err:?}");
+                    return Err(err);
+                }
+            };
+            
+            let request = match convert::convert_request(&request) {
+                Ok(request) => request,
+                Err(err) => {
+                    log::error!("convert::convert_request failed: {err:?}");
+                    return Err(E_UNEXPECTED.into());
+                }
+            };
+            
             if let Some(response) = callback(request.clone()) {
-                let response =
-                    convert::convert_response(&environment, response)
-                        .expect("convert::convert_response failed");
-                unsafe {
-                    args
-                        .SetResponse(&response)
-                        .expect("ICoreWebView2WebResourceRequestedEventArgs::SetResponse failed");
+                let response = match convert::convert_response(&environment, response) {
+                    Ok(response) => response,
+                    Err(err) => {
+                        log::error!("convert::convert_response failed: {err:?}");
+                        return Err(E_UNEXPECTED.into());
+                    }
+                };
+                
+                match unsafe { args.SetResponse(&response) } {
+                    Ok(()) => (),
+                    Err(err) => {
+                        log::error!("ICoreWebView2WebResourceRequestedEventArgs::SetResponse failed: {err:?}");
+                        return Err(err);
+                    }
                 }
             }
-        })
-    }
 
-    fn on_web_resource_requested_internal<F>(&self, mut callback: F) -> Box<dyn Fn()>
-    where
-        F: FnMut(ICoreWebView2WebResourceRequestedEventArgs) + 'static, {
+            Ok(())
+        }));
+
         let mut token = 0i64;
-        unsafe {
-            self.core
-                .add_WebResourceRequested(
-                    &WebResourceRequestedEventHandler::create(Box::new(move |_, args| {
-                        callback(args.ok_or(E_POINTER)?);
-                        Ok(())
-                    })),
-                    &raw mut token)
-                .expect("ICoreWebView2::add_WebResourceRequested failed");
-        }
-
-        let core_cloned = self.core.clone();
-        Box::new(move || unsafe {
-            core_cloned
-                .remove_WebResourceRequested(token)
-                .expect("ICoreWebView2::remove_WebResourceRequested failed");
-        })
+        unsafe { self.core.add_WebResourceRequested(&handler, &raw mut token) }
+            .context("ICoreWebView2::add_WebResourceRequested failed")
     }
 }
 
@@ -254,8 +300,6 @@ mod convert {
     use anyhow::Context as _;
     use widestring::*;
     use windows::core::*;
-    use windows::Win32::Foundation::*;
-    use webview2_com::*;
     use webview2_com::Microsoft::Web::WebView2::Win32::*;
 
     use crate::common::*;
