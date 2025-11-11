@@ -114,11 +114,23 @@ fn main() {
     });
 
     let _ = webview.on_web_resource_requested(move |request| {
-        if request.uri().to_string().starts_with(FRONTEND_URL) {
-            None?;
+        use http::Method;
+        if
+            request.method() == Method::GET &&
+            KNOWN_URL.iter().any(|&known| request.uri().to_string().starts_with(known)) {
+            Some(server.borrow_mut().handle_request(request))
+        } else {
+            log::info!("(direct) {} {}", request.method(), request.uri());
+            None
         }
+    });
 
-        Some(server.borrow_mut().handle_request(request))
+    let _ = webview.on_frame_navigation_starting(|url, cancel_navigation| {
+        log::info!("navigating to {url}");
+        if !KNOWN_URL.iter().any(|&known| url.starts_with(known)) {
+            log::info!(" -> external URL, cancelling navigation");
+            cancel_navigation();
+        }
     });
 
     log::info!("loading frontend...");

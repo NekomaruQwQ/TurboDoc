@@ -90,64 +90,44 @@ impl WebServer {
         let request_url = request.uri().to_string();
         let request_method = request.method().clone();
 
+        assert!(KNOWN_URL.iter().any(|&known| request_url.starts_with(known)));
+        assert_eq!(request.method(), Method::GET);
+        
         log::info!("{request_method} {request_url}");
+        
+        match self.get_or_fetch_resource(&request_url, &request) {
+            Ok(Ok(resource)) => {
+                let elapsed_since_last_fetched =
+                    SystemTime::now()
+                        .duration_since(resource.last_fetched)
+                        .unwrap_or(Duration::MAX);
+                if elapsed_since_last_fetched > CACHE_EXPIRY {
+                    log::info!(" -> cache expired");
 
-        if request_method != Method::GET {
-            log::error!("{request_method} {request_url}");
-            log::error!(" -> unexpected method");
-            return create_response_from_status(StatusCode::METHOD_NOT_ALLOWED);
-        }
+                    let request_url = request.uri().to_string();
+                    self.disk_cache.remove(&request_url);
+                    self.memory_cache.remove(&request_url);
 
-        if KNOWN_URL.iter().any(|&known| request_url.starts_with(known)) {
-            // Known URL. Respond with the requested `WebResource`.
-
-            match self.get_or_fetch_resource(&request_url, &request) {
-                Ok(Ok(resource)) => {
-                    let elapsed_since_last_fetched =
-                        SystemTime::now()
-                            .duration_since(resource.last_fetched)
-                            .unwrap_or(Duration::MAX);
-                    if elapsed_since_last_fetched > CACHE_EXPIRY {
-                        log::info!(" -> cache expired");
-
-                        let request_url = request.uri().to_string();
-                        self.disk_cache.remove(&request_url);
-                        self.memory_cache.remove(&request_url);
-
-                        // Refetch the resource by handling the request again.
-                        return self.handle_request(request);
-                    }
-
-                    if resource.status_code == 302 {
-                        log::info!(" -> redirecting to {}", resource.location);
-                    }
-
-                    create_response_from_resource(resource)
-                },
-                Ok(Err(response)) => {
-                    let status = response.status();
-                    log::error!("{} {}", request.method(), request.uri());
-                    log::error!(" -> {status}");
-                    create_response_from_status(status)
-                },
-                Err(err) => {
-                    log::error!("{} {}", request.method(), request.uri());
-                    log::error!(" -> {err}");
-                    create_response_from_status(StatusCode::INTERNAL_SERVER_ERROR)
+                    // Refetch the resource by handling the request again.
+                    return self.handle_request(request);
                 }
-            }
-        } else {
-            // Unknown URL. Is it an external link?
 
-            if get_header(request.headers(), header::ACCEPT)
-                .unwrap_or_default()
-                .starts_with("text/html") {
-                log::info!(" -> external link");
-                create_response_from_status(StatusCode::NO_CONTENT)
-            } else {
+                if resource.status_code == 302 {
+                    log::info!(" -> redirecting to {}", resource.location);
+                }
+
+                create_response_from_resource(resource)
+            },
+            Ok(Err(response)) => {
+                let status = response.status();
                 log::error!("{} {}", request.method(), request.uri());
-                log::error!(" -> unknown URL");
-                create_response_from_status(StatusCode::FORBIDDEN)
+                log::error!(" -> {status}");
+                create_response_from_status(status)
+            },
+            Err(err) => {
+                log::error!("{} {}", request.method(), request.uri());
+                log::error!(" -> {err}");
+                create_response_from_status(StatusCode::INTERNAL_SERVER_ERROR)
             }
         }
     }
@@ -227,7 +207,7 @@ fn fetch_resource(http_client: &HttpClient, request: &WebRequest)
 fn create_response_from_status(status: StatusCode) -> WebResponse {
     ResponseBuilder::new()
         .status(status)
-        .body(Vec::new().into())
+        .body(Vec::new())
         .unwrap()
 }
 
@@ -239,7 +219,7 @@ fn create_response_from_resource(resource: WebResource) -> WebResponse {
                 resource.content_type;
             let content_length =
                 resource.content.len();
-            let mut response = WebResponse::new(resource.content.into());
+            let mut response = WebResponse::new(resource.content);
             response.headers_mut().insert(
                 header::CONTENT_TYPE,
                 HeaderValue::from_str(&content_type).unwrap());
@@ -252,7 +232,7 @@ fn create_response_from_resource(resource: WebResource) -> WebResponse {
             let mut response =
                 ResponseBuilder::new()
                     .status(StatusCode::FOUND)
-                    .body(Vec::new().into())
+                    .body(Vec::new())
                     .unwrap();
             response.headers_mut().insert(
                 header::LOCATION,

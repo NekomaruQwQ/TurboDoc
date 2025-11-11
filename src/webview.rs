@@ -25,6 +25,15 @@ impl WebView {
                 .expect("failed to get property CoreWebView2 from ICoreWebView2Controller")
         };
 
+        // We would like to intercept all web resource requests, so we add an `*` filter here.
+        // This is not necessary for general usage.
+        //
+        // Note that we need to use `AddWebResourceRequestedFilterWithRequestSourceKinds`
+        // and specify `COREWEBVIEW2_WEB_RESOURCE_REQUEST_SOURCE_KINDS_DOCUMENT` to cover
+        // requests from `<iframe>` elements as well.
+        //
+        // See https://github.com/MicrosoftEdge/WebView2Feedback/issues/2341#issuecomment-1332463257
+        // for more details on intercepting requests from `<iframe>`.
         unsafe {
             core.cast::<ICoreWebView2_22>()
                 .expect("failed to cast from ICoreWebView2 to ICoreWebView2_22")
@@ -35,11 +44,7 @@ impl WebView {
                 .expect("ICoreWebView2::AddWebResourceRequestedFilter failed");
         }
 
-        Self {
-            environment,
-            controller,
-            core,
-        }
+        Self { environment, controller, core }
     }
 
     pub fn set_visible(&self, visible: bool) {
@@ -93,6 +98,42 @@ impl WebView {
             core_cloned
                 .remove_NavigationCompleted(token)
                 .expect("ICoreWebView2::remove_NavigationCompleted failed");
+        })
+    }
+
+    pub fn on_frame_navigation_starting<F>(&self, mut callback: F) -> Box<dyn Fn()>
+    where
+        F: FnMut(&str, Box<dyn FnOnce()>) + 'static, {
+        let mut token = 0i64;
+        unsafe {
+            self.core
+                .add_FrameNavigationStarting(
+                    &NavigationStartingEventHandler::create(Box::new(move |_, args| {
+                        let args = args.ok_or(E_POINTER)?;
+
+                        let mut uri = PWSTR::null();
+                        args.Uri(&raw mut uri)?;
+                        let uri =
+                            widestring::U16CString::from_raw(uri.0)
+                                .to_string()
+                                .expect("ICoreWebView2FrameNavigationStartingEventArgs::get_Uri returns invalid UTF-16");
+
+                        callback(uri.as_str(), Box::new(move || {
+                            args.SetCancel(true)
+                                .expect("ICoreWebView2FrameNavigationStartingEventArgs::Cancel failed");
+                        }));
+
+                        Ok(())
+                    })),
+                    &raw mut token)
+                .expect("ICoreWebView2::add_FrameNavigationStarting failed");
+        }
+
+        let core_cloned = self.core.clone();
+        Box::new(move || unsafe {
+            core_cloned
+                .remove_FrameNavigationStarting(token)
+                .expect("ICoreWebView2::remove_FrameNavigationStarting failed");
         })
     }
 
