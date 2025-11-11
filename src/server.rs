@@ -24,7 +24,7 @@ use http::{
 use reqwest::blocking::Client as HttpClient;
 use http::response::Builder as ResponseBuilder;
 
-use crate::core::*;
+use crate::common::*;
 use crate::consts::*;
 
 mod cache {

@@ -5,7 +5,7 @@ use windows::Win32::System::Com::*;
 use webview2_com::*;
 use webview2_com::Microsoft::Web::WebView2::Win32::*;
 
-use crate::core::*;
+use crate::common::*;
 
 pub struct WebView {
     pub environment: ICoreWebView2Environment2,
@@ -258,7 +258,7 @@ mod convert {
     use webview2_com::*;
     use webview2_com::Microsoft::Web::WebView2::Win32::*;
 
-    use crate::core::*;
+    use crate::common::*;
     use super::stream;
 
     pub fn convert_request(request: &ICoreWebView2WebResourceRequest) -> anyhow::Result<WebRequest> {
