@@ -90,7 +90,7 @@ impl WebServer {
         let request_url = request.uri().to_string();
         let request_method = request.method().clone();
 
-        assert!(KNOWN_URL.iter().any(|&known| request_url.starts_with(known)));
+        assert!(KNOWN_URL.contains(&request_url));
         assert_eq!(request.method(), Method::GET);
         
         log::info!("{request_method} {request_url}");

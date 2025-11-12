@@ -60,21 +60,26 @@ pub fn run() {
         }
     }).unwrap();
 
-    webview.on_web_resource_requested(move |request| {
-        use http::Method;
-        if request.method() == Method::GET && is_known_url(&request.uri().to_string()) {
-            Some(server.borrow_mut().handle_request(request))
-        } else {
-            log::info!("(direct) {} {}", request.method(), request.uri());
-            None
-        }
-    }).unwrap();
+    webview.on_web_resource_requested(
+        move |request| {
+            use http::Method;
+            if request.method() == Method::GET && KNOWN_URL.contains(&request.uri().to_string()) {
+                Some(server.borrow_mut().handle_request(request))
+            } else {
+                log::info!("(direct) {} {}", request.method(), request.uri());
+                None
+            }
+        }).unwrap();
 
-    webview.on_frame_navigation_starting(|url, cancel_navigation| {
-        log::info!("navigating to {url}");
-        if !is_known_url(url) {
-            log::info!(" -> external link, navigation cancelled");
-            cancel_navigation();
+    webview.on_frame_navigation_starting({
+        let window = Rc::clone(&window);
+        move |url, cancel_navigation| {
+            log::info!("navigating to {url}");
+            if !KNOWN_URL.contains(url) {
+                log::info!(" -> external link, navigation cancelled");
+                cancel_navigation();
+                open_external_link(&window, url);
+            }
         }
     }).unwrap();
 
@@ -119,5 +124,30 @@ fn get_window_handle(window: &Window) -> HWND {
         HWND(handle.hwnd.get() as _)
     } else {
         panic!("failed to get Win32 window handle");
+    }
+}
+
+fn open_external_link(window: &Window, url: &str) {
+    use native_dialog::*;
+
+    let result = MessageDialogBuilder::default()
+        .set_owner(window)
+        .set_level(MessageLevel::Info)
+        .set_title("Open External Link")
+        .set_text(format!("Do you want to open this link in your default web browser?\n\n{url}"))
+        .confirm()
+        .show();
+    match result {
+        Ok(true) => {
+            use std::process::Command;
+            let _ = Command::new("cmd")
+                .args(["/C", "start", "", url])
+                .spawn()
+                .inspect_err(|err| log::error!("failed to open external link: {err}"));
+        },
+        Ok(false) => {},
+        Err(err) => {
+            log::error!("failed to show dialog: {err}");
+        }
     }
 }
