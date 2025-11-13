@@ -9,10 +9,11 @@ use webview2_com::Microsoft::Web::WebView2::Win32::*;
 
 use crate::common::*;
 
+#[derive(Debug, Clone)]
 pub struct WebView {
-    pub environment: ICoreWebView2Environment2,
-    pub controller: ICoreWebView2Controller,
-    pub core: ICoreWebView2,
+    environment: ICoreWebView2Environment2,
+    controller: ICoreWebView2Controller,
+    core: ICoreWebView2,
 }
 
 impl WebView {
@@ -53,7 +54,7 @@ impl WebView {
         unsafe { self.controller.SetIsVisible(visible) }
             .context("ICoreWebView2Controller::SetIsVisible failed")
     }
-    
+
     pub fn set_bounds(&self, bounds: RECT) -> anyhow::Result<()> {
         unsafe { self.controller.SetBounds(bounds) }
             .context("ICoreWebView2Controller::SetBounds failed")
@@ -61,8 +62,9 @@ impl WebView {
 
     pub fn navigate(&self, url: &str) -> anyhow::Result<()> {
         use widestring::U16CString;
-        let url = U16CString::from_str(url)
-            .context("failed to convert to U16CString")?;
+        let url =
+            U16CString::from_str(url)
+                .context("failed to convert to U16CString")?;
         unsafe { self.core.Navigate(PCWSTR(url.as_ptr())) }
             .context("ICoreWebView2::Navigate failed")?;
         Ok(())
@@ -197,7 +199,7 @@ impl WebView {
                     return Err(err);
                 }
             };
-            
+
             let request = match convert::convert_request(&request) {
                 Ok(request) => request,
                 Err(err) => {
@@ -205,16 +207,16 @@ impl WebView {
                     return Err(E_UNEXPECTED.into());
                 }
             };
-            
-            if let Some(response) = callback(request.clone()) {
-                let response = match convert::convert_response(&environment, response) {
+
+            if let Some(response) = callback(request) {
+                let response = match convert::convert_response(&environment, &response) {
                     Ok(response) => response,
                     Err(err) => {
                         log::error!("convert::convert_response failed: {err:?}");
                         return Err(E_UNEXPECTED.into());
                     }
                 };
-                
+
                 match unsafe { args.SetResponse(&response) } {
                     Ok(()) => (),
                     Err(err) => {
@@ -230,6 +232,41 @@ impl WebView {
         let mut token = 0i64;
         unsafe { self.core.add_WebResourceRequested(&handler, &raw mut token) }
             .context("ICoreWebView2::add_WebResourceRequested failed")
+    }
+
+    pub fn on_web_message_received<F>(&self, mut callback: F) -> anyhow::Result<()>
+    where
+        F: FnMut(&str) + 'static, {
+        let handler = WebMessageReceivedEventHandler::create(Box::new(move |_, args| {
+            let Some(args) = args else {
+                log::error!("WebMessageReceived event args is null");
+                return Err(E_UNEXPECTED.into());
+            };
+
+            let mut message = PWSTR::null();
+            match unsafe { args.TryGetWebMessageAsString(&raw mut message) } {
+                Ok(()) => (),
+                Err(err) => {
+                    log::error!("ICoreWebView2WebMessageReceivedEventArgs::TryGetWebMessageAsString failed: {err:?}");
+                    return Err(err);
+                }
+            }
+
+            let message = match unsafe { widestring::U16CString::from_raw(message.0) }.to_string() {
+                Ok(message) => message,
+                Err(err) => {
+                    log::error!("ICoreWebView2WebMessageReceivedEventArgs::TryGetWebMessageAsString returns invalid UTF-16: {err:?}");
+                    return Err(E_UNEXPECTED.into());
+                }
+            };
+
+            callback(&message);
+            Ok(())
+        }));
+
+        let mut token = 0i64;
+        unsafe { self.core.add_WebMessageReceived(&handler, &raw mut token) }
+            .context("ICoreWebView2::add_WebMessageReceived failed")
     }
 }
 
@@ -379,7 +416,7 @@ mod convert {
 
     pub fn convert_response(
         environment: &ICoreWebView2Environment,
-        response: WebResponse)
+        response: &WebResponse)
         -> anyhow::Result<ICoreWebView2WebResourceResponse> {
         let reason_phrase =
             response

@@ -1,5 +1,7 @@
-use windows::Win32::Foundation::HWND;
+use anyhow::Context as _;
 use winit::window::Window;
+use windows::Win32::Foundation::HWND;
+
 
 pub fn run() {
     #![expect(deprecated, reason = "using winit without the trait-based API")]
@@ -17,16 +19,10 @@ pub fn run() {
         window::Window,
     };
 
-    use crate::common::*;
     use crate::consts::*;
     use crate::server::WebServer;
     use crate::webview::WebView;
 
-    let cache_dir = EXECUTABLE_DIR.join("turbodoc.exe.WebCache");
-    let server = RefCell::new(WebServer::new(&cache_dir));
-    log::info!("cache directory: {}", cache_dir.display());
-
-    log::info!("creating main window...");
     let event_loop = EventLoop::new().unwrap();
     let window =
         event_loop
@@ -37,15 +33,11 @@ pub fn run() {
                     .with_visible(false /* show window after page loaded */))
             .unwrap();
     let window = Rc::new(window);
-    let window_handle = get_window_handle(&window);
+    let webview = WebView::new(get_window_handle(&window)).unwrap();
 
-    log::info!("creating WebView2...");
-    let webview = Rc::new(WebView::new(window_handle).unwrap());
-
-    log::info!("configuring WebView2...");
     webview.on_next_navigation_completed({
         let window = Rc::clone(&window);
-        let webview = Rc::clone(&webview);
+        let webview = webview.clone();
         move |result| match result {
             Ok(()) => {
                 window.set_visible(true);
@@ -53,23 +45,24 @@ pub fn run() {
                     webview
                         .set_visible(true)
                         .inspect_err(|err| log::error!("{err}"));
-                log::info!("showing main window...");
             },
             Err(err) =>
                 panic!("navigation failed with status {err:?}"),
         }
     }).unwrap();
 
-    webview.on_web_resource_requested(
+    webview.on_web_resource_requested({
+        let mut server = WebServer::new(CACHE_DIR.as_path());
         move |request| {
             use http::Method;
             if request.method() == Method::GET && KNOWN_URL.contains(&request.uri().to_string()) {
-                Some(server.borrow_mut().handle_request(request))
+                Some(server.handle_request(request))
             } else {
                 log::info!("(direct) {} {}", request.method(), request.uri());
                 None
             }
-        }).unwrap();
+        }
+    }).unwrap();
 
     webview.on_frame_navigation_starting({
         let window = Rc::clone(&window);
@@ -83,8 +76,11 @@ pub fn run() {
         }
     }).unwrap();
 
-    log::info!("loading frontend...");
     webview.navigate(FRONTEND_URL).unwrap();
+
+    log::info!("cache directory: {}", CACHE_DIR.display());
+    log::info!("");
+    log::info!("loading frontend at {FRONTEND_URL}...");
 
     event_loop.run(move |event, event_loop| {
         if let Event::WindowEvent { event, window_id } = event {
