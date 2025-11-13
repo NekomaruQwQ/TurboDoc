@@ -3,6 +3,10 @@ name = "turbodoc"
 version = "0.1.0"
 edition = "2024"
 
+[dependencies.nkcore]
+git = "git://nekomaru-ubuntu/Nekomaru-Graphics-2025.git"
+rev = "cd206226"
+
 [dependencies]
 anyhow = "1.0.100"
 http = "1.3.1"

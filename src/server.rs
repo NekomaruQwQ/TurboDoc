@@ -24,7 +24,7 @@ use http::{
 use reqwest::blocking::Client as HttpClient;
 use http::response::Builder as ResponseBuilder;
 
-use crate::common::*;
+use crate::prelude::*;
 use crate::consts::*;
 
 mod cache {
@@ -92,9 +92,9 @@ impl WebServer {
 
         assert!(KNOWN_URL.contains(&request_url));
         assert_eq!(request.method(), Method::GET);
-        
+
         log::info!("{request_method} {request_url}");
-        
+
         match self.get_or_fetch_resource(&request_url, &request) {
             Ok(Ok(resource)) => {
                 let elapsed_since_last_fetched =

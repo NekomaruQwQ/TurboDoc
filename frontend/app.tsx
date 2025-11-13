@@ -50,7 +50,8 @@ export function App() {
                     <Explorer />
                     <iframe id='frame' src='https://docs.rs/' className={css({
                         flex: 1,
-                        border: 'none',
+                        borderColor: 'rgba(255, 255, 255, 0.2)',
+                        borderThickness: 0.25,
                         borderTopLeftRadius: '8px',
                     })} />
                 </div>

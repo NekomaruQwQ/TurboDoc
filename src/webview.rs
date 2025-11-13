@@ -1,13 +1,17 @@
+use nkcore::*;
+
 use std::result::Result;
 use std::sync::mpsc;
 
-use anyhow::Context as _;
+use widestring::U16CString;
+
 use windows::core::*;
 use windows::Win32::Foundation::*;
+
 use webview2_com::*;
 use webview2_com::Microsoft::Web::WebView2::Win32::*;
 
-use crate::common::*;
+use crate::prelude::*;
 
 #[derive(Debug, Clone)]
 pub struct WebView {
@@ -15,6 +19,8 @@ pub struct WebView {
     controller: ICoreWebView2Controller,
     core: ICoreWebView2,
 }
+
+pub type WebViewNavigationResult = Result<(), COREWEBVIEW2_WEB_ERROR_STATUS>;
 
 impl WebView {
     pub fn new(hwnd: HWND) -> anyhow::Result<Self> {
@@ -25,7 +31,7 @@ impl WebView {
         let core = unsafe {
             controller
                 .CoreWebView2()
-                .context("failed to get property CoreWebView2 from ICoreWebView2Controller")?
+                .context("failed to get ICoreWebView2 from ICoreWebView2Controller")?
         };
 
         // We would like to intercept all web resource requests, so we add an `*` filter here.
@@ -51,23 +57,30 @@ impl WebView {
     }
 
     pub fn set_visible(&self, visible: bool) -> anyhow::Result<()> {
-        unsafe { self.controller.SetIsVisible(visible) }
-            .context("ICoreWebView2Controller::SetIsVisible failed")
+        api_call!(unsafe { self.controller.SetIsVisible(visible) })
     }
 
     pub fn set_bounds(&self, bounds: RECT) -> anyhow::Result<()> {
-        unsafe { self.controller.SetBounds(bounds) }
-            .context("ICoreWebView2Controller::SetBounds failed")
+        api_call!(unsafe { self.controller.SetBounds(bounds) })
     }
 
     pub fn navigate(&self, url: &str) -> anyhow::Result<()> {
-        use widestring::U16CString;
         let url =
             U16CString::from_str(url)
-                .context("failed to convert to U16CString")?;
-        unsafe { self.core.Navigate(PCWSTR(url.as_ptr())) }
-            .context("ICoreWebView2::Navigate failed")?;
-        Ok(())
+                .with_context(|| context!("failed to convert argument `url` to U16CString"))?;
+        api_call!(unsafe { self.core.Navigate(PCWSTR(url.as_ptr())) })
+    }
+
+    pub fn post_message_as_string(&self, message: &str) -> anyhow::Result<()> {
+        let message = U16CString::from_str(message)
+            .with_context(|| context!("failed to convert argument `message` to U16CString"))?;
+        api_call!(unsafe { self.core.PostWebMessageAsString(PCWSTR(message.as_ptr())) })
+    }
+
+    pub fn post_message_as_json(&self, message: &str) -> anyhow::Result<()> {
+        let message = U16CString::from_str(message)
+            .with_context(|| context!("failed to convert argument `message` to U16CString"))?;
+        api_call!(unsafe { self.core.PostWebMessageAsJson(PCWSTR(message.as_ptr())) })
     }
 
     /// Registers a callback to be invoked when the next navigation is completed successfully.
@@ -160,7 +173,7 @@ impl WebView {
                 }
             }
 
-            let uri = match unsafe { widestring::U16CString::from_raw(uri.0) }.to_string() {
+            let uri = match unsafe { U16CString::from_raw(uri.0) }.to_string() {
                 Ok(uri) => uri,
                 Err(err) => {
                     log::error!("ICoreWebView2FrameNavigationStartingEventArgs::get_Uri returns invalid UTF-16: {err:?}");
@@ -339,7 +352,7 @@ mod convert {
     use windows::core::*;
     use webview2_com::Microsoft::Web::WebView2::Win32::*;
 
-    use crate::common::*;
+    use crate::prelude::*;
     use super::stream;
 
     pub fn convert_request(request: &ICoreWebView2WebResourceRequest) -> anyhow::Result<WebRequest> {
