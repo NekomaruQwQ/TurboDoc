@@ -1,11 +1,11 @@
+use nkcore::*;
+use anyhow::anyhow;
+
 use std::borrow::Cow;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::Path;
 use std::path::PathBuf;
-
-use anyhow::anyhow;
-use anyhow::Context as _;
 
 use super::WebResource;
 use super::generic::CacheProvider;
@@ -14,12 +14,33 @@ pub struct DiskCache {
     base_dir: PathBuf,
 }
 
+impl CacheProvider<str, WebResource> for DiskCache {
+    fn get(&self, url: &str) -> Option<Cow<'_, WebResource>> {
+        self.try_get(url)
+            .with_context(|| context!("an error occurred while querying cache file for `{url}`"))
+            .inspect_err(|err| log::error!("{err}"))
+            .unwrap_or_default()
+    }
+
+    fn insert(&mut self, url: &str, entry: Cow<WebResource>) {
+        self.try_insert(url, entry.as_ref())
+            .with_context(|| context!("an error occurred while creating cache file for `{url}`"))
+            .unwrap_or_else(|err| log::error!("{err}"));
+    }
+
+    fn remove(&mut self, url: &str) {
+        self.try_remove(url)
+            .with_context(|| context!("an error occurred while removing cache file for `{url}`"))
+            .unwrap_or_else(|err| log::error!("{err}"));
+    }
+}
+
 impl DiskCache {
     pub fn new<P: AsRef<Path>>(base_dir: P) -> Self {
         let base_path = base_dir.as_ref().to_owned();
         fs::create_dir_all(&base_path)
-            .with_context(|| format!("failed to create directory `{}`", base_path.display()))
-            .unwrap();
+            .with_context(|| context!("failed to create cache directory `{}`", base_path.display()))
+            .unwrap_or_else(|err| log::error!("{err}"));
         Self { base_dir: base_path }
     }
 
@@ -30,75 +51,53 @@ impl DiskCache {
     fn metadata_path(&self, url: &str) -> PathBuf {
         self.base_dir.join(format!("{}.meta.toml", escape_url(url)))
     }
-}
 
-impl CacheProvider<str, WebResource> for DiskCache {
-    fn get(&self, url: &str) -> Option<Cow<'_, WebResource>> {
-        let result = || -> anyhow::Result<Option<WebResource>> {
-            let metadata_path = self.metadata_path(url);
-            let data_path = self.data_path(url);
+    fn try_get(&self, url: &str) -> anyhow::Result<Option<Cow<'_, WebResource>>> {
+        let metadata_path = self.metadata_path(url);
+        let data_path = self.data_path(url);
 
-            let Some(metadata) = read_file(&metadata_path)? else {
-                return Ok(None);
-            };
+        let Some(metadata) = read_file(&metadata_path)? else {
+            return Ok(None);
+        };
 
-            let metadata =
-                String::from_utf8(metadata)
-                    .context("failed to parse metadata")?;
-            let metadata =
-                toml::from_str::<WebResource>(&metadata)
-                    .context("failed to parse metadata")?;
-            if metadata.url != url {
-                log::warn!("ignoring disk cache for `{url}` due to key mismatch");
-                return Ok(None);
-            }
+        let metadata =
+            api_call!(String::from_utf8(metadata))
+                .context("failed to parse metadata")?;
+        let metadata =
+            api_call!(toml::from_str::<WebResource>(&metadata))
+                .context("failed to parse metadata")?;
+        if metadata.url != url {
+            log::warn!("ignoring disk cache for `{url}` due to key mismatch");
+            return Ok(None);
+        }
 
-            Ok(Some(match metadata.status_code {
-                302 => metadata,
-                200 => {
-                    let content =
-                        read_file(&data_path)?
-                            .ok_or_else(|| anyhow!("missing cache file at `{}`", data_path.display()))?;
-                    WebResource { content, ..metadata }
-                },
-                _ => Err(anyhow!("unexpected `status_code` value `{}` in metadata file", metadata_path.display()))?,
-            }))
-        }();
-
-        result
-            .inspect_err(|err| log::error!("{err}"))
-            .ok()
-            .flatten()
-            .map(Cow::Owned)
+        Ok(Some(Cow::Owned(match metadata.status_code {
+            302 => metadata,
+            200 => {
+                let content =
+                    read_file(&data_path)?
+                        .ok_or_else(|| anyhow!("missing cache file at `{}`", data_path.display()))?;
+                WebResource { content, ..metadata }
+            },
+            _ => Err(anyhow!("unexpected `status_code` value `{}` in metadata file", metadata_path.display()))?,
+        })))
     }
 
-    fn insert(&mut self, url: &str, entry: Cow<WebResource>) {
-        let result = || -> anyhow::Result<()> {
-            let metadata =
-                toml::to_string_pretty(&entry)
-                    .context("failed to serialize metadata")?;
-            write_file(&self.metadata_path(url), metadata.as_bytes())?;
-            if entry.status_code == 200 {
-                write_file(&self.data_path(url), &entry.content)?;
-            }
-            Ok(())
-        }();
-
-        if let Err(err) = result {
-            log::error!("{err}");
+    fn try_insert(&self, url: &str, entry: &WebResource) -> anyhow::Result<()> {
+        let metadata =
+            toml::to_string_pretty(&entry)
+                .context("failed to serialize metadata")?;
+        write_file(&self.metadata_path(url), metadata.as_bytes())?;
+        if entry.status_code == 200 {
+            write_file(&self.data_path(url), &entry.content)?;
         }
+        Ok(())
     }
 
-    fn remove(&mut self, url: &str) {
-        let result = || -> anyhow::Result<()> {
-            remove_file(&self.metadata_path(url))?;
-            remove_file(&self.data_path(url))?;
-            Ok(())
-        }();
-
-        if let Err(err) = result {
-            log::error!("{err}");
-        }
+    fn try_remove(&self, url: &str) -> anyhow::Result<()> {
+        remove_file(&self.metadata_path(url))?;
+        remove_file(&self.data_path(url))?;
+        Ok(())
     }
 }
 
@@ -130,7 +129,7 @@ fn read_file(path: &PathBuf) -> anyhow::Result<Option<Vec<u8>>> {
         Err(err) if err.kind() == ErrorKind::NotFound =>
             Ok(None),
         Err(err) =>
-            Err(err).context(format!("failed to read file `{}`", path.display())),
+            Err(err).with_context(|| context!("failed to read file `{}`", path.display())),
     }
 }
 
@@ -139,11 +138,11 @@ fn write_file(path: &PathBuf, data: &[u8]) -> anyhow::Result<()> {
     let parent =
         path.parent()
             .expect("path must have a parent directory");
-    fs::create_dir_all(parent)
-        .with_context(|| format!("failed to create directory `{}`", parent.display()))?;
-    fs::write(path, data)
-        .with_context(|| format!("failed to write file `{}`", path.display()))?;
-    anyhow::Ok(())
+    api_call!(fs::create_dir_all(parent))
+        .with_context(|| context!("failed to create directory `{}`", parent.display()))?;
+    api_call!(fs::write(path, data))
+        .with_context(|| context!("failed to write file `{}`", path.display()))?;
+    Ok(())
 }
 
 fn remove_file(path: &PathBuf) -> anyhow::Result<()> {
@@ -154,6 +153,6 @@ fn remove_file(path: &PathBuf) -> anyhow::Result<()> {
         Err(err) if err.kind() == ErrorKind::NotFound =>
             Ok(()),
         Err(err) =>
-            Err(err).context(format!("failed to remove file `{}`", path.display())),
+            Err(err).context(context!("failed to remove file `{}`", path.display())),
     }
 }

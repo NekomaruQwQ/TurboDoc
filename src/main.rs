@@ -11,7 +11,8 @@ mod webview;
 
 fn main() {
     pretty_env_logger::init();
-    app::run();
+    app::run()
+        .expect("an error occurred while running app");
 }
 
 mod consts {

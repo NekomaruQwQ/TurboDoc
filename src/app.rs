@@ -198,11 +198,11 @@ mod handler {
         } else {
             // Notify frontend of navigation
             let message = serde_json::json!({
-                "type": "iframe_navigated",
+                "type": "navigated",
                 "url": url,
             }).to_string();
             let _ = webview.post_message_as_json(&message)
-                .inspect_err(|err| log::error!("failed to send iframe_navigated: {err}"));
+                .inspect_err(|err| log::error!("failed to send navigated: {err}"));
         }
     }
 

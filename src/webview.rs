@@ -28,11 +28,9 @@ impl WebView {
             blocking::create_core_webview2_environment();
         let controller =
             blocking::create_core_webview2_controller(&environment, hwnd);
-        let core = unsafe {
-            controller
-                .CoreWebView2()
-                .context("failed to get ICoreWebView2 from ICoreWebView2Controller")?
-        };
+        let core =
+            unsafe { controller.CoreWebView2() }
+                .context("failed to get ICoreWebView2 from ICoreWebView2Controller")?;
 
         // We would like to intercept all web resource requests, so we add an `*` filter here.
         // This is not necessary for general usage.
@@ -43,15 +41,13 @@ impl WebView {
         //
         // See https://github.com/MicrosoftEdge/WebView2Feedback/issues/2341#issuecomment-1332463257
         // for more details on intercepting requests from `<iframe>`.
-        unsafe {
-            core.cast::<ICoreWebView2_22>()
-                .context("failed to cast from ICoreWebView2 to ICoreWebView2_22")?
-                .AddWebResourceRequestedFilterWithRequestSourceKinds(
-                    w!("*"),
-                    COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL,
-                    COREWEBVIEW2_WEB_RESOURCE_REQUEST_SOURCE_KINDS_DOCUMENT)
-                .context("ICoreWebView2::AddWebResourceRequestedFilter failed")?;
-        }
+        let core_22 = api_call!(unsafe { core.cast::<ICoreWebView2_22>() })?;
+        api_call!(unsafe {
+            core_22.AddWebResourceRequestedFilterWithRequestSourceKinds(
+                w!("*"),
+                COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL,
+                COREWEBVIEW2_WEB_RESOURCE_REQUEST_SOURCE_KINDS_DOCUMENT)
+        })?;
 
         Ok(Self { environment, controller, core })
     }
@@ -66,20 +62,23 @@ impl WebView {
 
     pub fn navigate(&self, url: &str) -> anyhow::Result<()> {
         let url =
-            U16CString::from_str(url)
+            api_call!(U16CString::from_str(url))
                 .with_context(|| context!("failed to convert argument `url` to U16CString"))?;
         api_call!(unsafe { self.core.Navigate(PCWSTR(url.as_ptr())) })
     }
 
+    #[expect(dead_code, reason = "may be useful in the future")]
     pub fn post_message_as_string(&self, message: &str) -> anyhow::Result<()> {
-        let message = U16CString::from_str(message)
-            .with_context(|| context!("failed to convert argument `message` to U16CString"))?;
+        let message =
+            api_call!(U16CString::from_str(message))
+                .with_context(|| context!("failed to convert argument `message` to U16CString"))?;
         api_call!(unsafe { self.core.PostWebMessageAsString(PCWSTR(message.as_ptr())) })
     }
 
     pub fn post_message_as_json(&self, message: &str) -> anyhow::Result<()> {
-        let message = U16CString::from_str(message)
-            .with_context(|| context!("failed to convert argument `message` to U16CString"))?;
+        let message =
+            api_call!(U16CString::from_str(message))
+                .with_context(|| context!("failed to convert argument `message` to U16CString"))?;
         api_call!(unsafe { self.core.PostWebMessageAsJson(PCWSTR(message.as_ptr())) })
     }
 
@@ -92,66 +91,50 @@ impl WebView {
         let mut state = Some((self.core.clone(), token_rx, callback));
 
         let handler = NavigationCompletedEventHandler::create(Box::new(move |_, args| {
-            let Some(args) = args else {
-                log::error!("NavigationCompleted event args is null");
-                return Err(E_UNEXPECTED.into());
-            };
-
-            let Some((webview, token_rx, callback)) = state.take() else {
-                log::error!("NavigationCompleted event handler called multiple times");
-                return Err(E_UNEXPECTED.into());
-            };
-
-            let token = match token_rx.recv() {
-                Ok(token) => token,
-                Err(err) => {
-                    log::error!("failed to receive from mpsc channel: {err:?}");
-                    return Err(E_UNEXPECTED.into());
-                }
-            };
-
-            match unsafe { webview.remove_NavigationCompleted(token) } {
-                Ok(()) => (),
-                Err(err) => {
-                    log::error!("ICoreWebView2::remove_NavigationCompleted failed: {err:?}");
-                    return Err(err);
-                }
-            }
-
-            let success = {
-                let mut success = BOOL(0);
-                match unsafe { args.IsSuccess(&raw mut success) } {
-                    Ok(()) => success.as_bool(),
-                    Err(err) => {
-                        log::error!("ICoreWebView2NavigationCompletedEventArgs::IsSuccess failed: {err:?}");
-                        return Err(err);
-                    }
-                }
-            };
-
-            let result = if success {
-                Ok(())
-            } else {
-                let mut status = COREWEBVIEW2_WEB_ERROR_STATUS_UNKNOWN;
-                match unsafe { args.WebErrorStatus(&raw mut status) } {
-                    Ok(()) => Err(status),
-                    Err(err) => {
-                        log::error!("ICoreWebView2NavigationCompletedEventArgs::WebErrorStatus failed: {err:?}");
-                        return Err(err);
-                    }
-                }
-            };
-
-            callback(result);
-            Ok(())
+            Self::on_next_navigation_completed_handler(&mut state, args.as_ref())
+                .context("an error occurred while handling webview event `NavigationCompleted`")
+                .map_err(|err| {
+                    log::error!("{err}");
+                    E_UNEXPECTED.into()
+                })
         }));
 
         let mut token = 0i64;
-        unsafe { self.core.add_NavigationCompleted(&handler, &raw mut token) }
-            .context("ICoreWebView2::add_NavigationCompleted failed")?;
+        api_call!(unsafe { self.core.add_NavigationCompleted(&handler, &raw mut token) })?;
         token_tx
             .send(token)
             .context("failed to send over mpsc channel")?;
+        Ok(())
+    }
+
+    fn on_next_navigation_completed_handler<F>(
+        state: &mut Option<(ICoreWebView2, mpsc::Receiver<i64>, F)>,
+        args: Option<&ICoreWebView2NavigationCompletedEventArgs>)
+     -> anyhow::Result<()>
+    where
+        F: FnOnce(WebViewNavigationResult) + 'static {
+        let Some(args) = args else {
+            anyhow::bail!("NavigationCompleted event args is null");
+        };
+
+        let Some((webview, token_rx, callback)) = state.take() else {
+            anyhow::bail!("NavigationCompleted event handler called multiple times");
+        };
+
+        let token = api_call!(token_rx.recv())?;
+
+        api_call!(unsafe { webview.remove_NavigationCompleted(token) })?;
+
+        let success =
+            out_var_or_err(|out| api_call!(unsafe { args.IsSuccess(out)}))?
+                .as_bool();
+        let result = if success {
+            Ok(())
+        } else {
+            Err(out_var_or_err(|out| api_call!(unsafe { args.WebErrorStatus(out) }))?)
+        };
+
+        callback(result);
         Ok(())
     }
 
@@ -159,40 +142,44 @@ impl WebView {
     where
         F: FnMut(&str, Box<dyn FnOnce()>) + 'static, {
         let handler = NavigationStartingEventHandler::create(Box::new(move |_, args| {
-            let Some(args) = args else {
-                log::error!("FrameNavigationStarting event args is null");
-                return Err(E_UNEXPECTED.into());
-            };
-
-            let mut uri = PWSTR::null();
-            match unsafe { args.Uri(&raw mut uri) } {
-                Ok(()) => (),
-                Err(err) => {
-                    log::error!("ICoreWebView2FrameNavigationStartingEventArgs::get_Uri failed: {err:?}");
-                    return Err(err);
-                }
-            }
-
-            let uri = match unsafe { U16CString::from_raw(uri.0) }.to_string() {
-                Ok(uri) => uri,
-                Err(err) => {
-                    log::error!("ICoreWebView2FrameNavigationStartingEventArgs::get_Uri returns invalid UTF-16: {err:?}");
-                    return Err(E_UNEXPECTED.into());
-                }
-            };
-
-            callback(&uri, Box::new(move || match unsafe { args.SetCancel(true) } {
-                Ok(()) => (),
-                Err(err) =>
-                    log::error!("ICoreWebView2FrameNavigationStartingEventArgs::SetCancel failed: {err:?}"),
-            }));
-
-            Ok(())
+            Self::on_frame_navigation_starting_handler(args.as_ref(), &mut callback)
+                .context("an error occurred while handling webview event `FrameNavigationStarting`")
+                .map_err(|err| {
+                    log::error!("{err}");
+                    E_UNEXPECTED.into()
+                })
         }));
 
         let mut token = 0i64;
-        unsafe { self.core.add_FrameNavigationStarting(&handler, &raw mut token) }
-            .context("ICoreWebView2::add_FrameNavigationStarting failed")
+        api_call!(unsafe { self.core.add_FrameNavigationStarting(&handler, &raw mut token) })
+    }
+
+    fn on_frame_navigation_starting_handler<F>(
+        args: Option<&ICoreWebView2NavigationStartingEventArgs>,
+        callback: &mut F)
+     -> anyhow::Result<()>
+    where
+        F: FnMut(&str, Box<dyn FnOnce()>) + 'static, {
+        let Some(args) = args else {
+            anyhow::bail!("FrameNavigationStarting event args is null");
+        };
+
+        let mut uri = PWSTR::null();
+        unsafe { args.Uri(&raw mut uri) }
+            .context("ICoreWebView2NavigationStartingEventArgs::get_Uri failed")?;
+
+        let uri =
+            unsafe { U16CString::from_raw(uri.0) }
+                .to_string()
+                .context("ICoreWebView2NavigationStartingEventArgs::get_Uri returns invalid UTF-16")?;
+
+        let args = args.clone();
+        callback(&uri, Box::new(move || {
+            api_call!(unsafe { args.SetCancel(true) })
+                .unwrap_or_else(|err| log::error!("{err}"));
+        }));
+
+        Ok(())
     }
 
     pub fn on_web_resource_requested<F>(&self, mut callback: F) -> anyhow::Result<()>
@@ -200,96 +187,85 @@ impl WebView {
         F: FnMut(WebRequest) -> Option<WebResponse> + 'static, {
         let environment = self.environment.clone();
         let handler = WebResourceRequestedEventHandler::create(Box::new(move |_, args| {
-            let Some(args) = args else {
-                log::error!("WebResourceRequested event args is null");
-                return Err(E_UNEXPECTED.into());
-            };
-
-            let request = match unsafe { args.Request() } {
-                Ok(request) => request,
-                Err(err) => {
-                    log::error!("ICoreWebView2WebResourceRequestedEventArgs::Request failed: {err:?}");
-                    return Err(err);
-                }
-            };
-
-            let request = match convert::convert_request(&request) {
-                Ok(request) => request,
-                Err(err) => {
-                    log::error!("convert::convert_request failed: {err:?}");
-                    return Err(E_UNEXPECTED.into());
-                }
-            };
-
-            if let Some(response) = callback(request) {
-                let response = match convert::convert_response(&environment, &response) {
-                    Ok(response) => response,
-                    Err(err) => {
-                        log::error!("convert::convert_response failed: {err:?}");
-                        return Err(E_UNEXPECTED.into());
-                    }
-                };
-
-                match unsafe { args.SetResponse(&response) } {
-                    Ok(()) => (),
-                    Err(err) => {
-                        log::error!("ICoreWebView2WebResourceRequestedEventArgs::SetResponse failed: {err:?}");
-                        return Err(err);
-                    }
-                }
-            }
-
-            Ok(())
+            Self::on_web_resource_requested_handler(&environment, args.as_ref(), &mut callback)
+                .context("an error occurred while handling webview event `WebResourceRequested`")
+                .map_err(|err| {
+                    log::error!("{err}");
+                    E_UNEXPECTED.into()
+                })
         }));
 
         let mut token = 0i64;
-        unsafe { self.core.add_WebResourceRequested(&handler, &raw mut token) }
-            .context("ICoreWebView2::add_WebResourceRequested failed")
+        api_call!(unsafe { self.core.add_WebResourceRequested(&handler, &raw mut token) })
+    }
+
+    fn on_web_resource_requested_handler<F>(
+        environment: &ICoreWebView2Environment2,
+        args: Option<&ICoreWebView2WebResourceRequestedEventArgs>,
+        callback: &mut F)
+     -> anyhow::Result<()>
+    where
+        F: FnMut(WebRequest) -> Option<WebResponse> + 'static, {
+        let Some(args) = args else {
+            anyhow::bail!("WebResourceRequested event args is null");
+        };
+
+        let request =
+            unsafe { args.Request() }
+                .context("ICoreWebView2WebResourceRequestedEventArgs::get_Request failed")?;
+        let request = convert::convert_request(&request)?;
+
+        if let Some(response) = callback(request) {
+            let response = convert::convert_response(environment, &response)?;
+            api_call!(unsafe { args.SetResponse(&response) })?;
+        }
+
+        Ok(())
     }
 
     pub fn on_web_message_received<F>(&self, mut callback: F) -> anyhow::Result<()>
     where
         F: FnMut(&str) + 'static, {
         let handler = WebMessageReceivedEventHandler::create(Box::new(move |_, args| {
-            let Some(args) = args else {
-                log::error!("WebMessageReceived event args is null");
-                return Err(E_UNEXPECTED.into());
-            };
-
-            let mut message = PWSTR::null();
-            match unsafe { args.TryGetWebMessageAsString(&raw mut message) } {
-                Ok(()) => (),
-                Err(err) => {
-                    log::error!("ICoreWebView2WebMessageReceivedEventArgs::TryGetWebMessageAsString failed: {err:?}");
-                    return Err(err);
-                }
-            }
-
-            let message = match unsafe { widestring::U16CString::from_raw(message.0) }.to_string() {
-                Ok(message) => message,
-                Err(err) => {
-                    log::error!("ICoreWebView2WebMessageReceivedEventArgs::TryGetWebMessageAsString returns invalid UTF-16: {err:?}");
-                    return Err(E_UNEXPECTED.into());
-                }
-            };
-
-            callback(&message);
-            Ok(())
+            Self::on_web_message_received_handler(args.as_ref(), &mut callback)
+                .context("an error occurred while handling webview event `WebMessageReceived`")
+                .map_err(|err| {
+                    log::error!("{err}");
+                    E_UNEXPECTED.into()
+                })
         }));
 
         let mut token = 0i64;
-        unsafe { self.core.add_WebMessageReceived(&handler, &raw mut token) }
-            .context("ICoreWebView2::add_WebMessageReceived failed")
+        api_call!(unsafe { self.core.add_WebMessageReceived(&handler, &raw mut token) })
+    }
+
+    fn on_web_message_received_handler<F>(
+        args: Option<&ICoreWebView2WebMessageReceivedEventArgs>,
+        callback: &mut F)
+     -> anyhow::Result<()>
+    where
+        F: FnMut(&str) + 'static, {
+        let Some(args) = args else {
+            anyhow::bail!("WebMessageReceived event args is null");
+        };
+
+        let mut message = PWSTR::null();
+        api_call!(unsafe { args.TryGetWebMessageAsString(&raw mut message) })?;
+
+        let message =
+            unsafe { U16CString::from_raw(message.0) }
+                .to_string()
+                .context("ICoreWebView2WebMessageReceivedEventArgs::TryGetWebMessageAsString returns invalid UTF-16")?;
+
+        callback(&message);
+        Ok(())
     }
 }
 
 mod blocking {
+    use super::*;
     use std::sync::mpsc;
     use std::sync::mpsc::Sender;
-    use windows::core::*;
-    use windows::Win32::Foundation::*;
-    use webview2_com::*;
-    use webview2_com::Microsoft::Web::WebView2::Win32::*;
 
     pub fn create_core_webview2_environment() -> ICoreWebView2Environment2 {
         let (tx, rx) = mpsc::channel();
@@ -471,8 +447,7 @@ mod convert {
 }
 
 mod stream {
-    use anyhow::Context as _;
-    use windows::Win32::Foundation::*;
+    use nkcore::*;
     use windows::Win32::System::Com::*;
 
     pub fn read_bytes(stream: &ISequentialStream) -> anyhow::Result<Vec<u8>> {
@@ -516,7 +491,7 @@ mod stream {
         use windows::Win32::System::Com::StructuredStorage::*;
 
         let stream =
-            unsafe { CreateStreamOnHGlobal(HGLOBAL::default(), true) }
+            unsafe { CreateStreamOnHGlobal(default(), true) }
                 .context("CreateStreamOnHGlobal failed")?;
 
         let mut bytes_written = 0u32;
