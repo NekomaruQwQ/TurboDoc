@@ -24,24 +24,36 @@ Implement a full-featured frontend for the docs.rs viewer with **frontend-driven
 
 ## Simplified IPC Protocol
 
-### Backend → Frontend (Notifications)
+The IPC layer distinguishes between **events** (unsolicited notifications) and **request/response pairs**.
+
+### Events (Unsolicited Notifications)
 
 ```typescript
-type ToFrontendMessage =
-  | { type: 'file_loaded', content: string | null, error?: string }
-  | { type: 'file_saved', success: boolean, error?: string }
-  | { type: 'iframe_navigated', url: string };
+type IPCEvent =
+  | { type: 'navigated', url: string };
 ```
 
-### Frontend → Backend (Requests)
+### Request/Response Pairs
 
+**Requests (Frontend → Backend):**
 ```typescript
-type ToBackendMessage =
-  | { type: 'load_file' }
-  | { type: 'save_file', content: string };
+type IPCRequest =
+  | { type: 'load-workspace' }
+  | { type: 'save-workspace', content: string };
 ```
 
-**That's it!** Just 2 request types, 3 response types. No complex data structures.
+**Responses (Backend → Frontend):**
+```typescript
+type IPCResponse =
+  | { type: 'workspace-loaded' } & (
+      | { success: true, content: string }
+      | { success: false, message: string })
+  | { type: 'workspace-saved' } & (
+      | { success: true }
+      | { success: false, message: string });
+```
+
+**Clean separation:** Events are persistent subscriptions, requests await responses.
 
 ## Data Model (Frontend Only)
 
@@ -256,80 +268,106 @@ export {};
 ```typescript
 import type { Workspace } from './data';
 
-// Message types
-export type ToBackendMessage =
-  | { type: 'load_file' }
-  | { type: 'save_file', content: string };
-
-export type ToFrontendMessage =
-  | { type: 'file_loaded', content: string | null, error?: string }
-  | { type: 'file_saved', success: boolean, error?: string }
-  | { type: 'iframe_navigated', url: string };
-
-// Type guard for WebView2 availability
-function isWebView2Available(): boolean {
-  return typeof window !== 'undefined'
-    && 'chrome' in window
-    && window.chrome
-    && 'webview' in window.chrome;
-}
-
-// Send message to backend
-export function sendToBackend(message: ToBackendMessage): void {
-  if (!isWebView2Available()) {
-    console.warn('WebView2 not available, message not sent:', message);
-    return;
-  }
-
-  window.chrome.webview.postMessage(JSON.stringify(message));
-}
-
-// Message handler registry
-type MessageHandler = (message: ToFrontendMessage) => void;
-const messageHandlers: MessageHandler[] = [];
-
-// Register handler for messages from backend
-export function onMessageFromBackend(handler: MessageHandler): () => void {
-  messageHandlers.push(handler);
-
-  // Return unsubscribe function
-  return () => {
-    const index = messageHandlers.indexOf(handler);
-    if (index >= 0) {
-      messageHandlers.splice(index, 1);
-    }
+// Dual-registry system for events and request/response pairs
+const ipcEventHandlers: {
+  [type: string]: {
+    nextId: number;
+    [id: number]: (event: IPCEvent) => void;
   };
-}
+} = {};
 
-// Initialize message listener (call once at app startup)
-export function initializeIPC(): void {
-  if (!isWebView2Available()) {
-    console.warn('WebView2 not available, IPC not initialized');
-    return;
-  }
+const ipcResponseHandlers: {
+  [type: string]: (response: IPCResponse) => void;
+} = {};
 
+/**
+ * Initialize global IPC message listener.
+ * Dispatches to event handlers and response handlers.
+ */
+export function initIPC(): void {
   window.chrome.webview.addEventListener('message', (event: MessageEvent) => {
-    try {
-      const message: ToFrontendMessage = JSON.parse(event.data);
+    const message = event.data as IPCEvent | IPCResponse;
 
-      // Dispatch to all registered handlers
-      for (const handler of messageHandlers) {
-        handler(message);
+    // Dispatch to event handlers (persistent subscriptions)
+    const eventHandlers = ipcEventHandlers[message.type];
+    if (eventHandlers) {
+      for (let i = 0; i < eventHandlers.nextId; i++) {
+        const handler = eventHandlers[i];
+        if (handler) handler(message as IPCEvent);
       }
-    } catch (err) {
-      console.error('Failed to parse message from backend:', err);
+    }
+
+    // Dispatch to response handler (one-time, then delete)
+    const responseHandler = ipcResponseHandlers[message.type];
+    if (responseHandler) {
+      responseHandler(message as IPCResponse);
+      delete ipcResponseHandlers[message.type];
     }
   });
 }
 
-// Workspace-specific helpers
-export function loadWorkspace(): void {
-  sendToBackend({ type: 'load_file' });
+/**
+ * Subscribe to navigation events.
+ * Returns unsubscribe function.
+ */
+export function on<T extends IPCEvent>(
+  type: T['type'],
+  handler: (event: T) => void
+): () => void {
+  if (!ipcEventHandlers[type]) {
+    ipcEventHandlers[type] = { nextId: 0 };
+  }
+
+  const handlers = ipcEventHandlers[type];
+  const id = handlers.nextId++;
+  handlers[id] = handler as (event: IPCEvent) => void;
+
+  return () => delete ipcEventHandlers[type]![id];
 }
 
-export function saveWorkspace(workspace: Workspace): void {
+/**
+ * Wait for a response from the backend.
+ * Throws if multiple waiters for same response type.
+ */
+function waitResponse<T extends IPCResponse>(type: T['type']): Promise<T> {
+  return new Promise(resolve => {
+    if (ipcResponseHandlers[type]) {
+      throw new Error(`Multiple waiters for IPC response type '${type}'`);
+    }
+    ipcResponseHandlers[type] = (response: IPCResponse) => {
+      resolve(response as T);
+    };
+  });
+}
+
+/**
+ * Load workspace from backend (async).
+ */
+export async function loadWorkspace(): Promise<Workspace> {
+  window.chrome.webview.postMessage(JSON.stringify({ type: 'load-workspace' }));
+  const result = await waitResponse<IPCWorkspaceLoaded>('workspace-loaded');
+
+  if (result.success) {
+    return JSON.parse(result.content) as Workspace;
+  } else {
+    throw new Error(`Failed to load workspace: ${result.message}`);
+  }
+}
+
+/**
+ * Save workspace to backend (async).
+ */
+export async function saveWorkspace(workspace: Workspace): Promise<void> {
   const content = JSON.stringify(workspace, null, 2);
-  sendToBackend({ type: 'save_file', content });
+  window.chrome.webview.postMessage(JSON.stringify({
+    type: 'save-workspace',
+    content
+  }));
+  const result = await waitResponse<IPCWorkspaceSaved>('workspace-saved');
+
+  if (!result.success) {
+    throw new Error(`Failed to save workspace: ${result.message}`);
+  }
 }
 ```
 
@@ -417,56 +455,40 @@ export interface Workspace {
 
 ```typescript
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { initializeIPC, loadWorkspace, saveWorkspace, onMessageFromBackend } from './ipc';
+import { initIPC, loadWorkspace, saveWorkspace } from './ipc';
 
 export function App() {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const saveTimeoutRef = useRef<number | null>(null);
 
-  // Initialize IPC on mount
+  // Initialize IPC and load workspace on mount
   useEffect(() => {
-    initializeIPC();
+    initIPC();
 
-    // Load workspace from backend
-    loadWorkspace();
-
-    // Listen for load response
-    return onMessageFromBackend((message) => {
-      if (message.type === 'file_loaded') {
-        if (message.content) {
-          try {
-            const loaded = JSON.parse(message.content);
-            setWorkspace(loaded);
-          } catch (err) {
-            console.error('Failed to parse workspace JSON:', err);
-            setWorkspace({ groups: [] }); // Fallback to empty
-          }
-        } else {
-          // No workspace file, create default
-          setWorkspace({ groups: [] });
-        }
-        setIsLoading(false);
-
-        if (message.error) {
-          console.error('Failed to load workspace:', message.error);
-        }
+    (async () => {
+      try {
+        setWorkspace(await loadWorkspace());
+      } catch (err) {
+        console.error(err);
+        // Fallback to empty workspace on error
+        setWorkspace({ groups: [] });
       }
-    });
+      setIsLoading(false);
+    })();
   }, []);
 
-  // Auto-save workspace on changes (debounced)
+  // Auto-save workspace on changes (debounced by 1 second)
   useEffect(() => {
     if (!workspace || isLoading) return;
 
-    // Clear existing timeout
     if (saveTimeoutRef.current !== null) {
       clearTimeout(saveTimeoutRef.current);
     }
 
-    // Debounce save by 1 second
     saveTimeoutRef.current = setTimeout(() => {
-      saveWorkspace(workspace);
+      saveWorkspace(workspace)
+        .catch(err => console.error('Auto-save failed:', err));
     }, 1000) as unknown as number;
 
     return () => {
@@ -488,9 +510,64 @@ export function App() {
 }
 ```
 
-### Phase 3-5: UI Components (Unchanged from original plan)
+**Key improvements:**
+- Async/await for cleaner code (no callback nesting)
+- loadWorkspace() returns a Promise
+- Error handling with try/catch
 
-Explorer UI, drag-and-drop, etc. remain the same - see original plan.
+### Phase 3: Explorer UI Components
+
+**Status: ✅ COMPLETE**
+
+All components have been implemented:
+
+#### Components Created:
+
+1. **`frontend/explorer/CrateCard.tsx`** - Crate card with metadata, version selector, links
+   - Automatically fetches metadata from crates.io API on mount
+   - Delete confirmation dialog
+   - Navigation to repository, crates.io, docs.rs
+
+2. **`frontend/explorer/VersionSelector.tsx`** - Version dropdown
+   - Shows "latest" + all versions
+   - Displays "(latest: X.Y.Z)" indicator
+
+3. **`frontend/explorer/PageTree.tsx`** - VS Code-style page tree
+   - **Navigation tracking:** Uses `on('navigated', handler)` to subscribe to events
+   - **Unpinned pages:** Shown in italic, auto-replaced on new navigation
+   - **Pin/unpin:** Click pin icon to permanently add to tree
+   - Delete confirmation dialog
+
+```typescript
+// PageTree uses the event subscription API
+useEffect(() => {
+  return on('navigated', (event) => {
+    handleIframeNavigated(event.url);
+  });
+}, [workspace, groupIndex, itemIndex]);
+```
+
+4. **`frontend/explorer/Group.tsx`** - Expandable group header
+   - Chevron icon for expand/collapse
+   - Delete confirmation dialog
+   - Renders child CrateCard components
+
+5. **`frontend/explorer/index.tsx`** - Main Explorer with toolbar
+   - "Add Group" and "Add Crate" dialogs
+   - Scrollable group list
+   - Per-group "Add Crate" buttons
+
+### Phases 4-5: Remaining Work
+
+**Phase 4: Drag and Drop** (NOT YET IMPLEMENTED)
+- Requires `@dnd-kit` dependencies
+- Reorder groups, move crates between groups, reorder pages
+
+**Phase 5: Polish** (PARTIALLY COMPLETE)
+- ✅ Delete confirmations
+- ✅ Error handling (console errors)
+- ❌ Toast notifications for user feedback
+- ❌ Loading spinners for metadata fetching
 
 ## Critical Files to Modify/Create
 
@@ -540,14 +617,33 @@ Explorer UI, drag-and-drop, etc. remain the same - see original plan.
 
 ## Success Criteria
 
-- [ ] Workspace loads from JSON on startup
-- [ ] Auto-saves workspace 1 second after changes
-- [ ] Can add/delete/reorder groups
-- [ ] Can add/delete crates with confirmation dialog
-- [ ] Crate metadata fetched from crates.io API (directly from frontend)
-- [ ] Links to crates.io, docs.rs, repository work
-- [ ] Version selector changes current version
-- [ ] Iframe navigation auto-adds unpinned page to tree
-- [ ] Can pin/unpin pages with italic styling
-- [ ] Drag-and-drop reorders groups, crates, pages
-- [ ] All delete operations show confirmation dialog
+- [x] Workspace loads from JSON on startup
+- [x] Auto-saves workspace 1 second after changes
+- [x] Can add/delete groups with confirmation dialog
+- [x] Can add/delete crates with confirmation dialog
+- [x] Crate metadata fetched from crates.io API (directly from frontend)
+- [x] Links to crates.io, docs.rs, repository work
+- [x] Version selector changes current version
+- [x] Iframe navigation auto-adds unpinned page to tree
+- [x] Can pin/unpin pages with italic styling
+- [x] All delete operations show confirmation dialog
+- [ ] Drag-and-drop reorders groups, crates, pages (Phase 4 - not implemented)
+
+## Implementation Status
+
+**✅ Phases 1-3 Complete:**
+- Backend IPC foundation with simplified message handlers
+- Frontend IPC client with event/request-response separation
+- All Explorer UI components with full functionality
+- Navigation tracking with `on('navigated', ...)` event subscription
+- Auto-save with 1-second debounce
+- Metadata fetching from crates.io API
+- Delete confirmations for all operations
+
+**❌ Phase 4 Remaining:**
+- Drag and drop with @dnd-kit library
+
+**Current Architecture:**
+- **Backend:** ~100 lines of IPC handlers in app.rs
+- **Frontend:** Complete UI with async IPC, event subscriptions, and component tree
+- **IPC Protocol:** Clean separation between events and request/response pairs

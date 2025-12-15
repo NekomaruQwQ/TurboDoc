@@ -225,12 +225,12 @@ mod handler {
         };
 
         match msg_type {
-            "load_workspace" => {
+            "load-workspace" => {
                 let response = load_workspace(data_dir);
                 let _ = webview.post_message_as_json(&response)
                     .inspect_err(|err| log::error!("failed to send response: {err}"));
             },
-            "save_workspace" => {
+            "save-workspace" => {
                 if let Some(content) = message.get("content").and_then(|v| v.as_str()) {
                     let response = save_workspace(data_dir, content);
                     let _ = webview.post_message_as_json(&response)
