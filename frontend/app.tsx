@@ -1,11 +1,11 @@
-import { createContext } from 'preact';
-import { useState } from 'preact/hooks';
-import { css } from '@emotion/css';
+import { useState } from 'react';
 
-import { FluentProvider, webDarkTheme } from '@fluentui/react-components';
+import { Card } from '@/components/ui/card';
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 
-import type { Workspace } from './data';
-import { Explorer } from './explorer';
+import type { Workspace } from '@/data';
+import { WorkspaceContext } from '@/global';
+import { Explorer } from '@/explorer';
 
 const test_workspace: Workspace = {
     groups: [
@@ -29,33 +29,24 @@ const test_workspace: Workspace = {
     ],
 };
 
-export const WorkspaceContext =
-    createContext<[Workspace, (value: Workspace) => void]>(undefined!);
-
 export function App() {
     const [workspace, setWorkspace] = useState<Workspace>(test_workspace);
     return <>
         <WorkspaceContext.Provider value={[workspace, setWorkspace]}>
-            <FluentProvider theme={webDarkTheme} className={css({
-                display: 'flex',
-                flexDirection: 'column',
-                flex: 1,
-            })}>
+            <div className="flex-1">
                 <div>header</div>
-                <div className={css({
-                    display: 'flex',
-                    flexDirection: 'row',
-                    flex: 1,
-                })}>
-                    <Explorer />
-                    <iframe id='frame' src='https://docs.rs/' className={css({
-                        flex: 1,
-                        borderColor: 'rgba(255, 255, 255, 0.2)',
-                        borderThickness: 0.25,
-                        borderTopLeftRadius: '8px',
-                    })} />
-                </div>
-            </FluentProvider>
+                <ResizablePanelGroup direction='horizontal'>
+                    <ResizablePanel defaultSize={1}>
+                        <Explorer />
+                    </ResizablePanel>
+                    <ResizableHandle className='mx-1 my-2'/>
+                    <ResizablePanel defaultSize={3} className='flex'>
+                        <Card className="flex-1 p-0.5 rounded-none rounded-tl-xl">
+                            <iframe id='iframe' src='https://docs.rs/' className="flex-1 rounded-tl-xl"/>
+                        </Card>
+                    </ResizablePanel>
+                </ResizablePanelGroup>
+            </div>
         </WorkspaceContext.Provider>
     </>;
 }

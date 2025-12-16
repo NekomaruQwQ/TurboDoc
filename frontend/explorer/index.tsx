@@ -1,15 +1,12 @@
-import { createContext } from 'preact';
-import { useState, useContext } from 'preact/hooks';
+import { useContext } from 'react';
 
-import { Tree, TreeItem, TreeItemLayout } from '@fluentui/react-components';
 
-import { WorkspaceContext } from '../app';
-import {css} from '@emotion/css';
+import { WorkspaceContext } from '@/global';
 
 export function Explorer() {
     const [workspace, _] = useContext(WorkspaceContext);
     return <>
-        <Tree className={css({
+        {/* <Tree className={css({
             width: '24em',
         })}>
             {workspace.groups.map(group => <>
@@ -19,6 +16,6 @@ export function Explorer() {
                     </TreeItemLayout>
                 </TreeItem>
             </>)}
-        </Tree>
+        </Tree> */}
     </>;
 }

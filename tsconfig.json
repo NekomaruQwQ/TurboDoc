@@ -2,6 +2,9 @@
     "include": ["frontend"],
     "compilerOptions": {
         "baseUrl": ".",
+        "paths": {
+            "@/*": ["frontend/*"]
+        },
 
         "lib": [
             "ESNext",
@@ -9,14 +12,8 @@
             "DOM.Iterable"
         ],
 
-        "paths": {
-            "react": ["node_modules/preact/compat/"],
-            "react-dom": ["node_modules/preact/compat/"],
-            "react/jsx-runtime": ["node_modules/preact/jsx-runtime"]
-        },
-
         "jsx": "react-jsx",
-        "jsxImportSource": "preact",
+        "jsxImportSource": "react",
 
         "module": "preserve",
         "moduleResolution": "bundler",
