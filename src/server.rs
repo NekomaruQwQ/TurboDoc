@@ -170,38 +170,39 @@ fn fetch_resource(http_client: &HttpClient, request: &WebRequest)
         response.status();
     let response_url =
         response.url().to_string();
-    Ok(match response_status {
-        StatusCode::OK => {
-            assert_eq!(response_url, request_url);
-            let content_type =
-                get_header(response.headers(), header::CONTENT_TYPE)
-                    .map_err(|err| anyhow!("failed to get header `Content-Type`: {err}"))?;
-            let data =
-                response
-                    .bytes()
-                    .context("failed to read response body")?
-                    .into();
-            Ok(WebResource {
-                url: request_url,
-                last_fetched: SystemTime::now(),
-                status_code: 200,
-                location: String::new(),
-                content_type,
-                content: data,
-            })
-        },
-        StatusCode::FOUND =>
-            Ok(WebResource {
-                url: request_url,
-                last_fetched: SystemTime::now(),
-                status_code: response_status.as_u16(),
-                location: response_url,
-                content_type: String::new(),
-                content: Vec::new(),
-            }),
-        _ =>
-            Err(response),
-    })
+    if !response_status.is_success() {
+        // Fetch failed, return the response for further handling.
+        return Ok(Err(response));
+    }
+
+    if response_url != request_url {
+        // Redirect detected, return a WebResource of status 302 Found.
+        return Ok(Ok(WebResource {
+            url: request_url,
+            last_fetched: SystemTime::now(),
+            status_code: 302,
+            location: response_url,
+            content_type: String::new(),
+            content: Vec::new(),
+        }));
+    }
+
+    let content_type =
+        get_header(response.headers(), header::CONTENT_TYPE)
+            .map_err(|err| anyhow!("failed to get header `Content-Type`: {err}"))?;
+    let data =
+        response
+            .bytes()
+            .context("failed to read response body")?
+            .into();
+    Ok(Ok(WebResource {
+        url: request_url,
+        last_fetched: SystemTime::now(),
+        status_code: 200,
+        location: String::new(),
+        content_type,
+        content: data,
+    }))
 }
 
 fn create_response_from_status(status: StatusCode) -> WebResponse {
