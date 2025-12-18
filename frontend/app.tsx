@@ -42,19 +42,19 @@ export function App() {
 
     const appContext = useAppContext();
     return <AppContextProvider value={appContext}>
-        <div className="flex-1">
+        <div className="w-full h-full flex flex-col">
             <div>header</div>
             <ResizablePanelGroup direction='horizontal'>
-                <ResizablePanel defaultSize={1}>
+                <ResizablePanel defaultSize={25}>
                     <Explorer />
                 </ResizablePanel>
                 <ResizableHandle className='mx-1 my-2'/>
-                <ResizablePanel defaultSize={3} className='flex'>
-                    <Card className="flex-1 p-0.5 rounded-none rounded-tl-xl">
+                <ResizablePanel defaultSize={75} className='flex'>
+                    <Card className="w-full h-full p-0.5 rounded-none rounded-tl-xl">
                         <iframe
                             ref={appContext.viewerRef}
                             src='https://docs.rs/'
-                            className="flex-1 rounded-tl-xl"/>
+                            className="w-full h-full rounded-tl-xl"/>
                     </Card>
                 </ResizablePanel>
             </ResizablePanelGroup>
