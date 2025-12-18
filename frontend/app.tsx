@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { Immutable } from 'immer';
 
 import { Card } from '@/components/ui/card';
@@ -10,11 +10,20 @@ import { AppContext, AppContextProvider } from '@/context';
 import { Explorer } from '@/explorer';
 
 function useAppContext(): AppContext {
-    const appContext = new AppContext(
-        useState<Immutable<Workspace>>({ groups: [], ungrouped: [] }),
-        useState<Immutable<Cache>>({ crates: {} }));
+    // Create an AppContext instance by composing hooks.
+    let viewerRef =
+        useRef<HTMLIFrameElement | null>(null);
+    let workspaceState =
+        useState<Immutable<Workspace>>({ groups: [], ungrouped: [] });
+    let cacheState =
+        useState<Immutable<Cache>>({ crates: {} });
+    const appContext =
+        new AppContext(
+            viewerRef,
+            workspaceState,
+            cacheState);
 
-    // Load once on mount.
+    // Load workspace and cache once on mount.
     useEffect(() => {
         (async () => {
             try {
@@ -42,7 +51,10 @@ export function App() {
                 <ResizableHandle className='mx-1 my-2'/>
                 <ResizablePanel defaultSize={3} className='flex'>
                     <Card className="flex-1 p-0.5 rounded-none rounded-tl-xl">
-                        <iframe id='iframe' src='https://docs.rs/' className="flex-1 rounded-tl-xl"/>
+                        <iframe
+                            ref={appContext.viewerRef}
+                            src='https://docs.rs/'
+                            className="flex-1 rounded-tl-xl"/>
                     </Card>
                 </ResizablePanel>
             </ResizablePanelGroup>

@@ -10,24 +10,32 @@ import * as CratesAPI from '@/services/crates-api';
 import { computeVersionGroups } from "@/utils/version-group";
 
 export class AppContext {
-    private workspace: Immutable<Workspace>;
-    private setWorkspace: (value: Immutable<Workspace>) => void;
-    private cache: Immutable<Cache>;
-    private setCache: (value: Immutable<Cache>) => void;
+    public readonly workspace: Immutable<Workspace>;
+    private readonly setWorkspace: (value: Immutable<Workspace>) => void;
+    private readonly cache: Immutable<Cache>;
+    private readonly setCache: (value: Immutable<Cache>) => void;
 
-    /** Reference to the docs.rs iframe for programmatic navigation */
-    public readonly iframeRef = { current: null as HTMLIFrameElement | null };
+    /** Reference to the viewer iframe for programmatic navigation */
+    public readonly viewerRef: React.RefObject<HTMLIFrameElement | null>;
 
     public constructor(
+        viewerRef: React.RefObject<HTMLIFrameElement | null>,
         workspaceState:
             [Immutable<Workspace>, (value: Immutable<Workspace>) => void],
         cacheState:
             [Immutable<Cache>, (value: Immutable<Cache>) => void]) {
+        this.viewerRef = viewerRef;
         [this.workspace, this.setWorkspace] = workspaceState;
         [this.cache, this.setCache] = cacheState;
     }
 
-    public getWorkspace() { return this.workspace; }
+    public navigateTo(url: string): void {
+        let iframeWindow = this.viewerRef.current?.contentWindow;
+        if (iframeWindow)
+            iframeWindow.location.replace(url);
+        else
+            console.warn('Navigation failed: iframe not loaded yet.');
+    }
 
     public async load(): Promise<void> {
         this.setCache(await IPC.loadCache());
