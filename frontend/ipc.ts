@@ -1,4 +1,8 @@
-import type { Workspace } from '@/data';
+import type { Workspace, Cache } from '@/data';
+import { IPC_TIMEOUT_MS } from '@/constants';
+
+const EMPTY_WORKSPACE = { groups: [], ungrouped: [] } satisfies Workspace;
+const EMPTY_CACHE = { crates: {} } satisfies Cache;
 
 /**
  * IPC message representing an event occurring on the host side.
@@ -9,12 +13,14 @@ type IPCEvent =
 /**
  * IPC message that requests an action to be performed on the host side,
  * typically involving file I/O.
- * 
+ *
  * Each request expects a corresponding `IPCResponse` from the host.
  */
 type IPCRequest =
     | { type: 'load-workspace' }
-    | { type: 'save-workspace', content: string };
+    | { type: 'save-workspace', content: string }
+    | { type: 'load-cache' }
+    | { type: 'save-cache', content: string };
 
 /**
  * IPC message representing a response from the host to a previously
@@ -22,16 +28,21 @@ type IPCRequest =
  */
 type IPCResponse =
     | IPCWorkspaceLoaded
-    | IPCWorkspaceSaved;
+    | IPCWorkspaceSaved
+    | IPCCacheLoaded
+    | IPCCacheSaved;
+type IPCResponseBase<T> =
+    | { success: true } & T
+    | { success: false, message: string };
 
 type IPCWorkspaceLoaded =
-    { type: 'workspace-loaded' } & (
-        | { success: true, content: string }
-        | { success: false, message: string });
+    { type: 'workspace-loaded' } & IPCResponseBase<{ content: string | null }>;
 type IPCWorkspaceSaved =
-    { type: 'workspace-saved' } & (
-        | { success: true }
-        | { success: false, message: string });
+    { type: 'workspace-saved' } & IPCResponseBase<{}>;
+type IPCCacheLoaded =
+    { type: 'cache-loaded' } & IPCResponseBase<{ content: string | null }>;
+type IPCCacheSaved =
+    { type: 'cache-saved' } & IPCResponseBase<{}>;
 
 /**
  * Send an `IPCRequest` to the host via WebView2 IPC.
@@ -117,7 +128,7 @@ export function on<T extends IPCEvent>(
  */
 function waitResponse<T extends IPCResponse>(
     type: T['type'],
-    timeoutMs = 5000): Promise<T> {
+    timeoutMs = IPC_TIMEOUT_MS): Promise<T> {
     return new Promise((resolve, reject) => {
         if (ipcResponseHandlers[type] !== undefined) {
             throw new Error(`Multiple waiters for IPC response type '${type}'`);
@@ -145,20 +156,19 @@ function waitResponse<T extends IPCResponse>(
 export async function loadWorkspace(): Promise<Workspace> {
     postRequest({ type: 'load-workspace' });
     try {
-        const result = await waitResponse<IPCWorkspaceLoaded>('workspace-loaded', 5000);
+        const result = await waitResponse<IPCWorkspaceLoaded>('workspace-loaded');
         if (result.success) {
             // Handle null/empty content (workspace file doesn't exist yet)
-            if (!result.content || result.content === 'null') {
-                return { groups: [], ungrouped: [] };
+            if (result.content) {
+                return JSON.parse(result.content) as Workspace;
+            } else {
+                return EMPTY_WORKSPACE;
             }
-            return JSON.parse(result.content) as Workspace;
         } else {
             throw new Error(`Failed to load workspace: ${result.message}`);
         }
     } catch (err) {
-        console.error('Workspace load error:', err);
-        // Fallback to empty workspace on timeout or error
-        return { groups: [], ungrouped: [] };
+        throw new Error(`Failed to load workspace: ${err}`);
     }
 }
 
@@ -172,5 +182,42 @@ export async function saveWorkspace(workspace: Workspace): Promise<void> {
     const result = await waitResponse<IPCWorkspaceSaved>('workspace-saved');
     if (!result.success) {
         throw new Error(`Failed to save workspace: ${result.message}`);
+    }
+}
+
+/**
+ * Request to load cache from the host.
+ *
+ * Errors during cache loading are non-fatal, in which case an empty cache is returned.
+ * As such, this function never throws.
+ */
+export async function loadCache(): Promise<Cache> {
+    postRequest({ type: 'load-cache' });
+    try {
+        const result = await waitResponse<IPCCacheLoaded>('cache-loaded');
+        if (result.success) {
+            if (result.content) {
+                return JSON.parse(result.content) as Cache;
+            }
+        } else {
+            console.error(`Failed to load cache: ${result.message}`);
+        }
+    } catch (err) {
+        console.error('Failed to load cache:', err);
+    }
+
+    return EMPTY_CACHE;
+}
+
+/**
+ * Request to save cache to the host.
+ *
+ * Throws an error if save fails or times out.
+ */
+export async function saveCache(cache: Cache): Promise<void> {
+    postRequest({type: 'save-cache', content: JSON.stringify(cache) });
+    const result = await waitResponse<IPCCacheSaved>('cache-saved');
+    if (!result.success) {
+        throw new Error(`Failed to save cache: ${result.message}`);
     }
 }

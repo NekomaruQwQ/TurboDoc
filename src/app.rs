@@ -129,6 +129,11 @@ mod handler {
             move |request| on_web_resource_requested(&mut server, request)
         })?;
 
+        webview.on_web_message_received({
+            let webview = webview.clone();
+            move |message| on_web_message_received(&webview, message)
+        })?;
+
         webview.on_frame_navigation_starting({
             let window = Rc::clone(window);
             let webview = webview.clone();
@@ -138,17 +143,6 @@ mod handler {
                     &webview,
                     url,
                     cancel_navigation);
-            }
-        })?;
-
-        webview.on_web_message_received({
-            let webview = webview.clone();
-            let data_dir = DATA_DIR.clone();
-            move |message_str| {
-                on_web_message_received(
-                    &webview,
-                    data_dir.as_path(),
-                    message_str);
             }
         })?;
 
@@ -206,94 +200,202 @@ mod handler {
         }
     }
 
-    fn on_web_message_received(
-        webview: &WebView,
-        data_dir: &std::path::Path,
-        message_str: &str) {
-        // Parse simple JSON messages
-        let message: serde_json::Value = match serde_json::from_str(message_str) {
-            Ok(msg) => msg,
-            Err(err) => {
-                log::error!("failed to parse IPC message: {err}");
-                return;
-            }
+    fn on_web_message_received(webview: &WebView, message: &str) {
+        let result =
+            super::ipc::handle_request(message)
+                .map(|response| response.to_string())
+                .and_then(|response| webview.post_message_as_json(&response));
+        if let Err(err) = result {
+            log::error!("{err}");
+        }
+    }
+}
+
+mod ipc {
+    use nkcore::*;
+
+    use crate::prelude::*;
+    use crate::consts::*;
+
+    use std::fs;
+    use std::path::Path;
+
+    pub fn handle_request(message: &str) -> anyhow::Result<JsonValue> {
+        let Ok((message_type, message)) = parse_ipc_message(message) else {
+            log::error!("failed to parse ipc message: {message}");
+            anyhow::bail!("failed to parse ipc message: {message}");
         };
 
-        let Some(msg_type) = message.get("type").and_then(|v| v.as_str()) else {
-            log::error!("message missing 'type' field");
-            return;
-        };
-
-        match msg_type {
-            "load-workspace" => {
-                let response = load_workspace(data_dir);
-                let _ = webview.post_message_as_json(&response)
-                    .inspect_err(|err| log::error!("failed to send response: {err}"));
-            },
+        Ok(match message_type.as_str() {
+            "load-workspace" =>
+                load_workspace(),
             "save-workspace" => {
-                if let Some(content) = message.get("content").and_then(|v| v.as_str()) {
-                    let response = save_workspace(data_dir, content);
-                    let _ = webview.post_message_as_json(&response)
-                        .inspect_err(|err| log::error!("failed to send response: {err}"));
-                } else {
-                    log::error!("save_file message missing 'content' field");
-                }
+                let content =
+                    message
+                        .get("content")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("");
+                save_workspace(content)
+            },
+            "load-cache" =>
+                load_cache(),
+            "save-cache" => {
+                let content =
+                    message
+                        .get("content")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("");
+                save_cache(content)
             },
             _ => {
-                log::warn!("unknown message type: {msg_type}");
+                log::error!("unknown ipc message type '{message_type}'");
+                anyhow::bail!("unknown ipc message type '{message_type}'");
+            }
+        })
+    }
+
+    fn parse_ipc_message(message: &str) -> anyhow::Result<(String, JsonValue)> {
+        let message =
+            serde_json::from_str::<JsonValue>(message)
+                .context("ipc message is not valid json")?;
+        let message_type =
+            message
+                .get("type")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| anyhow::anyhow!("ipc message is missing 'type' field"))?
+                .to_owned();
+        Ok((message_type, message))
+    }
+
+    fn load_workspace() -> JsonValue {
+        let file_path = DATA_DIR.join("workspace.json");
+        match load_file(&file_path) {
+            Ok(Some(content)) => {
+                log::info!("workspace file loaded.");
+                serde_json::json!({
+                    "type": "workspace-loaded",
+                    "success": true,
+                    "content": content,
+                })
+            },
+            Ok(None) => {
+                // Workspace file not present is not an error. We just create an empty workspace
+                // and return that.
+                log::info!("workspace file not found. an empty workspace will be created.");
+                serde_json::json!({
+                    "type": "workspace-loaded",
+                    "success": true,
+                    "content": "null",
+                })
+            },
+            Err(err) =>{
+                // Failing to load workspace is fatal. To avoid overwriting existing data,
+                // we propagate the error instead of creating a new empty workspace.
+                log::error!("failed to load workspace file {}: {err:?}", file_path.display());
+                serde_json::json!({
+                    "type": "workspace-loaded",
+                    "success": false,
+                    "message": format!("{err:?}"),
+                })
+            },
+        }
+    }
+
+    fn save_workspace(content: &str) -> JsonValue {
+        let file_path = DATA_DIR.join("workspace.json");
+        match save_file(&file_path, content) {
+            Ok(()) =>{
+                log::info!("workspace file saved.");
+                serde_json::json!({
+                    "type": "workspace-saved",
+                    "success": true,
+                })
+            },
+            Err(err) => {
+                log::error!("failed to save workspace file {}: {err:?}", file_path.display());
+                serde_json::json!({
+                    "type": "workspace-saved",
+                    "success": false,
+                    "message": format!("{err:?}"),
+                })
             }
         }
     }
 
-    /// Load workspace file as raw string and return JSON response.
-    /// Returns null content if file doesn't exist (not an error).
-    fn load_workspace(data_dir: &std::path::Path) -> String {
-        let path = data_dir.join("workspace.json");
-
-        match std::fs::read_to_string(&path) {
-            Ok(content) => serde_json::json!({
-            "type": "workspace-loaded",
-            "success": true,
-            "content": content,
-        }).to_string(),
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-                serde_json::json!({
-                "type": "workspace-loaded",
-                "success": true,
-                "content": "{}",
-            }).to_string()
+    fn load_cache() -> JsonValue {
+        let file_path = DATA_DIR.join("cache.json");
+        let file_content = match load_file(&file_path) {
+            Ok(Some(content)) => {
+                log::info!("cache file loaded.");
+                Some(content)
             },
-            Err(err) => serde_json::json!({
-                "type": "workspace-loaded",
-                "success": false,
-                "message": format!("{err:?}"),
-            }).to_string(),
+            Ok(None) => {
+                log::info!("cache file not found.");
+                log::info!("cache file will be created on the next fetch.");
+                None
+            },
+            Err(err) => {
+                // Failing to load cache is non-fatal, so we just log error and return an empty cache.
+                log::warn!("failed to load cache file: {err}");
+                log::warn!("cache file will be created on the next fetch.");
+                None
+            }
+        };
+
+        serde_json::json!({
+            "type": "cache-loaded",
+            "success": true,
+            "content":
+                file_content
+                    .as_deref()
+                    .unwrap_or("null"),
+        })
+    }
+
+    fn save_cache(content: &str) -> JsonValue {
+        let file_path = DATA_DIR.join("cache.json");
+        match save_file(&file_path, content) {
+            Ok(()) =>{
+                log::info!("cache file saved.");
+                serde_json::json!({
+                    "type": "cache-saved",
+                    "success": true,
+                })
+            },
+            Err(err) => {
+                log::error!("failed to save cache file {}: {err:?}", file_path.display());
+                serde_json::json!({
+                    "type": "cache-saved",
+                    "success": false,
+                    "message": format!("{err:?}"),
+                })
+            }
         }
     }
 
-    /// Save workspace file from raw string and return JSON response.
-    fn save_workspace(data_dir: &std::path::Path, content: &str) -> String {
-        let path = data_dir.join("workspace.json");
+    /// Load file content as [`String`].
+    /// 
+    /// Returns `Ok(None)` if file doesn't exist (not an error).
+    /// Returns `Err` on other IO errors.
+    fn load_file(path: &Path) -> anyhow::Result<Option<String>> {
+        match fs::read_to_string(path) {
+            Ok(content) =>
+                Ok(Some(content)),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound =>
+                Ok(None),
+            Err(err) =>
+                Err(anyhow::anyhow!("failed to read file {}: {err:?}", path.display())),
+        }
+    }
 
-        // Create directory if needed
-        if let Err(err) = std::fs::create_dir_all(data_dir) {
-            return serde_json::json!({
-            "type": "workspace-saved",
-            "success": false,
-            "message": format!("{err:?}"),
-        }).to_string();
+    fn save_file(path: &Path, content: &str) -> anyhow::Result<()> {
+        // Create containing directory if needed
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| context!("failed to create directory {}", parent.display()))?;
         }
 
-        match std::fs::write(&path, content) {
-            Ok(()) => serde_json::json!({
-                "type": "workspace-saved",
-                "success": true,
-            }).to_string(),
-            Err(err) => serde_json::json!({
-                "type": "workspace-saved",
-                "success": false,
-                "message": format!("{err:?}"),
-            }).to_string(),
-        }
+        fs::write(path, content)
+            .with_context(|| context!("failed to write file {}", path.display()))
     }
 }
