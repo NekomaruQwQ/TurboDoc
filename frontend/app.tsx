@@ -11,16 +11,16 @@ const test_workspace: Workspace = {
     groups: [
         {
             name: 'default',
-            is_expanded: true,
+            isExpanded: true,
             items: [
                 {
                     type: 'crate',
                     data: {
                         name: 'glam',
-                        is_expanded: true,
+                        isExpanded: true,
                         versions: [],
-                        current_version: 'latest',
-                        docs_pages: [],
+                        currentVersion: 'latest',
+                        pinnedPages: [],
                         docs_open_page: undefined,
                     },
                 },

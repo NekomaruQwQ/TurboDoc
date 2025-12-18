@@ -4,6 +4,8 @@
 
 Implement a full-featured frontend for the docs.rs viewer with **frontend-driven architecture**: all application logic lives in the frontend, backend provides only file I/O and iframe navigation notifications.
 
+**Tech Stack:** React 19 + shadcn/ui (Radix UI + Tailwind CSS) + Vite
+
 ## Architecture Simplification
 
 **Key Insight**: Backend doesn't need to understand workspace structure at all!
@@ -58,7 +60,7 @@ type IPCResponse =
 ## Data Model (Frontend Only)
 
 ```typescript
-// frontend/data.ts
+// frontend/data.ts - TARGET STATE (needs updates)
 interface DocsPage {
   path: string;        // e.g., "glam/latest/glam/struct.Vec3.html"
   pinned: boolean;     // false = italic/unpinned
@@ -69,9 +71,9 @@ interface ItemCrate {
   is_expanded: boolean;
   versions: string[];
   current_version: string;
-  docs_pages: DocsPage[];
+  docs_pages: DocsPage[];  // Currently string[] - needs update
   docs_open_page?: string;
-  metadata?: {             // Cached from crates.io
+  metadata?: {             // Cached from crates.io - needs to be added
     repository: string | null;
     latest_version: string;
   };
@@ -89,6 +91,8 @@ interface Workspace {
   groups: Group[];
 }
 ```
+
+**Current State:** `docs_pages` is `string[]` and `metadata` field is missing. These need to be updated.
 
 ## Implementation Steps
 
@@ -245,7 +249,9 @@ webview.on_frame_navigation_starting({
 
 ### Phase 2: Frontend IPC Client
 
-#### 1. `frontend/webview2.d.ts` - TypeScript declarations
+**Status:** Partially complete (✅ ipc.ts, ✅ webview2.d.ts, ❌ crates_io.ts, ⚠️ data.ts needs updates, ⚠️ app.tsx needs IPC integration)
+
+#### 1. `frontend/webview2.d.ts` - TypeScript declarations (✅ DONE)
 
 ```typescript
 declare global {
@@ -263,7 +269,7 @@ declare global {
 export {};
 ```
 
-#### 2. `frontend/ipc.ts` - IPC client library
+#### 2. `frontend/ipc.ts` - IPC client library (✅ DONE)
 
 ```typescript
 import type { Workspace } from './data';
@@ -371,7 +377,7 @@ export async function saveWorkspace(workspace: Workspace): Promise<void> {
 }
 ```
 
-#### 3. `frontend/crates_io.ts` - Crates.io API client (NEW)
+#### 3. `frontend/crates_io.ts` - Crates.io API client (❌ TODO)
 
 Frontend directly fetches from crates.io:
 
@@ -417,9 +423,17 @@ export async function fetchCrateMetadata(crateName: string): Promise<CrateMetada
 }
 ```
 
-#### 4. `frontend/data.ts` - Extend data model
+#### 4. `frontend/data.ts` - Extend data model (⚠️ NEEDS UPDATES)
+
+**Current state:** Basic types exist but need to add `DocsPage` interface and `metadata` field.
+
+**Required changes:**
+- Add `DocsPage` interface with `path` and `pinned` fields
+- Change `ItemCrate.docs_pages` from `string[]` to `DocsPage[]`
+- Add `metadata` field to `ItemCrate`
 
 ```typescript
+// Target state (needs to be implemented)
 export interface DocsPage {
   path: string;
   pinned: boolean;
@@ -430,9 +444,9 @@ export interface ItemCrate {
   is_expanded: boolean;
   versions: string[];
   current_version: string;
-  docs_pages: DocsPage[];
+  docs_pages: DocsPage[];  // Currently string[]
   docs_open_page?: string;
-  metadata?: {
+  metadata?: {             // Needs to be added
     repository: string | null;
     latest_version: string;
   };
@@ -451,11 +465,24 @@ export interface Workspace {
 }
 ```
 
-#### 5. `frontend/app.tsx` - Workspace loading and auto-save
+#### 5. `frontend/app.tsx` - Workspace loading and auto-save (⚠️ NEEDS IPC INTEGRATION)
+
+**Current state:** App.tsx exists with basic structure but no IPC integration, using hardcoded test data.
+
+**Required changes:**
+- Add IPC initialization
+- Load workspace from backend on mount
+- Implement auto-save with debouncing
+- Add loading state
 
 ```typescript
-import { useEffect, useRef, useState } from 'preact/hooks';
-import { initIPC, loadWorkspace, saveWorkspace } from './ipc';
+import { useEffect, useRef, useState } from 'react';
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
+import { Card } from '@/components/ui/card';
+import { initIPC, loadWorkspace, saveWorkspace } from '@/ipc';
+import { WorkspaceContext } from '@/global';
+import { Explorer } from '@/explorer';
+import type { Workspace } from '@/data';
 
 export function App() {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
@@ -504,42 +531,63 @@ export function App() {
 
   return (
     <WorkspaceContext.Provider value={[workspace!, setWorkspace]}>
-      {/* ... rest of app */}
+      <div className="flex-1">
+        <div>header</div>
+        <ResizablePanelGroup direction='horizontal'>
+          <ResizablePanel defaultSize={1}>
+            <Explorer />
+          </ResizablePanel>
+          <ResizableHandle className='mx-1 my-2'/>
+          <ResizablePanel defaultSize={3} className='flex'>
+            <Card className="flex-1 p-0.5 rounded-none rounded-tl-xl">
+              <iframe id='iframe' src='https://docs.rs/' className="flex-1 rounded-tl-xl"/>
+            </Card>
+          </ResizablePanel>
+        </ResizablePanelGroup>
+      </div>
     </WorkspaceContext.Provider>
   );
 }
 ```
 
-**Key improvements:**
-- Async/await for cleaner code (no callback nesting)
-- loadWorkspace() returns a Promise
-- Error handling with try/catch
+**Key features:**
+- Uses React hooks (not Preact)
+- Async/await for IPC operations
+- Auto-save with 1-second debounce
+- Error handling with fallback to empty workspace
+- shadcn/ui components (ResizablePanel, Card)
 
 ### Phase 3: Explorer UI Components
 
-**Status: ✅ COMPLETE**
+**Status: ❌ NOT IMPLEMENTED**
 
-All components have been implemented:
+**Current state:** Only `frontend/explorer/index.tsx` exists with a skeleton (commented-out code from old Fluent UI implementation).
 
-#### Components Created:
+#### Components to Create:
 
-1. **`frontend/explorer/CrateCard.tsx`** - Crate card with metadata, version selector, links
-   - Automatically fetches metadata from crates.io API on mount
-   - Delete confirmation dialog
+1. **`frontend/explorer/CrateCard.tsx`** - Crate card with metadata, version selector, links (❌ TODO)
+   - Automatically fetch metadata from crates.io API on mount
+   - Delete confirmation dialog using shadcn/ui Dialog
    - Navigation to repository, crates.io, docs.rs
+   - Use shadcn/ui Collapsible for expand/collapse
 
-2. **`frontend/explorer/VersionSelector.tsx`** - Version dropdown
+2. **`frontend/explorer/VersionSelector.tsx`** - Version dropdown (❌ TODO)
+   - Use shadcn/ui Select component
    - Shows "latest" + all versions
    - Displays "(latest: X.Y.Z)" indicator
 
-3. **`frontend/explorer/PageTree.tsx`** - VS Code-style page tree
+3. **`frontend/explorer/PageTree.tsx`** - VS Code-style page tree (❌ TODO)
    - **Navigation tracking:** Uses `on('navigated', handler)` to subscribe to events
-   - **Unpinned pages:** Shown in italic, auto-replaced on new navigation
-   - **Pin/unpin:** Click pin icon to permanently add to tree
-   - Delete confirmation dialog
+   - **Unpinned pages:** Shown in italic (via Tailwind), auto-replaced on new navigation
+   - **Pin/unpin:** Click pin icon (lucide-react icon) to permanently add to tree
+   - Delete confirmation dialog using shadcn/ui Dialog
 
 ```typescript
-// PageTree uses the event subscription API
+// PageTree implementation pattern
+import { useEffect } from 'react';
+import { on } from '@/ipc';
+import { Pin } from 'lucide-react';
+
 useEffect(() => {
   return on('navigated', (event) => {
     handleIframeNavigated(event.url);
@@ -547,15 +595,17 @@ useEffect(() => {
 }, [workspace, groupIndex, itemIndex]);
 ```
 
-4. **`frontend/explorer/Group.tsx`** - Expandable group header
-   - Chevron icon for expand/collapse
-   - Delete confirmation dialog
+4. **`frontend/explorer/Group.tsx`** - Expandable group header (❌ TODO)
+   - Use shadcn/ui Collapsible component
+   - Chevron icon from lucide-react
+   - Delete confirmation dialog using shadcn/ui Dialog
    - Renders child CrateCard components
 
-5. **`frontend/explorer/index.tsx`** - Main Explorer with toolbar
-   - "Add Group" and "Add Crate" dialogs
-   - Scrollable group list
+5. **`frontend/explorer/index.tsx`** - Main Explorer with toolbar (⚠️ NEEDS REWRITE)
+   - "Add Group" and "Add Crate" dialogs using shadcn/ui Dialog + Input
+   - Scrollable group list (Tailwind classes)
    - Per-group "Add Crate" buttons
+   - Use shadcn/ui Button components throughout
 
 ### Phases 4-5: Remaining Work
 
@@ -572,21 +622,22 @@ useEffect(() => {
 ## Critical Files to Modify/Create
 
 **Backend (Rust) - MINIMAL:**
-- `src/app.rs` (modify) - Add ~100 lines for IPC handler
-- `src/webview.rs` (modify) - Change `core` to `pub(crate)` (1 line)
+- `src/app.rs` (modify) - Add ~100 lines for IPC handler (❌ TODO)
+- `src/webview.rs` (modify) - Change `core` to `pub(crate)` (1 line) (❌ TODO)
 
-**Frontend (TypeScript/Preact):**
-- `frontend/ipc.ts` (new) - IPC client library
-- `frontend/webview2.d.ts` (new) - TypeScript declarations
-- `frontend/crates_io.ts` (new) - Crates.io API client
-- `frontend/data.ts` (modify) - Add DocsPage type, extend ItemCrate
-- `frontend/app.tsx` (modify) - IPC initialization, workspace load/save
-- `frontend/explorer/index.tsx` (modify) - Add DndContext, drag handlers
-- `frontend/explorer/CrateCard.tsx` (new) - Crate card component
-- `frontend/explorer/VersionSelector.tsx` (new) - Version dropdown
-- `frontend/explorer/PageTree.tsx` (new) - Page tree with pinning
-- `frontend/explorer/Group.tsx` (new) - Group component
-- `package.json` (modify) - Add @dnd-kit dependencies
+**Frontend (TypeScript/React):**
+- ✅ `frontend/ipc.ts` - IPC client library (DONE)
+- ✅ `frontend/webview2.d.ts` - TypeScript declarations (DONE)
+- ✅ `frontend/global.ts` - WorkspaceContext (DONE)
+- ❌ `frontend/crates_io.ts` (new) - Crates.io API client
+- ⚠️ `frontend/data.ts` (modify) - Add DocsPage type, extend ItemCrate with metadata
+- ⚠️ `frontend/app.tsx` (modify) - IPC initialization, workspace load/save
+- ⚠️ `frontend/explorer/index.tsx` (rewrite) - Main Explorer with toolbar
+- ❌ `frontend/explorer/CrateCard.tsx` (new) - Crate card component with shadcn/ui
+- ❌ `frontend/explorer/VersionSelector.tsx` (new) - Version dropdown with shadcn/ui Select
+- ❌ `frontend/explorer/PageTree.tsx` (new) - Page tree with pinning
+- ❌ `frontend/explorer/Group.tsx` (new) - Group component with shadcn/ui Collapsible
+- ❌ `package.json` (modify) - Add @dnd-kit dependencies (Phase 4)
 
 ## Benefits of This Architecture
 

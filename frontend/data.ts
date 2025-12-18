@@ -1,43 +1,67 @@
-export type Item =
-	| { type: "crate", data: ItemCrate };
+export interface Workspace {
+    /** Named groups of crates */
+    groups: Group[];
+    /** Ungrouped crates (displayed at top, simpler than a full Group) */
+    ungrouped: ItemCrate[];
+}
 
 export interface Group {
-	name: string;
-	is_expanded: boolean;
-	items: Item[];
+    name: string;
+    items: Item[];
+    isExpanded: boolean;
 }
+
+export type Item =
+    | { type: "crate", data: ItemCrate };
 
 export interface ItemCrate {
-	/** Name of the crate. */
-	name: string;
-	/** Whether the crate item is expanded in the UI. */
-	is_expanded: boolean;
-	/**
-	 * All available versions of the crate.
-	 *
-	 * Note that `latest` is not included here.
-	 */
-	versions: string[];
-	/**
-	 * Currently selected version of the crate.
-	 *
-	 * `latest` means the latest version.
-	 */
-	current_version: string;
-	/**
-	 * Pages from `docs.rs` for this crate.
-	 *
-	 * The full URL can be constructed using [`Self::link_docs`].
-	 */
-	docs_pages: string[];
-	/**
-	 * Currently opened page from `docs.rs` for this crate.
-	 *
-	 * The full URL can be constructed using [`Self::link_docs`].
-	 */
-	docs_open_page?: string;
+    /** Name of the crate */
+    name: string;
+    /** Optional links fetched from crates.io API */
+    links: CrateLinks;
+    /** Whether the crate card is expanded in the UI */
+    isExpanded: boolean;
+
+    /** Full version list fetched from crates.io, sorted from newest to oldest. */
+    versions: CrateVersion[];
+    /** Grouped versions for display */
+    version_groups: { latest: string, versions: CrateVersion[] }[];
+    /** Currently selected version */
+    currentVersion: string;
+
+    /** List of pinned docs.rs pages */
+    pinnedPages: CratePage[];
+    /** Currently opened docs.rs page (may or may not be pinned) */
+    currentPage: CratePage | null;
 }
 
-export interface Workspace {
-	groups: Group[];
+export interface CrateVersion {
+    /** Version number (e.g., "0.10.1") */
+    num: string;
+    /** Whether this version is yanked */
+    yanked: boolean;
+}
+
+export interface CrateLinks {
+    /** Repository URL */
+    repository: string | null;
+    /** Homepage URL */
+    homepage: string | null;
+    /** Documentation URL (might differ from docs.rs) */
+    documentation: string | null;
+    /** Timestamp when metadata was fetched (for cache invalidation) */
+    fetchedAt: number;
+}
+
+export interface CratePage {
+    /**
+     * The relative path (e.g., "struct.Vec3.html") of the page.
+     * 
+     * The full URL of the page can be constructed as:
+     *     `https://docs.rs/{crate_name}/{version}/{path}`
+     **/
+    path: string;
+
+    /** Whether this page is pinned */
+    pinned: boolean;
 }
