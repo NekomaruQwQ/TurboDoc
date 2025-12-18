@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { computeVersionGroups } from './version-groups';
+
+import { computeVersionGroups } from './version-group';
 
 describe('computeVersionGroups', () => {
 	test('returns empty array for empty versions', () => {
@@ -7,18 +8,13 @@ describe('computeVersionGroups', () => {
 		expect(result).toEqual([]);
 	});
 
-	test('returns single version as latest', () => {
+	test('returns single group for single version', () => {
 		const versions = [{ num: '1.0.0', yanked: false }];
 		const result = computeVersionGroups(versions);
 
 		expect(result).toHaveLength(1);
-		expect(result[0]).toEqual({
-			label: '1.0.0 (latest)',
-			version: '1.0.0',
-			isLatest: true,
-			isPrerelease: false,
-			isYanked: false,
-		});
+		expect(result[0]!.latest).toBe('1.0.0');
+		expect(result[0]!.versions).toEqual([{ num: '1.0.0', yanked: false }]);
 	});
 
 	test('groups versions by major.minor', () => {
@@ -32,26 +28,23 @@ describe('computeVersionGroups', () => {
 		];
 		const result = computeVersionGroups(versions);
 
+		// Should have 4 groups: 2.0, 1.5, 1.4, 1.0
 		expect(result).toHaveLength(4);
-		expect(result[0]).toEqual({
-			label: '2.0.0 (latest)',
-			version: '2.0.0',
-			isLatest: true,
-			isPrerelease: false,
-			isYanked: false,
-		});
-		expect(result[1]).toMatchObject({
-			version: '1.5.2',
-			isLatest: false,
-		});
-		expect(result[2]).toMatchObject({
-			version: '1.4.3',
-			isLatest: false,
-		});
-		expect(result[3]).toMatchObject({
-			version: '1.0.0',
-			isLatest: false,
-		});
+
+		// Group 1: 2.0.x (latest: 2.0.0)
+		expect(result[0]!.latest).toBe('2.0.0');
+		expect(result[0]!.versions).toEqual([{ num: '2.0.0', yanked: false }]);
+
+		// Group 2: 1.5.x (latest: 1.5.2, contains 1.5.2, 1.5.1, 1.5.0)
+		expect(result[1]!.latest).toBe('1.5.2');
+		expect(result[1]!.versions).toHaveLength(3);
+		expect(result[1]!.versions[0]!.num).toBe('1.5.2');
+
+		// Group 3: 1.4.x (latest: 1.4.3)
+		expect(result[2]!.latest).toBe('1.4.3');
+
+		// Group 4: 1.0.x (latest: 1.0.0)
+		expect(result[3]!.latest).toBe('1.0.0');
 	});
 
 	test('respects maxGroups parameter', () => {
@@ -65,9 +58,9 @@ describe('computeVersionGroups', () => {
 		const result = computeVersionGroups(versions, 3);
 
 		expect(result).toHaveLength(3);
-		expect(result[0].version).toBe('5.0.0');
-		expect(result[1].version).toBe('4.0.0');
-		expect(result[2].version).toBe('3.0.0');
+		expect(result[0]!.latest).toBe('5.0.0');
+		expect(result[1]!.latest).toBe('4.0.0');
+		expect(result[2]!.latest).toBe('3.0.0');
 	});
 
 	test('handles pre-release versions', () => {
@@ -78,16 +71,11 @@ describe('computeVersionGroups', () => {
 		];
 		const result = computeVersionGroups(versions);
 
-		expect(result[0]).toMatchObject({
-			version: '1.0.0-rc.1',
-			isLatest: true,
-			isPrerelease: true,
-		});
-		expect(result[1]).toMatchObject({
-			version: '0.9.0',
-			isLatest: false,
-			isPrerelease: false,
-		});
+		// 1.0.0-rc.1 and 1.0.0-beta.2 are in same group (1.0)
+		expect(result).toHaveLength(2);
+		expect(result[0]!.latest).toBe('1.0.0-rc.1');
+		expect(result[0]!.versions).toHaveLength(2);
+		expect(result[1]!.latest).toBe('0.9.0');
 	});
 
 	test('handles yanked versions', () => {
@@ -97,14 +85,9 @@ describe('computeVersionGroups', () => {
 		];
 		const result = computeVersionGroups(versions);
 
-		expect(result[0]).toMatchObject({
-			version: '2.0.0',
-			isYanked: true,
-		});
-		expect(result[1]).toMatchObject({
-			version: '1.0.0',
-			isYanked: false,
-		});
+		expect(result[0]!.latest).toBe('2.0.0');
+		expect(result[0]!.versions[0]!.yanked).toBe(true);
+		expect(result[1]!.versions[0]!.yanked).toBe(false);
 	});
 
 	test('sorts versions correctly (semver order)', () => {
@@ -116,11 +99,11 @@ describe('computeVersionGroups', () => {
 		];
 		const result = computeVersionGroups(versions);
 
-		// Should be: 2.0.0 (latest), 1.10.0, 1.5.0, 1.0.0
-		expect(result[0].version).toBe('2.0.0');
-		expect(result[1].version).toBe('1.10.0');
-		expect(result[2].version).toBe('1.5.0');
-		expect(result[3].version).toBe('1.0.0');
+		// Should be: 2.0.0, 1.10.0, 1.5.0, 1.0.0
+		expect(result[0]!.latest).toBe('2.0.0');
+		expect(result[1]!.latest).toBe('1.10.0');
+		expect(result[2]!.latest).toBe('1.5.0');
+		expect(result[3]!.latest).toBe('1.0.0');
 	});
 
 	test('ignores invalid semver versions', () => {
@@ -133,23 +116,23 @@ describe('computeVersionGroups', () => {
 
 		// Should only include valid semver
 		expect(result).toHaveLength(2);
-		expect(result[0].version).toBe('2.0.0');
-		expect(result[1].version).toBe('1.0.0');
+		expect(result[0]!.latest).toBe('2.0.0');
+		expect(result[1]!.latest).toBe('1.0.0');
 	});
 
-	test('handles complex pre-release labels', () => {
+	test('groups all patch versions together', () => {
 		const versions = [
-			{ num: '1.0.0-alpha.1', yanked: false },
-			{ num: '1.0.0-beta.3', yanked: false },
-			{ num: '1.0.0-rc.2', yanked: false },
+			{ num: '1.5.3', yanked: false },
+			{ num: '1.5.2', yanked: false },
+			{ num: '1.5.1', yanked: false },
+			{ num: '1.5.0', yanked: false },
 		];
-		const result = computeVersionGroups(versions, 5);
+		const result = computeVersionGroups(versions);
 
-		expect(result).toHaveLength(1); // All are 1.0.0 major.minor
-		expect(result[0]).toMatchObject({
-			version: '1.0.0-rc.2', // rc comes after beta
-			isPrerelease: true,
-		});
+		// All should be in one group (1.5)
+		expect(result).toHaveLength(1);
+		expect(result[0]!.latest).toBe('1.5.3');
+		expect(result[0]!.versions).toHaveLength(4);
 	});
 
 	test('real-world example: tokio versions', () => {
@@ -164,16 +147,13 @@ describe('computeVersionGroups', () => {
 		];
 		const result = computeVersionGroups(versions, 5);
 
-		expect(result[0]).toMatchObject({
-			label: '1.42.0 (latest)',
-			version: '1.42.0',
-			isLatest: true,
-		});
 		// Should group by major.minor: 1.42, 1.41, 1.40, 1.0, 0.3
 		expect(result).toHaveLength(5);
-		expect(result[1].version).toBe('1.41.1');
-		expect(result[2].version).toBe('1.40.0');
-		expect(result[3].version).toBe('1.0.0');
-		expect(result[4].version).toBe('0.3.7');
+		expect(result[0]!.latest).toBe('1.42.0');
+		expect(result[1]!.latest).toBe('1.41.1');
+		expect(result[1]!.versions).toHaveLength(2); // 1.41.1 and 1.41.0
+		expect(result[2]!.latest).toBe('1.40.0');
+		expect(result[3]!.latest).toBe('1.0.0');
+		expect(result[4]!.latest).toBe('0.3.7');
 	});
 });

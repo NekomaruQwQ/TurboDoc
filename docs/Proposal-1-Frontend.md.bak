@@ -272,7 +272,7 @@ export {};
 #### 2. `frontend/ipc.ts` - IPC client library (✅ DONE)
 
 ```typescript
-import type { Workspace } from './data';
+import type { Workspace } from '@/data';
 
 // Dual-registry system for events and request/response pairs
 const ipcEventHandlers: {

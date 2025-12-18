@@ -18,14 +18,14 @@ export interface ItemCrate {
     /** Name of the crate */
     name: string;
     /** Optional links fetched from crates.io API */
-    links: CrateLinks;
+    links?: CrateLinks;
     /** Whether the crate card is expanded in the UI */
     isExpanded: boolean;
 
     /** Full version list fetched from crates.io, sorted from newest to oldest. */
     versions: CrateVersion[];
     /** Grouped versions for display */
-    version_groups: { latest: string, versions: CrateVersion[] }[];
+    versionGroups: { latest: string, versions: CrateVersion[] }[];
     /** Currently selected version */
     currentVersion: string;
 
@@ -44,11 +44,11 @@ export interface CrateVersion {
 
 export interface CrateLinks {
     /** Repository URL */
-    repository: string | null;
+    repository?: string;
     /** Homepage URL */
-    homepage: string | null;
+    homepage?: string;
     /** Documentation URL (might differ from docs.rs) */
-    documentation: string | null;
+    documentation?: string;
     /** Timestamp when metadata was fetched (for cache invalidation) */
     fetchedAt: number;
 }

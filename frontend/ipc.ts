@@ -1,4 +1,4 @@
-import type { Workspace } from './data';
+import type { Workspace } from '@/data';
 
 /**
  * IPC message representing an event occurring on the host side.

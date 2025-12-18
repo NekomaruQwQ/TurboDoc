@@ -7,7 +7,8 @@ import type { Workspace } from '@/data';
 import { WorkspaceContext } from '@/global';
 import { Explorer } from '@/explorer';
 
-const test_workspace: Workspace = {
+const testWorkspace: Workspace = {
+    ungrouped: [],
     groups: [
         {
             name: 'default',
@@ -19,9 +20,10 @@ const test_workspace: Workspace = {
                         name: 'glam',
                         isExpanded: true,
                         versions: [],
+                        versionGroups: [],
                         currentVersion: 'latest',
                         pinnedPages: [],
-                        docs_open_page: undefined,
+                        currentPage: null,
                     },
                 },
             ],
@@ -30,7 +32,7 @@ const test_workspace: Workspace = {
 };
 
 export function App() {
-    const [workspace, setWorkspace] = useState<Workspace>(test_workspace);
+    const [workspace, setWorkspace] = useState<Workspace>(testWorkspace);
     return <>
         <WorkspaceContext.Provider value={[workspace, setWorkspace]}>
             <div className="flex-1">

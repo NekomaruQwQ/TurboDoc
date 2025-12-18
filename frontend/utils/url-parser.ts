@@ -19,7 +19,10 @@ export function parseDocsRsUrl(url: string): ParsedDocsUrl | null {
 			return null;
 		}
 
-		const [, crate, version, page] = pathMatch;
+		const [_, crate, version, page] = pathMatch;
+		if (!(crate && version && page)) {
+			return null;
+		}
 
 		return {
 			crate,
