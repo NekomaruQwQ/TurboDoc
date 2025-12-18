@@ -30,6 +30,10 @@ export interface CrateInfo {
     }[];
 }
 
+// TODO: When adding rate limiting for additional APIs, extract this into a reusable
+// RateLimiter class (e.g., utils/rate-limiter.ts) to avoid code duplication.
+// For now, keeping it simple since we only rate-limit crates.io API.
+
 /** Timestamp of the last request made for rate limiting. */
 let lastRequest = 0;
 /** Minimum delay between requests in milliseconds according to crates.io crawler policy. */
@@ -76,7 +80,7 @@ export async function fetchCrateInfo(crateName: string): Promise<CrateInfo> {
 }
 
 /** Search for crates on crates.io */
-export async function searchCrates(query: string): Promise<{ name: string, description: string | null } []> {
+export async function searchCrates(query: string): Promise<{ name: string, description: string | null }[]> {
     return queueRequest(async () => {
         const response = await fetch(
             `https://crates.io/api/v1/crates?q=${encodeURIComponent(query)}`, {

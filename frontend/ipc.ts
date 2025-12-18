@@ -108,38 +108,64 @@ export function on<T extends IPCEvent>(
 
 /**
  * Wait for a `IPCResponse` of the specified `type` from the host.
- * 
+ *
  * Waiting for a response that is already being waited on is considered an error.
+ *
+ * @param type - The response type to wait for
+ * @param timeoutMs - Timeout in milliseconds (default: 5000ms)
+ * @returns Promise that resolves with the response or rejects on timeout
  */
-function waitResponse<T extends IPCResponse>(type: T['type']): Promise<T>  {
-    return new Promise(resolve => {
-        if (ipcResponseHandlers[type] === undefined) {
-            ipcResponseHandlers[type] =
-                (response: IPCResponse) => {
-                    resolve(response as T);
-                    delete ipcResponseHandlers[type];
-                };
-        } else {
+function waitResponse<T extends IPCResponse>(
+    type: T['type'],
+    timeoutMs = 5000): Promise<T> {
+    return new Promise((resolve, reject) => {
+        if (ipcResponseHandlers[type] !== undefined) {
             throw new Error(`Multiple waiters for IPC response type '${type}'`);
         }
+
+        // Set up timeout to prevent infinite hangs
+        const timeout = setTimeout(() => {
+            delete ipcResponseHandlers[type];
+            reject(new Error(`IPC timeout waiting for ${type} (${timeoutMs}ms)`));
+        }, timeoutMs);
+
+        ipcResponseHandlers[type] = (response: IPCResponse) => {
+            clearTimeout(timeout);
+            delete ipcResponseHandlers[type];
+            resolve(response as T);
+        };
     });
 }
 
 /**
  * Request to load workspace from the host.
+ *
+ * Returns an empty workspace if the file doesn't exist or on timeout/error.
  */
 export async function loadWorkspace(): Promise<Workspace> {
     postRequest({ type: 'load-workspace' });
-    const result = await waitResponse<IPCWorkspaceLoaded>('workspace-loaded');
-    if (result.success) {
-        return JSON.parse(result.content) as Workspace;
-    } else {
-        throw new Error(`Failed to load workspace: ${result.message}`);
+    try {
+        const result = await waitResponse<IPCWorkspaceLoaded>('workspace-loaded', 5000);
+        if (result.success) {
+            // Handle null/empty content (workspace file doesn't exist yet)
+            if (!result.content || result.content === 'null') {
+                return { groups: [], ungrouped: [] };
+            }
+            return JSON.parse(result.content) as Workspace;
+        } else {
+            throw new Error(`Failed to load workspace: ${result.message}`);
+        }
+    } catch (err) {
+        console.error('Workspace load error:', err);
+        // Fallback to empty workspace on timeout or error
+        return { groups: [], ungrouped: [] };
     }
 }
 
 /**
  * Request to save workspace to the host.
+ *
+ * Throws an error if save fails or times out.
  */
 export async function saveWorkspace(workspace: Workspace): Promise<void> {
     postRequest({ type: 'save-workspace', content: JSON.stringify(workspace) });

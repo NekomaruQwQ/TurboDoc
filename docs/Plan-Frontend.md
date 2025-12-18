@@ -241,8 +241,9 @@ Complete the frontend design for TurboDoc, a documentation viewer with local cac
 [✅]    └─ frontend/utils/version-groups.ts  Version grouping logic (semver-compatible groups)
 [✅]    └─ Tests: version-groups.test.ts (unit), crates-api.integration.test.ts (integration)
 
-[ ]   Phase 3: IPC Fixes
-[ ]     └─ frontend/ipc.ts               Add timeout handling
+[✅]  Phase 3: IPC Fixes
+[✅]    └─ frontend/ipc.ts               Added timeout (5s default), null content handling, error fallbacks
+[✅]    └─ src/app.rs                    Fixed response structure: "{}" instead of null, "message" field consistency
 
 [ ]   Phase 4: State Management
 [ ]     └─ frontend/app.tsx              WorkspaceContext with Immer
@@ -308,91 +309,7 @@ Complete the frontend design for TurboDoc, a documentation viewer with local cac
 
 ### 1.1 Enhance `frontend/data.ts`
 
-**Add new interfaces:**
-
-```typescript
-interface DocsPage {
-  /** Relative URL path (e.g., "glam/struct.Vec3.html") */
-  path: string;
-  /** Display title (extracted from first navigation, or derived from path) */
-  title?: string;
-  /** Whether this page is pinned */
-  pinned: boolean;
-  /** Last accessed timestamp (for sorting) */
-  lastAccessed?: number;
-}
-
-interface CrateMetadata {
-  /** Repository URL (from crates.io API) */
-  repository: string | null;
-  /** Homepage URL */
-  homepage: string | null;
-  /** Documentation URL (might differ from docs.rs) */
-  documentation: string | null;
-  /** Short description */
-  description: string;
-  /** Latest version string (e.g., "0.28.0") */
-  latest_version: string;
-  /** License information */
-  license: string | null;
-  /** Timestamp when metadata was fetched (for cache invalidation) */
-  fetchedAt: number;
-}
-
-interface VersionGroup {
-  /** Display label (e.g., "1.85.0 (latest)" or "1.0.0-rc.1") */
-  label: string;
-  /** Actual version number */
-  version: string;
-  /** Whether this is the latest version */
-  isLatest: boolean;
-  /** Whether this is a pre-release version */
-  isPrerelease: boolean;
-  /** Whether this version is yanked */
-  isYanked: boolean;
-}
-```
-
-**Update `ItemCrate` interface:**
-
-```typescript
-interface ItemCrate {
-  /** Name of the crate */
-  name: string;
-  /** Whether the crate card is expanded in the UI */
-  is_expanded: boolean;
-  /** Whether the pages list is collapsed */
-  is_pages_collapsed: boolean;
-
-  /** All available versions (full list from crates.io) */
-  versions: Array<{ num: string; yanked: boolean }>;
-  /** Grouped versions for display (first N semver groups) */
-  version_groups: VersionGroup[];
-  /** Currently selected version ("latest" or specific version) */
-  current_version: string;
-
-  /** Metadata fetched from crates.io API (null if not yet fetched) */
-  metadata: CrateMetadata | null;
-  /** Error message if metadata fetch failed */
-  metadataError?: string;
-
-  /** Documentation pages (both pinned and unpinned) */
-  docs_pages: DocsPage[];
-  /** Currently opened page path (may or may not be pinned) */
-  docs_open_page: string | null;
-}
-```
-
-**Update `Workspace` interface:**
-
-```typescript
-interface Workspace {
-  /** Named groups of crates */
-  groups: Group[];
-  /** Ungrouped crates (displayed at top, simpler than a full Group) */
-  ungrouped: ItemCrate[];
-}
-```
+**Completed.**
 
 **Rationale:**
 - `DocsPage`: Structured page data with pin state and metadata (title, timestamp)
@@ -406,126 +323,7 @@ interface Workspace {
 
 ## Phase 2: Crates.io API Integration
 
-### 2.1 Create `frontend/services/crates-api.ts`
-
-**Purpose:** Fetch crate metadata from crates.io API with rate limiting
-
-**Dependencies:** Add `semver` and `use-debounce` packages:
-```bash
-bun add semver use-debounce
-bun add -d @types/semver
-```
-
-**Key class: CratesIoClient**
-
-```typescript
-class CratesIoClient {
-  private lastRequestTime = 0;
-  private minDelay = 1000; // 1 second between requests (crates.io crawler policy)
-
-  async fetchCrateInfo(crateName: string): Promise<CrateMetadata> {
-    return this.queueRequest(async () => {
-      const response = await fetch(
-        `https://crates.io/api/v1/crates/${crateName}`,
-        {
-          headers: {
-            'User-Agent': 'TurboDoc/1.0 (your-github-url)',
-          },
-        }
-      );
-
-      if (response.status === 429) {
-        const retryAfter = response.headers.get('Retry-After');
-        throw new RateLimitError(parseInt(retryAfter || '60'));
-      }
-
-      if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
-      }
-
-      const data = await response.json();
-      return this.parseMetadata(data);
-    });
-  }
-
-  private async queueRequest<T>(fn: () => Promise<T>): Promise<T> {
-    const now = Date.now();
-    const elapsed = now - this.lastRequestTime;
-
-    if (elapsed < this.minDelay) {
-      await new Promise(resolve => setTimeout(resolve, this.minDelay - elapsed));
-    }
-
-    this.lastRequestTime = Date.now();
-    return fn();
-  }
-
-  private parseMetadata(data: any): CrateMetadata {
-    const crate = data.crate;
-    return {
-      repository: crate.repository || null,
-      homepage: crate.homepage || null,
-      documentation: crate.documentation || null,
-      description: crate.description || '',
-      latest_version: crate.newest_version || crate.max_version,
-      license: crate.license || null,
-      fetchedAt: Date.now(),
-    };
-  }
-}
-
-export const cratesIoClient = new CratesIoClient();
-```
-
-**Version grouping logic:**
-
-```typescript
-function computeVersionGroups(
-  versions: Array<{ num: string; yanked: boolean }>,
-  maxGroups: number = 5
-): VersionGroup[] {
-  const parsed = versions
-    .map(v => ({
-      ...v,
-      parsed: semver.parse(v.num)
-    }))
-    .filter(v => v.parsed !== null);
-
-  // Sort by semver (newest first)
-  parsed.sort((a, b) => semver.rcompare(a.parsed!, b.parsed!));
-
-  const latest = parsed[0];
-  const groups: VersionGroup[] = [];
-
-  // Always show latest
-  groups.push({
-    label: `${latest.num} (latest)`,
-    version: latest.num,
-    isLatest: true,
-    isPrerelease: latest.parsed!.prerelease.length > 0,
-    isYanked: latest.yanked,
-  });
-
-  // Show unique major.minor versions (exclude latest)
-  const seen = new Set([`${latest.parsed!.major}.${latest.parsed!.minor}`]);
-
-  for (const v of parsed.slice(1)) {
-    const key = `${v.parsed!.major}.${v.parsed!.minor}`;
-    if (!seen.has(key) && groups.length < maxGroups) {
-      seen.add(key);
-      groups.push({
-        label: v.num,
-        version: v.num,
-        isLatest: false,
-        isPrerelease: v.parsed!.prerelease.length > 0,
-        isYanked: v.yanked,
-      });
-    }
-  }
-
-  return groups;
-}
-```
+**Completed.**
 
 **Error handling:**
 - Rate limit (429): Throw `RateLimitError` with retry delay
@@ -1103,16 +901,25 @@ All initial questions answered by user - design is well-defined.
 
 ## Future Enhancements (Out of Scope)
 
+### UI/UX
 - Drag-and-drop for reordering crates and groups
+- Keyboard shortcuts (Cmd+K for search, Cmd+P for pages, etc.)
+- Dark/light theme toggle (currently forced dark by backend)
+- Toast notifications for errors/success
+- Page title extraction from HTML
+
+### Features
 - Multiple documentation sources beyond docs.rs
 - Offline mode improvements
 - Full-text search within cached docs
-- Keyboard shortcuts (Cmd+K for search, Cmd+P for pages, etc.)
-- Dark/light theme toggle (currently forced dark by backend)
 - Export/import workspace
-- Page title extraction from HTML
-- Toast notifications for errors/success
 - Workspace size limits and warnings
+
+### Code Quality
+- **Extract reusable RateLimiter class** (deferred until second API needs rate limiting)
+  - Current: Module-level state in `crates-api.ts` works well for single API
+  - Future: When adding rate limiting for additional APIs (docs.rs search, GitHub, etc.), extract into `utils/rate-limiter.ts`
+  - See TODO comment at [crates-api.ts:33](../frontend/services/crates-api.ts#L33)
 
 ---
 

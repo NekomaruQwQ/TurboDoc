@@ -260,15 +260,14 @@ mod handler {
                 serde_json::json!({
                 "type": "workspace-loaded",
                 "success": true,
-                "content": null,
+                "content": "{}",
             }).to_string()
             },
             Err(err) => serde_json::json!({
-            "type": "workspace-loaded",
-            "success": false,
-            "content": null,
-            "message": format!("{err:?}"),
-        }).to_string(),
+                "type": "workspace-loaded",
+                "success": false,
+                "message": format!("{err:?}"),
+            }).to_string(),
         }
     }
 
@@ -281,20 +280,20 @@ mod handler {
             return serde_json::json!({
             "type": "workspace-saved",
             "success": false,
-            "error": format!("{err:?}"),
+            "message": format!("{err:?}"),
         }).to_string();
         }
 
         match std::fs::write(&path, content) {
             Ok(()) => serde_json::json!({
-            "type": "workspace-saved",
-            "success": true,
-        }).to_string(),
+                "type": "workspace-saved",
+                "success": true,
+            }).to_string(),
             Err(err) => serde_json::json!({
-            "type": "workspace-saved",
-            "success": false,
-            "error": format!("{err:?}"),
-        }).to_string(),
+                "type": "workspace-saved",
+                "success": false,
+                "message": format!("{err:?}"),
+            }).to_string(),
         }
     }
 }

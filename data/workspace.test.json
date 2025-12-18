@@ -1,0 +1,380 @@
+{
+  "groups": [
+    {
+      "name": "Async Runtime",
+      "isExpanded": true,
+      "items": [
+        {
+          "type": "crate",
+          "data": {
+            "name": "tokio",
+            "isExpanded": true,
+            "links": {
+              "repository": "https://github.com/tokio-rs/tokio",
+              "homepage": "https://tokio.rs",
+              "documentation": "https://docs.rs/tokio",
+              "fetchedAt": 1734518400000
+            },
+            "versions": [
+              { "num": "1.42.0", "yanked": false },
+              { "num": "1.41.1", "yanked": false },
+              { "num": "1.40.0", "yanked": false },
+              { "num": "1.0.0", "yanked": false },
+              { "num": "0.2.25", "yanked": false }
+            ],
+            "versionGroups": [
+              {
+                "latest": "1.42.0",
+                "versions": [
+                  { "num": "1.42.0", "yanked": false },
+                  { "num": "1.41.1", "yanked": false }
+                ]
+              },
+              {
+                "latest": "1.40.0",
+                "versions": [
+                  { "num": "1.40.0", "yanked": false }
+                ]
+              },
+              {
+                "latest": "1.0.0",
+                "versions": [
+                  { "num": "1.0.0", "yanked": false }
+                ]
+              },
+              {
+                "latest": "0.2.25",
+                "versions": [
+                  { "num": "0.2.25", "yanked": false }
+                ]
+              }
+            ],
+            "currentVersion": "1.42.0",
+            "pinnedPages": [
+              {
+                "path": "tokio/struct.Runtime.html",
+                "pinned": true
+              },
+              {
+                "path": "tokio/task/index.html",
+                "pinned": true
+              }
+            ],
+            "currentPage": {
+              "path": "tokio/sync/struct.Mutex.html",
+              "pinned": false
+            }
+          }
+        },
+        {
+          "type": "crate",
+          "data": {
+            "name": "async-std",
+            "isExpanded": false,
+            "links": {
+              "repository": "https://github.com/async-rs/async-std",
+              "documentation": "https://docs.rs/async-std",
+              "fetchedAt": 1734518400000
+            },
+            "versions": [
+              { "num": "1.13.0", "yanked": false },
+              { "num": "1.12.0", "yanked": false },
+              { "num": "1.0.0", "yanked": false }
+            ],
+            "versionGroups": [
+              {
+                "latest": "1.13.0",
+                "versions": [
+                  { "num": "1.13.0", "yanked": false }
+                ]
+              },
+              {
+                "latest": "1.12.0",
+                "versions": [
+                  { "num": "1.12.0", "yanked": false }
+                ]
+              },
+              {
+                "latest": "1.0.0",
+                "versions": [
+                  { "num": "1.0.0", "yanked": false }
+                ]
+              }
+            ],
+            "currentVersion": "1.13.0",
+            "pinnedPages": [],
+            "currentPage": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "Serialization",
+      "isExpanded": true,
+      "items": [
+        {
+          "type": "crate",
+          "data": {
+            "name": "serde",
+            "isExpanded": true,
+            "links": {
+              "repository": "https://github.com/serde-rs/serde",
+              "homepage": "https://serde.rs",
+              "documentation": "https://docs.rs/serde",
+              "fetchedAt": 1734518400000
+            },
+            "versions": [
+              { "num": "1.0.215", "yanked": false },
+              { "num": "1.0.214", "yanked": false },
+              { "num": "1.0.0", "yanked": false },
+              { "num": "0.9.15", "yanked": false }
+            ],
+            "versionGroups": [
+              {
+                "latest": "1.0.215",
+                "versions": [
+                  { "num": "1.0.215", "yanked": false },
+                  { "num": "1.0.214", "yanked": false },
+                  { "num": "1.0.0", "yanked": false }
+                ]
+              },
+              {
+                "latest": "0.9.15",
+                "versions": [
+                  { "num": "0.9.15", "yanked": false }
+                ]
+              }
+            ],
+            "currentVersion": "1.0.215",
+            "pinnedPages": [
+              {
+                "path": "serde/trait.Serialize.html",
+                "pinned": true
+              },
+              {
+                "path": "serde/trait.Deserialize.html",
+                "pinned": true
+              }
+            ],
+            "currentPage": {
+              "path": "serde/trait.Deserialize.html",
+              "pinned": true
+            }
+          }
+        },
+        {
+          "type": "crate",
+          "data": {
+            "name": "serde_json",
+            "isExpanded": true,
+            "links": {
+              "repository": "https://github.com/serde-rs/json",
+              "documentation": "https://docs.rs/serde_json",
+              "fetchedAt": 1734518400000
+            },
+            "versions": [
+              { "num": "1.0.132", "yanked": false },
+              { "num": "1.0.131", "yanked": false },
+              { "num": "1.0.0", "yanked": false }
+            ],
+            "versionGroups": [
+              {
+                "latest": "1.0.132",
+                "versions": [
+                  { "num": "1.0.132", "yanked": false },
+                  { "num": "1.0.131", "yanked": false },
+                  { "num": "1.0.0", "yanked": false }
+                ]
+              }
+            ],
+            "currentVersion": "1.0.132",
+            "pinnedPages": [
+              {
+                "path": "serde_json/fn.from_str.html",
+                "pinned": true
+              }
+            ],
+            "currentPage": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "Graphics & Math",
+      "isExpanded": false,
+      "items": [
+        {
+          "type": "crate",
+          "data": {
+            "name": "glam",
+            "isExpanded": false,
+            "links": {
+              "repository": "https://github.com/bitshifter/glam-rs",
+              "documentation": "https://docs.rs/glam",
+              "fetchedAt": 1734518400000
+            },
+            "versions": [
+              { "num": "0.29.2", "yanked": false },
+              { "num": "0.29.1", "yanked": false },
+              { "num": "0.28.0", "yanked": false },
+              { "num": "0.20.0", "yanked": false }
+            ],
+            "versionGroups": [
+              {
+                "latest": "0.29.2",
+                "versions": [
+                  { "num": "0.29.2", "yanked": false },
+                  { "num": "0.29.1", "yanked": false }
+                ]
+              },
+              {
+                "latest": "0.28.0",
+                "versions": [
+                  { "num": "0.28.0", "yanked": false }
+                ]
+              },
+              {
+                "latest": "0.20.0",
+                "versions": [
+                  { "num": "0.20.0", "yanked": false }
+                ]
+              }
+            ],
+            "currentVersion": "0.29.2",
+            "pinnedPages": [
+              {
+                "path": "glam/struct.Vec3.html",
+                "pinned": true
+              },
+              {
+                "path": "glam/struct.Mat4.html",
+                "pinned": true
+              }
+            ],
+            "currentPage": null
+          }
+        }
+      ]
+    }
+  ],
+  "ungrouped": [
+    {
+      "name": "anyhow",
+      "isExpanded": true,
+      "links": {
+        "repository": "https://github.com/dtolnay/anyhow",
+        "documentation": "https://docs.rs/anyhow",
+        "fetchedAt": 1734518400000
+      },
+      "versions": [
+        { "num": "1.0.93", "yanked": false },
+        { "num": "1.0.92", "yanked": false },
+        { "num": "1.0.0", "yanked": false }
+      ],
+      "versionGroups": [
+        {
+          "latest": "1.0.93",
+          "versions": [
+            { "num": "1.0.93", "yanked": false },
+            { "num": "1.0.92", "yanked": false },
+            { "num": "1.0.0", "yanked": false }
+          ]
+        }
+      ],
+      "currentVersion": "1.0.93",
+      "pinnedPages": [],
+      "currentPage": {
+        "path": "anyhow/struct.Error.html",
+        "pinned": false
+      }
+    },
+    {
+      "name": "thiserror",
+      "isExpanded": false,
+      "links": {
+        "repository": "https://github.com/dtolnay/thiserror",
+        "documentation": "https://docs.rs/thiserror",
+        "fetchedAt": 1734518400000
+      },
+      "versions": [
+        { "num": "2.0.9", "yanked": false },
+        { "num": "2.0.0-rc.1", "yanked": false },
+        { "num": "1.0.69", "yanked": false },
+        { "num": "1.0.0", "yanked": false }
+      ],
+      "versionGroups": [
+        {
+          "latest": "2.0.9",
+          "versions": [
+            { "num": "2.0.9", "yanked": false }
+          ]
+        },
+        {
+          "latest": "2.0.0-rc.1",
+          "versions": [
+            { "num": "2.0.0-rc.1", "yanked": false }
+          ]
+        },
+        {
+          "latest": "1.0.69",
+          "versions": [
+            { "num": "1.0.69", "yanked": false },
+            { "num": "1.0.0", "yanked": false }
+          ]
+        }
+      ],
+      "currentVersion": "1.0.69",
+      "pinnedPages": [],
+      "currentPage": null
+    },
+    {
+      "name": "regex",
+      "isExpanded": true,
+      "versions": [
+        { "num": "1.11.1", "yanked": false },
+        { "num": "1.11.0", "yanked": false },
+        { "num": "1.10.0", "yanked": false },
+        { "num": "1.0.0", "yanked": false },
+        { "num": "0.2.11", "yanked": true }
+      ],
+      "versionGroups": [
+        {
+          "latest": "1.11.1",
+          "versions": [
+            { "num": "1.11.1", "yanked": false },
+            { "num": "1.11.0", "yanked": false }
+          ]
+        },
+        {
+          "latest": "1.10.0",
+          "versions": [
+            { "num": "1.10.0", "yanked": false }
+          ]
+        },
+        {
+          "latest": "1.0.0",
+          "versions": [
+            { "num": "1.0.0", "yanked": false }
+          ]
+        },
+        {
+          "latest": "0.2.11",
+          "versions": [
+            { "num": "0.2.11", "yanked": true }
+          ]
+        }
+      ],
+      "currentVersion": "1.11.1",
+      "pinnedPages": [
+        {
+          "path": "regex/struct.Regex.html",
+          "pinned": true
+        }
+      ],
+      "currentPage": {
+        "path": "regex/struct.Captures.html",
+        "pinned": false
+      }
+    }
+  ]
+}
