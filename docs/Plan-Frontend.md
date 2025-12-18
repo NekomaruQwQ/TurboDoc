@@ -244,9 +244,21 @@ Complete the frontend design for TurboDoc, a documentation viewer with local cac
 [✅]  Phase 3: IPC Fixes
 [✅]    └─ frontend/ipc.ts               Added timeout (5s default), null content handling, error fallbacks
 [✅]    └─ src/app.rs                    Fixed response structure: "{}" instead of null, "message" field consistency
+[✅]    └─ frontend/constants.ts         Created with CACHE_EXPIRY_MS, API_RATE_LIMIT_MS, IPC_TIMEOUT_MS
 
-[ ]   Phase 4: State Management
-[ ]     └─ frontend/app.tsx              WorkspaceContext with Immer
+[✅]  Phase 3.5: Workspace/Cache Split
+[✅]    └─ frontend/data.ts              Added Cache and CrateCache interfaces
+[✅]    └─ frontend/ipc.ts               Added loadCache/saveCache functions with cache IPC types
+[✅]    └─ frontend/global.ts            Renamed WorkspaceContext → AppContext, added cache operations
+[✅]    └─ frontend/App.tsx              Dual state (workspace + cache), separate save strategies
+[✅]    └─ src/app.rs                    Added load_cache/save_cache handlers (simplified naming)
+
+[✅]  Phase 4: State Management (Core Complete, Actions Deferred)
+[✅]    └─ frontend/context.ts           AppContext class with dual state, getCrateInfo, updateWorkspace/updateCache
+[✅]    └─ frontend/app.tsx              useAppContext hook with state initialization and loading
+[✅]    └─ iframe ref added              iframeRef in AppContext, ready to connect in app.tsx
+[ ]     └─ Workspace actions             Deferred: addCrate, removeCrate, pinPage, etc. (implement with UI)
+[ ]     └─ IPC navigation handler        Deferred: 'navigated' event handling (implement with Explorer)
 
 [ ]   Phase 5: UI Components (Top-to-Down)
 [ ]     └─ frontend/explorer/index.tsx           Explorer container
@@ -318,6 +330,26 @@ Complete the frontend design for TurboDoc, a documentation viewer with local cac
 - `docs_open_page`: Single source of truth for current page (derive "half-open" state from `docs_pages`)
 - `ungrouped`: Simple array instead of Group (avoids confusion, easier to work with)
 - **REMOVED `docs_half_open_page`**: Derived from `docs_pages.find(p => p.path === docs_open_page && !p.pinned)`
+
+### 1.2 Workspace/Cache Split
+
+**Completed.**
+
+**Design Decision:** Split workspace.json into two files:
+- **workspace.json**: User data only (crate names, groups, pins, UI state)
+- **cache.json**: Cached API data (versions, links, version groups, timestamps)
+
+**New Types:**
+- `Cache`: Top-level cache structure with flat crate map
+- `CrateCache`: Per-crate cached metadata (versions, versionGroups, links, lastFetched)
+- `CrateVersion`: Version info (num, yanked)
+- `CrateLinks`: External links (repository, homepage, documentation)
+
+**Benefits:**
+- Smaller workspace file (~90% reduction, better for version control)
+- Independent cache management (can clear without losing workspace)
+- Non-fatal cache failures (graceful degradation to empty cache)
+- Separate save timing (workspace: immediate, cache: on metadata fetch)
 
 ---
 
@@ -447,133 +479,184 @@ CrateCard
 
 ## Phase 4: State Management
 
-### 4.1 WorkspaceContext with Immer
+### 4.1 AppContext with Dual State (Workspace + Cache)
 
-**Update `app.tsx`** - Use Immer for all state mutations:
+**Core Complete** - Class-based AppContext implemented in `frontend/context.ts` and `frontend/app.tsx`.
+
+**Implementation Overview:**
+
+The AppContext is implemented as a **class** (not a plain object) that encapsulates:
+- Workspace state (user data: groups, crates, pins)
+- Cache state (API data: versions, links, metadata)
+- Methods for updating both states with automatic persistence
+
+**Key Files:**
+- **`frontend/context.ts`**: AppContext class definition
+- **`frontend/app.tsx`**: useAppContext hook that creates and manages the AppContext instance
+
+### 4.2 Current Implementation
+
+**AppContext Class (`context.ts`):**
 
 ```typescript
-import { produce } from 'immer';
-import { useDebouncedCallback } from 'use-debounce';
+export class AppContext {
+    private workspace: Immutable<Workspace>;
+    private setWorkspace: (value: Immutable<Workspace>) => void;
+    private cache: Immutable<Cache>;
+    private setCache: (value: Immutable<Cache>) => void;
 
-interface WorkspaceState {
-  workspace: Workspace | null;
-  loading: {
-    workspace: boolean;
-    metadata: Map<string, boolean>;  // Track per-crate loading
-  };
-  errors: {
-    workspace: string | null;
-    metadata: Map<string, string>;   // Track per-crate errors
-  };
+    /** Reference to the docs.rs iframe for programmatic navigation */
+    public readonly iframeRef = { current: null as HTMLIFrameElement | null };
+
+    public constructor(
+        workspaceState: [Immutable<Workspace>, (value: Immutable<Workspace>) => void],
+        cacheState: [Immutable<Cache>, (value: Immutable<Cache>) => void]) {
+        [this.workspace, this.setWorkspace] = workspaceState;
+        [this.cache, this.setCache] = cacheState;
+    }
+
+    public getWorkspace() { return this.workspace; }
+
+    public async load(): Promise<void> {
+        this.setCache(await IPC.loadCache());
+        this.setWorkspace(await IPC.loadWorkspace());
+    }
+
+    public async updateWorkspace(updater: (draft: Workspace) => void): Promise<void> {
+        const newWorkspace = produce(this.workspace, updater);
+        this.setWorkspace(newWorkspace);
+        await IPC.saveWorkspace(newWorkspace);
+    }
+
+    private async updateCache(updater: (draft: Cache) => void): Promise<void> {
+        const newCache = produce(this.cache, updater);
+        this.setCache(newCache);
+        await IPC.saveCache(newCache);
+    }
+
+    public async getCrateInfo(crateName: string): Promise<Immutable<CrateInfo> | undefined> {
+        // Check if cache is stale (24h TTL)
+        // Fetch from crates.io API if needed
+        // Returns stale cache on fetch failure (graceful degradation)
+        // ...
+    }
 }
-
-const WorkspaceContext = createContext<{
-  state: WorkspaceState;
-  actions: {
-    addCrate: (crateName: string, groupIndex?: number) => Promise<void>;
-    removeCrate: (crateName: string) => void;
-    moveCrate: (crateName: string, toGroupIndex: number) => void;
-    addGroup: (name: string) => void;
-    removeGroup: (index: number) => void;
-    updateCrateVersion: (crateName: string, version: string) => void;
-    pinPage: (crateName: string, pagePath: string) => void;
-    unpinPage: (crateName: string, pagePath: string) => void;
-    setOpenPage: (crateName: string, pagePath: string) => void;
-    refreshMetadata: (crateName: string) => Promise<void>;
-  };
-  iframeRef: React.RefObject<HTMLIFrameElement>;
-}>(undefined!);
 ```
 
-**Key implementation details:**
+**useAppContext Hook (`app.tsx`):**
 
-1. **Use Immer's `produce` for all mutations:**
-   ```typescript
-   const pinPage = (crateName: string, pagePath: string) => {
-     setWorkspace(produce(draft => {
-       const crate = findCrateInWorkspace(draft, crateName);
-       if (!crate) return;
+```typescript
+function useAppContext(): AppContext {
+    const appContext = new AppContext(
+        useState<Immutable<Workspace>>({ groups: [], ungrouped: [] }),
+        useState<Immutable<Cache>>({ crates: {} }));
 
-       const page = crate.docs_pages.find(p => p.path === pagePath);
-       if (page) {
-         page.pinned = true;
-       } else {
-         crate.docs_pages.push({ path: pagePath, pinned: true, title: undefined, lastAccessed: Date.now() });
-       }
-     }));
-   };
-   ```
+    // Load once on mount
+    useEffect(() => {
+        (async () => {
+            try {
+                await appContext.load();
+            } catch (err) {
+                console.error(err);
+            }
+        })()
+    }, []);
 
-2. **Auto-save with proper debouncing:**
-   ```typescript
-   const debouncedSave = useDebouncedCallback(
-     (workspace: Workspace) => {
-       saveWorkspace(workspace).catch(err => {
-         console.error('Failed to save workspace:', err);
-         // Optionally show toast notification
-       });
-     },
-     500,
-     { maxWait: 2000 }  // Ensure save within 2s max
-   );
+    return appContext;
+}
+```
 
-   useEffect(() => {
-     if (!state.workspace || state.loading.workspace) return;
-     debouncedSave(state.workspace);
-   }, [state.workspace]);
-   ```
+### 4.3 Design Decisions
 
-3. **Handle IPC navigation events:**
-   ```typescript
-   useEffect(() => {
-     return on('navigated', (event) => {
-       const parsed = parseDocsRsUrl(event.url);
-       if (!parsed) return;
+**1. Class-Based Context (Not Plain Object)**
+- **Decision**: AppContext is a class, not a plain object with methods
+- **Rationale**: Encapsulation, cleaner method organization, hides React state management details
+- **Trade-off**: Less conventional than plain objects, but better separation of concerns
 
-       setWorkspace(produce(draft => {
-         if (!draft) return;
+**2. No useMemo for AppContext**
+- **Decision**: AppContext is recreated on every render (no memoization)
+- **Rationale**: AppContext holds ALL app-level state, so App only re-renders when that state changes (which is when we want context consumers to re-render)
+- **Trade-off**: New instance per render, but no performance issue since App only has this state
+- **Key insight**: If we later add other state to App, we'd need memoization; for now, unnecessary
 
-         let crate = findCrateInWorkspace(draft, parsed.crate);
+**3. Private updateCache**
+- **Decision**: `updateCache()` is private, only `getCrateInfo()` can mutate cache
+- **Rationale**: Ensures cache saves are exclusively triggered by API fetches, which are naturally rate-limited (1s by crates.io API)
+- **Trade-off**: Less flexible, but prevents accidental cache saves
 
-         // Auto-add crate if not in workspace (cross-crate navigation)
-         if (!crate) {
-           const newCrate = createDefaultCrate(parsed.crate, parsed.version);
-           draft.ungrouped.push(newCrate);
-           crate = newCrate;
-           // Trigger metadata fetch asynchronously
-           fetchAndUpdateMetadata(parsed.crate);
-         }
+**4. Graceful Degradation on Fetch Failure**
+- **Decision**: `getCrateInfo()` returns stale cache if refetch fails, `undefined` only if no cache exists
+- **Rationale**: Stale metadata is better than no metadata (versions rarely change drastically)
+- **Trade-off**: Users might see outdated info, but acceptable (can manually refresh via menu)
 
-         // Update open page
-         crate.docs_open_page = parsed.page;
+**5. iframe Ref in AppContext**
+- **Decision**: AppContext owns the iframe ref, not App component
+- **Rationale**: Centralized navigation logic, methods can directly manipulate iframe
+- **Trade-off**: Ref is recreated on each render, but React handles `.current` correctly
 
-         // Add to docs_pages if not already present
-         if (!crate.docs_pages.some(p => p.path === parsed.page)) {
-           // Replace existing unpinned page (like VS Code behavior)
-           const unpinnedIndex = crate.docs_pages.findIndex(p => !p.pinned);
-           if (unpinnedIndex >= 0) {
-             crate.docs_pages.splice(unpinnedIndex, 1);
-           }
-           crate.docs_pages.push({
-             path: parsed.page,
-             pinned: false,
-             lastAccessed: Date.now(),
-           });
-         }
+**6. Deferred Workspace Actions**
+- **Decision**: Workspace mutation methods (addCrate, removeCrate, pinPage, etc.) NOT implemented yet
+- **Rationale**: Implement alongside UI components for immediate testing via HMR
+- **Plan**: Add methods incrementally as each UI component needs them
 
-         // Update iframe URL
-         if (iframeRef.current) {
-           iframeRef.current.src = event.url;
-         }
-       }));
-     });
-   }, []);
-   ```
+**7. Deferred IPC Navigation Handler**
+- **Decision**: IPC 'navigated' event handling NOT implemented yet
+- **Rationale**: Requires page list UI to be functional for visual verification
+- **Plan**: Implement when building Explorer page tree component
 
-**Rationale:**
-- **Removed NavigationContext**: Over-engineering - iframe URL and navigation state managed in WorkspaceContext
-- **Immer**: Simplifies deeply nested state updates
-- **Error tracking**: Allows components to show loading/error states per crate
+### 4.4 Save Strategy
+
+- **Workspace**: Saves immediately on every change via `updateWorkspace()` (no debouncing)
+  - Workspace is small (~1KB), saves are fast, ensures data safety
+- **Cache**: Saves only when `getCrateInfo()` fetches from API (auto-rate-limited to 1s)
+  - Cache updates are infrequent and naturally rate-limited by API calls
+
+### 4.5 Remaining Work (Deferred to Phase 5)
+
+**Workspace Action Methods** (add as UI components need them):
+- `addCrate(crateName: string, groupIndex?: number): Promise<void>`
+- `removeCrate(crateName: string): void`
+- `moveCrate(crateName: string, toGroupIndex: number): void`
+- `addGroup(name: string): void`
+- `removeGroup(index: number): void`
+- `updateCrateVersion(crateName: string, version: string): void`
+- `pinPage(crateName: string, pagePath: string): void`
+- `unpinPage(crateName: string, pagePath: string): void`
+- `setOpenPage(crateName: string, pagePath: string): void`
+
+**IPC Navigation Event Handler** (implement with Explorer page tree):
+- Listen for 'navigated' event from backend
+- Parse docs.rs URL
+- Auto-add crate if not in workspace
+- Update current page (half-open page logic)
+- Navigate iframe
+
+**Example implementation pattern** (will use when needed):
+```typescript
+public async pinPage(crateName: string, pagePath: string): Promise<void> {
+    await this.updateWorkspace(draft => {
+        const crate = findCrateInWorkspace(draft, crateName);
+        if (!crate) return;
+
+        const page = crate.pinnedPages.find(p => p.path === pagePath);
+        if (!page) {
+            crate.pinnedPages.push({ path: pagePath, pinned: true });
+        } else {
+            page.pinned = true;
+        }
+    });
+}
+```
+
+### 4.6 Rationale Summary
+
+- **Class-based AppContext**: Better encapsulation, cleaner API
+- **Workspace/Cache Split**: Clean separation of user data vs cached API data
+- **Immediate workspace saves**: No debouncing needed (workspace is small, ~1KB)
+- **Cache saves on fetch**: Auto-rate-limited by API (only saves when metadata fetched)
+- **Immer**: Simplifies deeply nested state updates, prevents mutation bugs
+- **Graceful degradation**: Return stale cache on fetch failure (better UX)
+- **Deferred actions**: Implement methods when UI needs them (immediate testing via HMR)
 - **Name-based actions**: Cleaner API than index-based (avoids index invalidation on reorder)
 
 ---
@@ -781,13 +864,17 @@ Use **lucide-react**:
 
 ## Critical Files to Modify
 
-1. **[frontend/data.ts](frontend/data.ts)** - Data model updates
-2. **[frontend/app.tsx](frontend/app.tsx)** - Context and IPC integration
-3. **[frontend/explorer/index.tsx](frontend/explorer/index.tsx)** - Main explorer component
-4. **New files:**
-   - `frontend/services/crates-api.ts` - API integration
-   - `frontend/utils/url-parser.ts` - URL parsing
-   - `frontend/contexts/navigation.tsx` - Navigation state
+1. **[frontend/data.ts](frontend/data.ts)** ✅ - Data model updates (Workspace, Cache, CrateInfo)
+2. **[frontend/context.ts](frontend/context.ts)** ✅ - AppContext class definition with dual state management
+3. **[frontend/app.tsx](frontend/app.tsx)** ✅ - useAppContext hook and App component
+4. **[frontend/ipc.ts](frontend/ipc.ts)** ✅ - IPC functions (workspace + cache load/save)
+5. **[frontend/constants.ts](frontend/constants.ts)** ✅ - Constants (CACHE_EXPIRY_MS, etc.)
+6. **[frontend/explorer/index.tsx](frontend/explorer/index.tsx)** - Main explorer component
+7. **Completed utilities:**
+   - `frontend/services/crates-api.ts` ✅ - API integration with rate limiting
+   - `frontend/utils/url-parser.ts` ✅ - URL parsing utility
+   - `frontend/utils/version-groups.ts` ✅ - Version grouping logic
+8. **Remaining UI components:**
    - `frontend/explorer/search-bar.tsx`
    - `frontend/explorer/search-results.tsx`
    - `frontend/explorer/group-list.tsx`
@@ -816,10 +903,40 @@ Use **lucide-react**:
 - **Rationale:** Dramatically simplifies deeply nested updates, prevents mutation bugs
 - **Trade-off:** Small bundle size increase (~13KB) (worth it for code clarity)
 
+### State Management: Class-Based AppContext
+- **Decision:** Implement AppContext as a class (not a plain object with methods)
+- **Rationale:** Better encapsulation, cleaner method organization, hides React state management details from consumers
+- **Trade-off:** Less conventional than plain objects, but provides better separation of concerns
+
+### State Management: No Memoization for AppContext
+- **Decision:** AppContext is recreated on every render (no useMemo)
+- **Rationale:** AppContext holds ALL app-level state, so App only re-renders when that state changes (which is when we want context consumers to re-render anyway)
+- **Trade-off:** New instance per render, but no performance issue since App has no other state
+- **Future consideration:** If App gains additional non-AppContext state, we'd need to memoize AppContext based on workspace/cache values
+
+### State Management: Private updateCache Method
+- **Decision:** `updateCache()` is private, only `getCrateInfo()` can mutate cache
+- **Rationale:** Ensures cache saves are exclusively triggered by API fetches, which are naturally rate-limited (1s by crates.io API)
+- **Trade-off:** Less flexible API, but prevents accidental cache saves and enforces rate limiting
+
 ### State Management: Remove NavigationContext
-- **Decision:** No separate NavigationContext, manage iframe in WorkspaceContext
+- **Decision:** No separate NavigationContext, manage iframe in AppContext
 - **Rationale:** Avoids redundant state and sync issues, simpler architecture
-- **Trade-off:** WorkspaceContext is slightly larger (acceptable, still cohesive)
+- **Trade-off:** AppContext is slightly larger (acceptable, still cohesive)
+
+### State Management: Workspace/Cache Split
+- **Decision:** Split workspace.json into workspace.json (user data) + cache.json (API data)
+- **Rationale:**
+  - Smaller workspace file (~90% reduction, better for version control)
+  - Independent cache management (can clear without losing workspace)
+  - Non-fatal cache failures (graceful degradation)
+  - Separate save timing (workspace: immediate, cache: on fetch)
+- **Trade-off:** More complex persistence (2 files vs 1), but benefits outweigh complexity
+
+### State Management: Immediate Workspace Saves
+- **Decision:** Save workspace immediately on every change (no debouncing)
+- **Rationale:** Workspace is small (~1KB), saves are fast, ensures data safety
+- **Trade-off:** Higher IPC frequency (acceptable, workspace saves are cheap)
 
 ### API: Rate Limiting
 - **Decision:** Enforce 1-second delay between crates.io API requests
@@ -827,9 +944,9 @@ Use **lucide-react**:
 - **Trade-off:** Slower when adding many crates rapidly (necessary for API compliance)
 
 ### API: Metadata Caching
-- **Decision:** Cache crate metadata for 24 hours in workspace state
+- **Decision:** Cache crate metadata for 24 hours in cache.json (not workspace.json)
 - **Rationale:** Reduces API calls, improves startup performance, metadata rarely changes
-- **Trade-off:** Stale data possible (acceptable, can manually refresh)
+- **Trade-off:** Stale data possible (acceptable, can manually refresh via "Refresh metadata" menu)
 
 ### Version Grouping Algorithm
 - **Decision:** Show latest + 4 unique major.minor versions, handle pre-release and yanked
@@ -858,9 +975,11 @@ Use **lucide-react**:
 - **Trade-off:** Less intuitive UX initially (acceptable for MVP)
 
 ### Auto-Save Timing
-- **Decision:** Debounce 500ms, max wait 2 seconds
-- **Rationale:** Balance between data safety and IPC overhead
-- **Trade-off:** Potential data loss on crash within 500ms window (acceptable risk)
+- **Decision:** Workspace saves immediately (no debouncing), cache saves on metadata fetch
+- **Rationale:**
+  - Workspace is small (~1KB), immediate save ensures data safety
+  - Cache saves are auto-rate-limited by API (1s between requests)
+- **Trade-off:** Higher workspace IPC frequency (acceptable, saves are cheap)
 
 ---
 
@@ -873,6 +992,9 @@ Use **lucide-react**:
 3. **Single half-open page**: Each crate has at most one unpinned page at a time (like VS Code)
 4. **No nested groups**: Groups cannot contain other groups (flat structure)
 5. **Page paths**: Always relative URLs from docs.rs root
+6. **Clean workspace.json**: workspace.json never contains cached fields (during development)
+   - Cached fields (versions, versionGroups, links) only exist in cache.json
+   - No field stripping needed when saving workspace
 
 ### Items to Verify During Implementation:
 1. **CORS support**: Test fetch to `https://crates.io/api/v1/crates/serde` from WebView2
@@ -932,6 +1054,7 @@ This plan incorporates critical fixes identified during architectural review:
    - Removed `docs_half_open_page` field (derive from `docs_pages` instead)
    - Changed `ungrouped` from Group to `ItemCrate[]` (simpler, clearer)
    - Added proper `DocsPage` interface with metadata
+   - **Split workspace.json into workspace + cache** (clean separation of user data vs API data)
 
 2. **IPC Reliability**
    - Added timeout handling to `waitResponse()` (prevents hangs)
@@ -949,21 +1072,29 @@ This plan incorporates critical fixes identified during architectural review:
    - Uses `semver` package for correct parsing and sorting
 
 5. **State Management**
+   - **Class-based AppContext** (better encapsulation, cleaner API than plain objects)
+   - **No memoization** (AppContext recreated per render, but no perf issue since it holds all App state)
    - Integrated Immer for clean, bug-free mutations
-   - Added error/loading state tracking per crate
-   - Removed NavigationContext (unnecessary complexity)
+   - **Dual state management** (workspace + cache with separate save strategies)
+   - **Private updateCache** (enforces cache saves only via getCrateInfo, naturally rate-limited)
+   - **Graceful degradation** (getCrateInfo returns stale cache on fetch failure)
+   - Removed NavigationContext (unnecessary complexity, managed in AppContext)
+   - **Deferred actions** (workspace mutations and IPC handlers implemented alongside UI)
    - Name-based actions instead of index-based (more robust)
+   - Immediate workspace saves (no debouncing, file is small)
+   - Cache saves only on metadata fetch (auto-rate-limited by API)
 
 6. **Edge Cases Handled**
    - Cross-crate navigation (auto-add to ungrouped)
    - Version mismatch navigation
-   - Metadata fetch failures (graceful degradation)
+   - Metadata fetch failures (graceful degradation to empty cache)
+   - Cache file corruption (non-fatal, falls back to empty cache)
    - IPC timeout scenarios
 
 ### Architecture Improvements:
 - Cleaner component hierarchy with explicit ungrouped section
-- Better separation of concerns (no redundant contexts)
-- Proper debouncing with `use-debounce` library
+- Better separation of concerns (user data vs cached data in separate files)
+- Separate persistence strategies (workspace: immediate, cache: on-fetch)
 - Type guards for safer type narrowing
 - React.memo optimization points identified
 

@@ -1,3 +1,5 @@
+import type { Immutable } from 'immer';
+
 import type { Workspace, Cache } from '@/data';
 import { IPC_TIMEOUT_MS } from '@/constants';
 
@@ -47,7 +49,7 @@ type IPCCacheSaved =
 /**
  * Send an `IPCRequest` to the host via WebView2 IPC.
  */
-function postRequest(message: IPCRequest): void {
+export function send(message: Immutable<IPCRequest>): void {
     console.log('[<-] ', message);
     window.chrome.webview.postMessage(JSON.stringify(message));
 }
@@ -55,20 +57,20 @@ function postRequest(message: IPCRequest): void {
 const ipcEventHandlers: {
     [_ in IPCEvent['type']]?: {
         nextId: number;
-        [_: number]: (event: IPCEvent) => void;
+        [_: number]: (event: Immutable<IPCEvent>) => void;
     };
 } = {};
 
 const ipcResponseHandlers: {
-    [_ in IPCResponse['type']]?: (response: IPCResponse) => void;
+    [_ in IPCResponse['type']]?: (response: Immutable<IPCResponse>) => void;
 } = {};
 
 /**
- * Initialize global IPC message listener.
+ * Initialize global IPC message listener
  * 
  * This should be called once at app startup.
  */
-export function initIPC(): void {
+export function init(): void {
     window.chrome.webview.addEventListener('message', (event: MessageEvent) => {
         const message = event.data as IPCEvent | IPCResponse;
         console.log('[->] ', message);
@@ -126,7 +128,7 @@ export function on<T extends IPCEvent>(
  * @param timeoutMs - Timeout in milliseconds (default: 5000ms)
  * @returns Promise that resolves with the response or rejects on timeout
  */
-function waitResponse<T extends IPCResponse>(
+export function wait<T extends IPCResponse>(
     type: T['type'],
     timeoutMs = IPC_TIMEOUT_MS): Promise<T> {
     return new Promise((resolve, reject) => {
@@ -154,9 +156,9 @@ function waitResponse<T extends IPCResponse>(
  * Returns an empty workspace if the file doesn't exist or on timeout/error.
  */
 export async function loadWorkspace(): Promise<Workspace> {
-    postRequest({ type: 'load-workspace' });
+    send({ type: 'load-workspace' });
     try {
-        const result = await waitResponse<IPCWorkspaceLoaded>('workspace-loaded');
+        const result = await wait<IPCWorkspaceLoaded>('workspace-loaded');
         if (result.success) {
             // Handle null/empty content (workspace file doesn't exist yet)
             if (result.content) {
@@ -177,9 +179,9 @@ export async function loadWorkspace(): Promise<Workspace> {
  *
  * Throws an error if save fails or times out.
  */
-export async function saveWorkspace(workspace: Workspace): Promise<void> {
-    postRequest({ type: 'save-workspace', content: JSON.stringify(workspace) });
-    const result = await waitResponse<IPCWorkspaceSaved>('workspace-saved');
+export async function saveWorkspace(workspace: Immutable<Workspace>): Promise<void> {
+    send({ type: 'save-workspace', content: JSON.stringify(workspace) });
+    const result = await wait<IPCWorkspaceSaved>('workspace-saved');
     if (!result.success) {
         throw new Error(`Failed to save workspace: ${result.message}`);
     }
@@ -192,9 +194,9 @@ export async function saveWorkspace(workspace: Workspace): Promise<void> {
  * As such, this function never throws.
  */
 export async function loadCache(): Promise<Cache> {
-    postRequest({ type: 'load-cache' });
+    send({ type: 'load-cache' });
     try {
-        const result = await waitResponse<IPCCacheLoaded>('cache-loaded');
+        const result = await wait<IPCCacheLoaded>('cache-loaded');
         if (result.success) {
             if (result.content) {
                 return JSON.parse(result.content) as Cache;
@@ -214,9 +216,9 @@ export async function loadCache(): Promise<Cache> {
  *
  * Throws an error if save fails or times out.
  */
-export async function saveCache(cache: Cache): Promise<void> {
-    postRequest({type: 'save-cache', content: JSON.stringify(cache) });
-    const result = await waitResponse<IPCCacheSaved>('cache-saved');
+export async function saveCache(cache: Immutable<Cache>): Promise<void> {
+    send({type: 'save-cache', content: JSON.stringify(cache) });
+    const result = await wait<IPCCacheSaved>('cache-saved');
     if (!result.success) {
         throw new Error(`Failed to save cache: ${result.message}`);
     }

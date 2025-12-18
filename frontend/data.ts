@@ -44,14 +44,14 @@ export interface CratePage {
  */
 export interface Cache {
     /** Flat map of crate caches, keyed by crate name for O(1) lookup */
-    crates?: Record<string, CrateCache>;
+    crates: Record<string, CrateInfo>;
 }
 
 /**
  * Cached API data for a single crate.
  * Stored separately from workspace to enable independent cache management.
  */
-export interface CrateCache {
+export interface CrateInfo {
     /** Name of the crate (for validation) */
     name: string;
     /** Full version list fetched from crates.io API */

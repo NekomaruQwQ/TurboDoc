@@ -19,10 +19,10 @@ export interface CrateInfo {
     crate: {
         id: string;
         name: string;
-        description?: string | null;
-        homepage?: string | null;
-        repository?: string | null;
-        documentation?: string | null;
+        description?: string;
+        homepage?: string;
+        repository?: string;
+        documentation?: string;
     };
     versions: {
         num: string;
@@ -55,6 +55,7 @@ async function queueRequest<T>(fn: () => Promise<T>): Promise<T> {
 /** Fetch crate information from crates.io API. */
 export async function fetchCrateInfo(crateName: string): Promise<CrateInfo> {
     return queueRequest(async () => {
+        console.log(`[crates.io] Fetching crate info for ${crateName}.`);
         const response =
             await fetch(`https://crates.io/api/v1/crates/${crateName}`, {
                 headers: {
@@ -82,6 +83,7 @@ export async function fetchCrateInfo(crateName: string): Promise<CrateInfo> {
 /** Search for crates on crates.io */
 export async function searchCrates(query: string): Promise<{ name: string, description: string | null }[]> {
     return queueRequest(async () => {
+        console.log(`[crates.io] Searching with query "${query}".`);
         const response = await fetch(
             `https://crates.io/api/v1/crates?q=${encodeURIComponent(query)}`, {
                 headers: {

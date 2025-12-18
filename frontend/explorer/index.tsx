@@ -1,10 +1,8 @@
-import { useContext } from 'react';
-
-
-import { WorkspaceContext } from '@/global';
+import { useAppContext } from '@/context';
 
 export function Explorer() {
-    const [workspace, _] = useContext(WorkspaceContext);
+    const appContext = useAppContext();
+
     return <>
         {/* <Tree className={css({
             width: '24em',
