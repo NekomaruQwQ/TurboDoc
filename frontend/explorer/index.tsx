@@ -1,6 +1,8 @@
-import { useAppContext } from '@/context';
-import type { Item, ItemCrate } from '@/data';
 import type { ReadonlyDeep } from 'type-fest';
+
+import { useAppContext } from '@/context';
+import type { Item } from '@/data';
+import { CrateCard } from './items/crate';
 
 export function Explorer() {
     const ctx = useAppContext();
@@ -36,17 +38,9 @@ function ExplorerGroup(props: ExplorerGroupProps) {
         {props.items.map(item => {
             switch (item.type) {
                 case 'crate':
-                    return <ItemCrate key={item.data.name} crate={item.data} />;
+                    return <CrateCard key={item.data.name} item={item} />;
                 default:
             }
         })}
-    </div>;
-}
-
-function ItemCrate(props: { crate: ReadonlyDeep<ItemCrate> }) {
-    return <div className='px-2 py-1 rounded bg-accent shadow-card'>
-        <div>
-            <p className='font-mono opacity-90'>{props.crate.name}</p>
-        </div>
     </div>;
 }

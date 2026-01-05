@@ -1,6 +1,7 @@
 import type { ReadonlyDeep } from 'type-fest';
 
-import { createContext, useContext } from 'react';
+import { createContext, useContext, useEffect, useRef } from 'react';
+import { useImmer } from 'use-immer';
 import { produce } from 'immer';
 
 import type { Workspace, Cache, CrateInfo } from '@/data';
@@ -10,24 +11,69 @@ import { CACHE_EXPIRY_MS } from '@/constants';
 import * as CratesAPI from '@/services/crates-api';
 import { computeVersionGroups } from '@/utils/version-group';
 
-type State<T> = [T, (value: T) => void];
+export interface AppState {
+    workspace: Workspace,
+    cache: Cache,
+}
+
+export async function loadAppState(): Promise<AppState> {
+    // Here we just assume that the loaded data is valid.
+    // Validation is deferred to later stages.
+    const workspace =
+        await IPC.loadWorkspace()
+            ?? { groups: [], ungrouped: [] } satisfies Workspace;
+    const cache =
+        await IPC.loadCache()
+            ?? { crates: {} } satisfies Cache;
+    return {
+        workspace: workspace as Workspace,
+        cache: cache as Cache,
+    }
+}
 
 export class AppContext {
-    public readonly workspace: ReadonlyDeep<Workspace>;
-    private readonly setWorkspace: (value: ReadonlyDeep<Workspace>) => void;
-    private readonly cache: ReadonlyDeep<Cache>;
-    private readonly setCache: (value: ReadonlyDeep<Cache>) => void;
+    private readonly state: ReadonlyDeep<AppState>;
+    private readonly updateState: (updater: (draft: AppState) => AppState) => void;
+
+    public get workspace(): ReadonlyDeep<Workspace> {
+        return this.state.workspace;
+    }
+
+    public get cache(): ReadonlyDeep<Cache> {
+        return this.state.cache;
+    }
 
     /** Reference to the viewer iframe for programmatic navigation */
     public readonly viewerRef: React.RefObject<HTMLIFrameElement | null>;
 
-    public constructor(
-        viewerRef: React.RefObject<HTMLIFrameElement | null>,
-        workspaceState: State<ReadonlyDeep<Workspace>>,
-        cacheState: State<ReadonlyDeep<Cache>>) {
+    public constructor(viewerRef: React.RefObject<HTMLIFrameElement | null>) {
         this.viewerRef = viewerRef;
-        [this.workspace, this.setWorkspace] = workspaceState;
-        [this.cache, this.setCache] = cacheState;
+
+        [this.state, this.updateState] = useImmer<AppState>({
+            workspace: { groups: [], ungrouped: [] },
+            cache: { crates: {} },
+        });
+
+        useEffect(() => {
+            loadAppState()
+                .then(appState => this.updateState(_ => appState))
+                .catch(err => console.error(err));
+        }, []);
+
+        // If it is the first render, we skip saving to avoid overwriting existing data
+        // before it is loaded.
+        const isFirstRender = useRef(true);
+        useEffect(() => {
+            if (isFirstRender.current) {
+                isFirstRender.current = false;
+                return;
+            }
+
+            IPC.saveWorkspace(this.state.workspace)
+                .catch(err => console.error(err));
+            IPC.saveCache(this.state.cache)
+                .catch(err => console.error(err));
+        }, [this.state]);
     }
 
     public navigateTo(url: string): void {
@@ -38,29 +84,14 @@ export class AppContext {
             console.warn('Navigation failed: iframe not loaded yet.');
     }
 
-    public async load(): Promise<void> {
-        // Here we just assume that the loaded data is valid.
-        // Validation is deferred to later stages.
-        let cache =
-            await IPC.loadCache()
-            ?? { crates: {} } satisfies Cache;
-        let workspace =
-            await IPC.loadWorkspace()
-                ?? { groups: [], ungrouped: [] } satisfies Workspace;
-        this.setCache(cache as ReadonlyDeep<Cache>);
-        this.setWorkspace(workspace as ReadonlyDeep<Workspace>);
+    public updateWorkspace(updater: (draft: Workspace) => void): void {
+        this.updateState(state => ({ ...state, workspace: produce(state.workspace, updater) }));
+        console.log('Workspace updated.');
     }
 
-    public async updateWorkspace(updater: (draft: Workspace) => void): Promise<void> {
-        const newWorkspace = produce(this.workspace, updater);
-        this.setWorkspace(newWorkspace);
-        await IPC.saveWorkspace(newWorkspace);
-    }
-
-    private async updateCache(updater: (draft: Cache) => void): Promise<void> {
-        const newCache = produce(this.cache, updater);
-        this.setCache(newCache);
-        await IPC.saveCache(newCache);
+    private updateCache(updater: (draft: Cache) => void): void {
+        this.updateState(state => ({ ...state, cache: produce(state.cache, updater) }));
+        console.log('Cache updated.');
     }
 
     public async getCrateInfo(crateName: string): Promise<ReadonlyDeep<CrateInfo> | undefined> {
@@ -88,7 +119,7 @@ export class AppContext {
                     lastFetched: Date.now(),
                 } satisfies CrateInfo;
 
-                await this.updateCache(draft => {
+                this.updateCache(draft => {
                     draft.crates[crateName] = newCrateInfo;
                 });
             } catch (err) {
