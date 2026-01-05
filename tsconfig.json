@@ -3,13 +3,14 @@
     "compilerOptions": {
         "baseUrl": ".",
         "paths": {
-            "@/*": ["frontend/*"]
+            "@/*": ["frontend/*"],
         },
 
+        "target": "ESNext",
         "lib": [
             "ESNext",
             "DOM",
-            "DOM.Iterable"
+            "DOM.Iterable",
         ],
 
         "jsx": "react-jsx",
@@ -27,5 +28,5 @@
         "noUnusedParameters": true,
         "noUncheckedIndexedAccess": true,
         "noImplicitOverride": true,
-    }
+    },
 }

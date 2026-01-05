@@ -4,14 +4,14 @@ import tailwindcss from '@tailwindcss/vite';
 import path from 'path';
 
 export default defineConfig({
-    root: "frontend",
+    root: 'frontend',
     plugins: [
         react(),
         tailwindcss(),
     ],
     resolve: {
         alias: {
-            "@": path.resolve(__dirname, "frontend"),
+            '@': path.resolve(__dirname, 'frontend'),
         },
     },
     server: {

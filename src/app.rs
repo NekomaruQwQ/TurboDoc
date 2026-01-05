@@ -271,7 +271,7 @@ mod ipc {
         let file_path = DATA_DIR.join("workspace.json");
         match load_file(&file_path) {
             Ok(Some(content)) => {
-                log::info!("workspace file loaded.");
+                log::info!("workspace loaded.");
                 serde_json::json!({
                     "type": "workspace-loaded",
                     "success": true,
@@ -281,7 +281,7 @@ mod ipc {
             Ok(None) => {
                 // Workspace file not present is not an error. We just create an empty workspace
                 // and return that.
-                log::info!("workspace file not found. an empty workspace will be created.");
+                log::info!("workspace not found. an empty workspace will be created.");
                 serde_json::json!({
                     "type": "workspace-loaded",
                     "success": true,
@@ -291,7 +291,7 @@ mod ipc {
             Err(err) =>{
                 // Failing to load workspace is fatal. To avoid overwriting existing data,
                 // we propagate the error instead of creating a new empty workspace.
-                log::error!("failed to load workspace file {}: {err:?}", file_path.display());
+                log::error!("failed to load workspace {}: {err:?}", file_path.display());
                 serde_json::json!({
                     "type": "workspace-loaded",
                     "success": false,
@@ -305,14 +305,14 @@ mod ipc {
         let file_path = DATA_DIR.join("workspace.json");
         match save_file(&file_path, content) {
             Ok(()) =>{
-                log::info!("workspace file saved.");
+                log::info!("workspace saved.");
                 serde_json::json!({
                     "type": "workspace-saved",
                     "success": true,
                 })
             },
             Err(err) => {
-                log::error!("failed to save workspace file {}: {err:?}", file_path.display());
+                log::error!("failed to save workspace {}: {err:?}", file_path.display());
                 serde_json::json!({
                     "type": "workspace-saved",
                     "success": false,
@@ -326,18 +326,19 @@ mod ipc {
         let file_path = DATA_DIR.join("cache.json");
         let file_content = match load_file(&file_path) {
             Ok(Some(content)) => {
-                log::info!("cache file loaded.");
+                log::info!("frontend cache loaded.");
                 Some(content)
             },
             Ok(None) => {
-                log::info!("cache file not found.");
-                log::info!("cache file will be created on the next fetch.");
+                log::info!("frontend cache not found.");
+                log::info!("frontend cache will be created on the next fetch.");
                 None
             },
             Err(err) => {
-                // Failing to load cache is non-fatal, so we just log error and return an empty cache.
-                log::warn!("failed to load cache file: {err}");
-                log::warn!("cache file will be created on the next fetch.");
+                // Failing to load frontend cache is non-fatal, so we just log error
+                // and return an empty cache.
+                log::warn!("failed to load frontend cache: {err}");
+                log::warn!("frontend cache will be created on the next fetch.");
                 None
             }
         };
@@ -356,14 +357,14 @@ mod ipc {
         let file_path = DATA_DIR.join("cache.json");
         match save_file(&file_path, content) {
             Ok(()) =>{
-                log::info!("cache file saved.");
+                log::info!("frontend cache saved.");
                 serde_json::json!({
                     "type": "cache-saved",
                     "success": true,
                 })
             },
             Err(err) => {
-                log::error!("failed to save cache file {}: {err:?}", file_path.display());
+                log::error!("failed to save frontend cache {}: {err:?}", file_path.display());
                 serde_json::json!({
                     "type": "cache-saved",
                     "success": false,
