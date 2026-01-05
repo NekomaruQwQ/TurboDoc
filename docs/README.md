@@ -106,12 +106,13 @@ TurboDoc is a documentation viewer for Rust crates with local caching and worksp
 ### Technology Stack
 
 - **Frontend**: React 18 + TypeScript
+- **Type Utilities**: type-fest for `ReadonlyDeep` type-level immutability
 - **State Management**: Immer for immutable updates
 - **UI Components**: Radix UI primitives + shadcn/ui
 - **Styling**: Tailwind CSS with OKLCH color space
 - **Icons**: Lucide React
 - **Backend**: Tauri (Rust) with WebView2
-- **IPC**: Custom message passing with timeout handling
+- **IPC**: Custom message passing with singleton pattern and timeout handling
 
 ### Component Architecture
 
@@ -418,17 +419,23 @@ CrateCard
 
 #### Key Improvements
 
-**1. Timeout Handling**
+**1. Singleton Pattern**
+- `IPC` class uses lazy-initialized singleton via `IPC.getInstance()`
+- WebView2 message listener registered exactly once on first access
+- Separates event handlers (multiple per type) from response handlers (single pending per type)
+- Handler cleanup after response received prevents memory leaks
+
+**2. Timeout Handling**
 - All IPC requests have 5-second timeout
 - Prevents infinite hangs if backend crashes
 - Graceful fallback to empty state on timeout
 
-**2. Error Recovery**
+**3. Error Recovery**
 - Workspace load failure → empty workspace `{ groups: [], ungrouped: [] }`
 - Cache load failure → empty cache `{ crates: {} }`
 - Non-fatal cache errors (app continues without cached data)
 
-**3. Response Structure**
+**4. Response Structure**
 - Consistent response format: `{ success: boolean, content: string, message?: string }`
 - Proper null handling (empty object `"{}"` instead of null)
 
@@ -459,6 +466,7 @@ CrateCard
 
 #### Implementation Summary
 
+- **Singleton IPC**: Lazy-initialized `IPC.getInstance()` ensures single message listener
 - **IPC Timeout**: 5s timeout prevents hangs (graceful fallback to empty state)
 - **Separate Handlers**: Independent workspace/cache persistence
 - **Error Recovery**: Workspace/cache load failures → empty structures (non-fatal)
@@ -487,6 +495,11 @@ See <frontend/context.ts>.
 5. Context consumers re-render with fresh AppContext
 
 **Key insight:** Each AppContext instance is an **immutable snapshot** of app state at render time. Methods are called synchronously during event handlers, so they always read the correct current state. React's batching ensures consistency.
+
+**Type-Level Immutability:**
+- State types use `ReadonlyDeep<T>` from type-fest to enforce immutability at the type level
+- Combined with Immer's `produce`, this creates a robust immutable update pattern
+- Prevents accidental mutations at compile time while allowing ergonomic nested updates
 
 **Validation:**
 - ✅ No stale closure bugs (each render gets fresh snapshot)
@@ -562,6 +575,7 @@ See <frontend/context.ts>.
 
 - **Class-Based AppContext**: Better encapsulation, cleaner API than plain objects
 - **State Snapshot Pattern**: Recreate AppContext per render for correct state access
+- **ReadonlyDeep Types**: type-fest `ReadonlyDeep<T>` enforces immutability at type level
 - **No Memoization**: AppContext holds all state, recreated per render (no perf issue)
 - **Immer for Mutations**: Simplifies deeply nested updates, prevents bugs (~13KB bundle cost)
 - **Dual State Management**: Workspace + cache with separate save strategies

@@ -723,6 +723,10 @@ interface PageListProps {
 
 _(Add notes here as you implement components)_
 
+**Pre-Phase 5 Refactoring:**
+- **2025-01**: Refactored `context.ts` to use `ReadonlyDeep<T>` from type-fest for type-level immutability
+- **2025-01**: Refactored `ipc.ts` to use singleton pattern with `IPC.getInstance()` for cleaner initialization
+
 **Example:**
 - **2024-01-15**: Changed SearchBar debounce from 300ms to 500ms for better UX
 - **2024-01-16**: Added loading skeleton to CrateCard while fetching metadata

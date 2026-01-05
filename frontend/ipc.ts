@@ -1,4 +1,6 @@
-import type { Immutable } from 'immer';
+import type { PartialDeep, ReadonlyDeep } from 'type-fest';
+
+import { assert } from '@/prelude';
 
 import type { Workspace, Cache } from '@/data';
 import { IPC_TIMEOUT_MS } from '@/constants';
@@ -46,108 +48,114 @@ type IPCCacheLoaded =
 type IPCCacheSaved =
     { type: 'cache-saved' } & IPCResponseBase<{}>;
 
-/**
- * Send an `IPCRequest` to the host via WebView2 IPC.
- */
-export function send(message: Immutable<IPCRequest>): void {
-    console.log('[<-] ', message);
-    window.chrome.webview.postMessage(JSON.stringify(message));
-}
+/** Handler funciton for a specific IPCEvent type */
+type IPCEventHandler =
+    (event: ReadonlyDeep<IPCEvent>) => void;
+/** Handler function for a specific IPCResponse type */
+type IPCResponseHandler =
+    (response: ReadonlyDeep<IPCResponse>) => void;
 
-const ipcEventHandlers: {
-    [_ in IPCEvent['type']]?: {
-        nextId: number;
-        [_: number]: (event: Immutable<IPCEvent>) => void;
-    };
-} = {};
+class IPC {
+    private static instance: IPC | null = null;
 
-const ipcResponseHandlers: {
-    [_ in IPCResponse['type']]?: (response: Immutable<IPCResponse>) => void;
-} = {};
+    public static getInstance(): IPC {
+        if (!IPC.instance) {
+            IPC.instance = new IPC();
+            window.chrome.webview.addEventListener('message', (event) => {
+                IPC.instance!.handleMessage(event);
+            });
+            console.log('IPC ready.');
+        }
 
-/**
- * Initialize global IPC message listener
- * 
- * This should be called once at app startup.
- */
-export function init(): void {
-    window.chrome.webview.addEventListener('message', (event: MessageEvent) => {
+        return IPC.instance;
+    }
+
+    private readonly eventHandlerMap:
+        Partial<Record<IPCEvent['type'], Set<IPCEventHandler>>> = {};
+    private readonly responseHandlerMap:
+        Partial<Record<IPCResponse['type'], IPCResponseHandler>> = {};
+
+    private handleMessage(event: MessageEvent): void {
+        // Here we assume that the host always send well-formed messages and omit any type
+        // checking here for simplicity.
         const message = event.data as IPCEvent | IPCResponse;
+
         console.log('[->] ', message);
 
-        const eventHandlers = (ipcEventHandlers as {
-            [_: string]: {
-                nextId: number;
-                [_: number]: (event: IPCEvent) => void;
-            };
-        })[message.type];
+        const eventHandlerMap =
+            (this.eventHandlerMap as Partial<Record<string, Set<IPCEventHandler>>>);
+        const eventHandlers =
+            eventHandlerMap[message.type];
         if (eventHandlers) {
-            for (let i = 0; i < eventHandlers.nextId; i++) {
-                const handler = eventHandlers[i];
-                if (handler) {
-                    handler(message as IPCEvent);
-                }
+            for (const handler of eventHandlers) {
+                handler(message as IPCEvent);
             }
         }
 
-        const responseHandler = (ipcResponseHandlers as {
-            [_: string]: (response: IPCResponse) => void;
-        })[message.type];
+        const responseHandlerMap =
+            (this.responseHandlerMap as Partial<Record<string, IPCResponseHandler>>);
+        const responseHandler =
+            responseHandlerMap[message.type];
         if (responseHandler) {
             responseHandler(message as IPCResponse);
         }
-        delete (ipcResponseHandlers as {
-            [_: string]: (response: IPCResponse) => void;
-        })[message.type];
-    });
-}
 
-/**
- * Register a handler for a specific `IPCEvent` type, returning a function that
- * removes the handler when called.
- */
-export function on<T extends IPCEvent>(
-    type: T['type'],
-    handler: (event: T) => void): () => void {
-    if (ipcEventHandlers[type] === undefined) {
-        ipcEventHandlers[type] = { nextId: 0 };
+        delete responseHandlerMap[message.type];
     }
 
-    const handlers = ipcEventHandlers[type]!;
-    const id = handlers.nextId++;
-    handlers[id] = handler as (event: IPCEvent) => void;
-    return () => delete ipcEventHandlers[type]![id];
+    /**
+     * Register a handler for a specific `IPCEvent`, returning a function that
+     * removes the handler when called.
+     */
+    public on<T extends IPCEvent>(type: T['type'], handler: (event: T) => void): () => void {
+        if (this.eventHandlerMap[type] === undefined) {
+            this.eventHandlerMap[type] = new Set();
+        }
+
+        const handlerCasted = handler as (event: IPCEvent) => void;
+        const handlerMap = this.eventHandlerMap[type]!;
+        handlerMap.add(handlerCasted);
+        return () => handlerMap.delete(handlerCasted);
+    }
+
+    /**
+     * Wait for a `IPCResponse` of the specified `type` from the host.
+     *
+     * Waiting for a response that is already being waited on is considered an error.
+     *
+     * @param type - The response type to wait for
+     * @param timeoutMs - Timeout in milliseconds (default: 5000ms)
+     * @returns Promise that resolves with the response or rejects on timeout
+     */
+    public getResponseAsync<T extends IPCResponse>(
+        type: T['type'],
+        timeoutMs = IPC_TIMEOUT_MS): Promise<T> {
+        return new Promise((resolve, reject) => {
+            assert(
+                this.responseHandlerMap[type] === undefined,
+                `Multiple waiters for IPC response type '${type}'`);
+
+            // Set up timeout to prevent infinite hangs
+            const timeout = setTimeout(() => {
+                delete this.responseHandlerMap[type];
+                reject(new Error(`IPC timeout waiting for ${type} (${timeoutMs}ms)`));
+            }, timeoutMs);
+
+            this.responseHandlerMap[type] = (response: IPCResponse) => {
+                clearTimeout(timeout);
+                delete this.responseHandlerMap[type];
+                resolve(response as T);
+            };
+        });
+    }
 }
 
 /**
- * Wait for a `IPCResponse` of the specified `type` from the host.
- *
- * Waiting for a response that is already being waited on is considered an error.
- *
- * @param type - The response type to wait for
- * @param timeoutMs - Timeout in milliseconds (default: 5000ms)
- * @returns Promise that resolves with the response or rejects on timeout
+ * Send a message to the host via WebView2 IPC.
  */
-export function wait<T extends IPCResponse>(
-    type: T['type'],
-    timeoutMs = IPC_TIMEOUT_MS): Promise<T> {
-    return new Promise((resolve, reject) => {
-        if (ipcResponseHandlers[type] !== undefined) {
-            throw new Error(`Multiple waiters for IPC response type '${type}'`);
-        }
-
-        // Set up timeout to prevent infinite hangs
-        const timeout = setTimeout(() => {
-            delete ipcResponseHandlers[type];
-            reject(new Error(`IPC timeout waiting for ${type} (${timeoutMs}ms)`));
-        }, timeoutMs);
-
-        ipcResponseHandlers[type] = (response: IPCResponse) => {
-            clearTimeout(timeout);
-            delete ipcResponseHandlers[type];
-            resolve(response as T);
-        };
-    });
+function postMessage(message: ReadonlyDeep<IPCRequest>): void {
+    console.log('[<-] ', message);
+    window.chrome.webview.postMessage(JSON.stringify(message));
 }
 
 /**
@@ -156,9 +164,12 @@ export function wait<T extends IPCResponse>(
  * Returns an empty workspace if the file doesn't exist or on timeout/error.
  */
 export async function loadWorkspace(): Promise<Workspace> {
-    send({ type: 'load-workspace' });
     try {
-        const result = await wait<IPCWorkspaceLoaded>('workspace-loaded');
+        postMessage({ type: 'load-workspace' });
+        const result = await (
+            IPC
+                .getInstance()
+                .getResponseAsync<IPCWorkspaceLoaded>('workspace-loaded'));
         if (result.success) {
             // Handle null/empty content (workspace file doesn't exist yet)
             if (result.content) {
@@ -179,11 +190,18 @@ export async function loadWorkspace(): Promise<Workspace> {
  *
  * Throws an error if save fails or times out.
  */
-export async function saveWorkspace(workspace: Immutable<Workspace>): Promise<void> {
-    send({ type: 'save-workspace', content: JSON.stringify(workspace) });
-    const result = await wait<IPCWorkspaceSaved>('workspace-saved');
-    if (!result.success) {
-        throw new Error(`Failed to save workspace: ${result.message}`);
+export async function saveWorkspace(workspace: ReadonlyDeep<PartialDeep<Workspace>>): Promise<void> {
+    try {
+        postMessage({ type: 'save-workspace', content: JSON.stringify(workspace) });
+        const result = await (
+            IPC
+                .getInstance()
+                .getResponseAsync<IPCWorkspaceSaved>('workspace-saved'));
+        if (!result.success) {
+            throw new Error(`Failed to save workspace: ${result.message}`);
+        }
+    } catch (err) {
+        throw new Error(`Failed to save workspace: ${err}`);
     }
 }
 
@@ -194,9 +212,12 @@ export async function saveWorkspace(workspace: Immutable<Workspace>): Promise<vo
  * As such, this function never throws.
  */
 export async function loadCache(): Promise<Cache> {
-    send({ type: 'load-cache' });
     try {
-        const result = await wait<IPCCacheLoaded>('cache-loaded');
+        postMessage({ type: 'load-cache' });
+        const result = await (
+            IPC
+                .getInstance()
+                .getResponseAsync<IPCCacheLoaded>('cache-loaded'));
         if (result.success) {
             if (result.content) {
                 return JSON.parse(result.content) as Cache;
@@ -214,12 +235,19 @@ export async function loadCache(): Promise<Cache> {
 /**
  * Request to save cache to the host.
  *
- * Throws an error if save fails or times out.
+ * Failures during cache saving are non-fatal, and as such, this function never throws.
  */
-export async function saveCache(cache: Immutable<Cache>): Promise<void> {
-    send({type: 'save-cache', content: JSON.stringify(cache) });
-    const result = await wait<IPCCacheSaved>('cache-saved');
-    if (!result.success) {
-        throw new Error(`Failed to save cache: ${result.message}`);
+export async function saveCache(cache: ReadonlyDeep<PartialDeep<Cache>>): Promise<void> {
+    try {
+        postMessage({type: 'save-cache', content: JSON.stringify(cache) });
+        const result = await (
+            IPC
+                .getInstance()
+                .getResponseAsync<IPCCacheSaved>('cache-saved'));
+        if (!result.success) {
+            console.error(`Failed to save cache: ${result.message}`);
+        }
+    } catch (err) {
+        console.error(`Failed to save cache: ${err}`);
     }
 }

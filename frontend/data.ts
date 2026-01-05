@@ -7,10 +7,12 @@ export interface Workspace {
     ungrouped: Item[];
 }
 
-export type Group = Expandable & { name: string, items: Item[] }
+export type Group =
+    Expandable & { name: string, items: Item[] }
 
-export type Item = Expandable & (
-    | { type: "crate", data: ItemCrate });
+export type Item =
+    Expandable & (
+        | { type: 'crate', data: ItemCrate });
 
 export interface ItemCrate {
     /** Name of the crate */
@@ -25,7 +27,7 @@ export interface ItemCrate {
 
 export interface CratePage {
     /**
-     * The relative path (e.g., "struct.Vec3.html") of the page.
+     * The relative path (e.g., 'struct.Vec3.html') of the page.
      * 
      * The full URL of the page can be constructed as
      * `https://docs.rs/{crate_name}/{version}/{path}`.
@@ -48,7 +50,7 @@ export interface Cache {
 }
 
 /**
- * Cached API data for a single crate.
+ * Cached crate metadata from crates.io.
  * Stored separately from workspace to enable independent cache management.
  */
 export interface CrateInfo {
@@ -65,7 +67,7 @@ export interface CrateInfo {
 }
 
 export interface CrateVersion {
-    /** Version number (e.g., "0.10.1") */
+    /** Version number (e.g., '0.10.1') */
     num: string;
     /** Whether this version is yanked */
     yanked: boolean;
@@ -73,9 +75,9 @@ export interface CrateVersion {
 
 export interface CrateLinks {
     /** Repository URL */
-    repository?: string;
+    repository: string | null;
     /** Homepage URL */
-    homepage?: string;
+    homepage: string | null;
     /** Documentation URL (might differ from docs.rs) */
-    documentation?: string;
+    documentation: string | null;
 }

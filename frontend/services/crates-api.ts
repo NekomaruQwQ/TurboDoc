@@ -1,3 +1,5 @@
+import type { PartialDeep } from 'type-fest';
+
 /** Custom error for rate limiting. */
 export class RateLimitError extends Error {
     constructor(public retryAfterSeconds: number) {
@@ -11,6 +13,14 @@ export class CrateNotFoundError extends Error {
     constructor(crateName: string) {
         super(`Crate not found: ${crateName}`);
         this.name = 'CrateNotFoundError';
+    }
+}
+
+/** Custom error for malformed responses. */
+export class MalformedResponseError extends Error {
+    constructor(message: string) {
+        super(`Malformed response: ${message}`);
+        this.name = 'MalformedResponseError';
     }
 }
 
@@ -54,6 +64,10 @@ async function queueRequest<T>(fn: () => Promise<T>): Promise<T> {
 
 /** Fetch crate information from crates.io API. */
 export async function fetchCrateInfo(crateName: string): Promise<CrateInfo> {
+    function throwMissingField(path: string): never {
+        throw new MalformedResponseError(`Missing field ${path}`);
+    }
+
     return queueRequest(async () => {
         console.log(`[crates.io] Fetching crate info for ${crateName}.`);
         const response =
@@ -76,14 +90,31 @@ export async function fetchCrateInfo(crateName: string): Promise<CrateInfo> {
             throw new Error(`Crates.io API error: ${response.status}`);
         }
 
-        return await response.json() as CrateInfo;
+        let data = await response.json() as PartialDeep<CrateInfo>;
+        return {
+            crate: {
+                id: data.crate?.id
+                    || throwMissingField('crate.id'),
+                name: data.crate?.name
+                    || throwMissingField('crate.name'),
+                description: data.crate?.description,
+                homepage: data.crate?.homepage,
+                repository: data.crate?.repository,
+                documentation: data.crate?.documentation,
+            },
+            versions:
+                data.versions?.map(version => ({
+                    num: version.num || throwMissingField('versions.num'),
+                    yanked: version.yanked ?? false,
+                })) || throwMissingField('versions'),
+        }
     });
 }
 
 /** Search for crates on crates.io */
 export async function searchCrates(query: string): Promise<{ name: string, description: string | null }[]> {
     return queueRequest(async () => {
-        console.log(`[crates.io] Searching with query "${query}".`);
+        console.log(`[crates.io] Searching with query '${query}'.`);
         const response = await fetch(
             `https://crates.io/api/v1/crates?q=${encodeURIComponent(query)}`, {
                 headers: {

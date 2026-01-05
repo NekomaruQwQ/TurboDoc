@@ -1,29 +1,30 @@
-import { createContext, useContext } from "react";
-import type { Immutable } from "immer";
-import { produce } from "immer";
+import type { ReadonlyDeep } from 'type-fest';
+
+import { createContext, useContext } from 'react';
+import { produce } from 'immer';
 
 import type { Workspace, Cache, CrateInfo } from '@/data';
 import * as IPC from '@/ipc';
 
-import { CACHE_EXPIRY_MS } from "@/constants";
+import { CACHE_EXPIRY_MS } from '@/constants';
 import * as CratesAPI from '@/services/crates-api';
-import { computeVersionGroups } from "@/utils/version-group";
+import { computeVersionGroups } from '@/utils/version-group';
+
+type State<T> = [T, (value: T) => void];
 
 export class AppContext {
-    public readonly workspace: Immutable<Workspace>;
-    private readonly setWorkspace: (value: Immutable<Workspace>) => void;
-    private readonly cache: Immutable<Cache>;
-    private readonly setCache: (value: Immutable<Cache>) => void;
+    public readonly workspace: ReadonlyDeep<Workspace>;
+    private readonly setWorkspace: (value: ReadonlyDeep<Workspace>) => void;
+    private readonly cache: ReadonlyDeep<Cache>;
+    private readonly setCache: (value: ReadonlyDeep<Cache>) => void;
 
     /** Reference to the viewer iframe for programmatic navigation */
     public readonly viewerRef: React.RefObject<HTMLIFrameElement | null>;
 
     public constructor(
         viewerRef: React.RefObject<HTMLIFrameElement | null>,
-        workspaceState:
-            [Immutable<Workspace>, (value: Immutable<Workspace>) => void],
-        cacheState:
-            [Immutable<Cache>, (value: Immutable<Cache>) => void]) {
+        workspaceState: State<ReadonlyDeep<Workspace>>,
+        cacheState: State<ReadonlyDeep<Cache>>) {
         this.viewerRef = viewerRef;
         [this.workspace, this.setWorkspace] = workspaceState;
         [this.cache, this.setCache] = cacheState;
@@ -54,33 +55,27 @@ export class AppContext {
         await IPC.saveCache(newCache);
     }
 
-    public async getCrateInfo(crateName: string): Promise<Immutable<CrateInfo> | undefined> {
-        function shouldRefetch(crateCache: Immutable<CrateInfo> | undefined): boolean {
+    public async getCrateInfo(crateName: string): Promise<ReadonlyDeep<CrateInfo> | undefined> {
+        function shouldRefetch(crateCache: ReadonlyDeep<CrateInfo> | undefined): boolean {
             if (!crateCache) return true;
             const age = Date.now() - crateCache.lastFetched;
             return age > CACHE_EXPIRY_MS;
         }
 
-        if (shouldRefetch(this.cache.crates[crateName])) {
+        let existing = this.cache.crates ? this.cache.crates[crateName] : undefined;
+        if (shouldRefetch(existing)) {
             console.log(`Refetching crate info for ${crateName}.`);
             try {
-                const {
-                    crate: {
-                        repository,
-                        homepage,
-                        documentation,
-                    },
-                    versions,
-                } = await CratesAPI.fetchCrateInfo(crateName);
+                const crateInfo = await CratesAPI.fetchCrateInfo(crateName);
 
                 const newCrateInfo = {
-                    name: crateName,
-                    versions,
-                    versionGroups: computeVersionGroups(versions),
+                    name: crateInfo.crate.name,
+                    versions: crateInfo.versions,
+                    versionGroups: computeVersionGroups(crateInfo.versions),
                     links: {
-                        repository,
-                        homepage,
-                        documentation,
+                        repository: crateInfo.crate.repository ?? null,
+                        homepage: crateInfo.crate.homepage ?? null,
+                        documentation: crateInfo.crate.documentation ?? null,
                     },
                     lastFetched: Date.now(),
                 } satisfies CrateInfo;
@@ -93,7 +88,7 @@ export class AppContext {
             }
         }
 
-        return this.cache.crates[crateName];
+        return this.cache.crates![crateName]!;
     }
 }
 
