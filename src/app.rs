@@ -285,7 +285,7 @@ mod ipc {
                 serde_json::json!({
                     "type": "workspace-loaded",
                     "success": true,
-                    "content": "null",
+                    "content": "{}",
                 })
             },
             Err(err) =>{
@@ -349,7 +349,7 @@ mod ipc {
             "content":
                 file_content
                     .as_deref()
-                    .unwrap_or("null"),
+                    .unwrap_or("{}"),
         })
     }
 

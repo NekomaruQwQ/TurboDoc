@@ -417,45 +417,50 @@ CrateCard
 - `frontend/constants.ts` - Timeout and rate limit constants
 - `src/app.rs` - Backend IPC handlers
 
-#### Key Improvements
+#### Type System
 
-**1. Singleton Pattern**
-- `IPC` class uses lazy-initialized singleton via `IPC.getInstance()`
-- WebView2 message listener registered exactly once on first access
+**Message Types:**
+- `IPCEvent` - Events from host (e.g., `navigated`)
+- `IPCRequest` - Requests to host (load/save workspace/cache)
+- `IPCResponse` - Responses from host (discriminated union by success)
+
+**Type-Safe Response Variants:**
+```typescript
+type IPCResponseVariants = {
+    'workspace-loaded': { content: string };
+    'workspace-saved': {};
+    'cache-loaded': { content: string };
+    'cache-saved': {};
+}
+```
+- `getResponseAsync<T>()` returns properly typed `IPCResponseVariants[T]`
+- Compile-time checking of response shapes per message type
+
+#### IPC Class API
+
+**Singleton Pattern:**
+- `IPC.getInstance()` - Lazy-initialized singleton, registers WebView2 listener once
 - Separates event handlers (multiple per type) from response handlers (single pending per type)
-- Handler cleanup after response received prevents memory leaks
 
-**2. Timeout Handling**
-- All IPC requests have 5-second timeout
-- Prevents infinite hangs if backend crashes
-- Graceful fallback to empty state on timeout
+**Methods:**
+- `on(type, handler)` - Register event handler, returns cleanup function for useEffect
+- `getResponseAsync<T>(type, timeoutMs?)` - Wait for response with timeout (default: 5s)
 
-**3. Error Recovery**
-- Workspace load failure → empty workspace `{ groups: [], ungrouped: [] }`
-- Cache load failure → empty cache `{ crates: {} }`
-- Non-fatal cache errors (app continues without cached data)
+#### Exported Functions
 
-**4. Response Structure**
-- Consistent response format: `{ success: boolean, content: string, message?: string }`
-- Proper null handling (empty object `"{}"` instead of null)
+| Function | Returns | On Error |
+|----------|---------|----------|
+| `loadWorkspace()` | `Promise<unknown>` | Throws |
+| `saveWorkspace(workspace)` | `Promise<void>` | Throws |
+| `loadCache()` | `Promise<unknown>` | Returns `null` (non-fatal) |
+| `saveCache(cache)` | `Promise<void>` | Logs error (non-fatal) |
 
-#### IPC Message Types
-
-**Request Messages:**
-- `load-workspace` - Load workspace from disk
-- `save-workspace` - Save workspace to disk
-- `load-cache` - Load cache from disk
-- `save-cache` - Save cache to disk
-
-**Response Messages:**
-- `workspace-loaded` - Workspace loaded successfully
-- `cache-loaded` - Cache loaded successfully
-- `navigated` - User navigated in iframe (future: auto-track navigation)
+**Note:** Load functions return `unknown` since no runtime validation is performed.
 
 #### Design Decisions
 
 **1. Timeout Handling**
-- **Decision**: Add 5-second timeout to all IPC requests
+- **Decision**: Add 5-second timeout to all IPC requests via `getResponseAsync()`
 - **Rationale**: Prevents infinite hangs if backend crashes or IPC fails
 - **Trade-off**: False positives if backend is slow (unlikely, 5s is generous)
 
@@ -464,14 +469,24 @@ CrateCard
 - **Rationale**: Independent persistence strategies (workspace: immediate, cache: on-fetch)
 - **Benefit**: Cache failures don't affect workspace operations
 
+**3. Non-Fatal Cache Operations**
+- **Decision**: Cache load returns `null`, cache save logs but doesn't throw
+- **Rationale**: App can function without cache; stale/missing cache is acceptable
+- **Benefit**: Graceful degradation when cache is corrupted or missing
+
+**4. Unvalidated Return Types**
+- **Decision**: Load functions return `unknown` instead of typed objects
+- **Rationale**: IPC layer doesn't perform schema validation; caller is responsible
+- **Benefit**: Honest typing, validation logic stays in context layer
+
 #### Implementation Summary
 
 - **Singleton IPC**: Lazy-initialized `IPC.getInstance()` ensures single message listener
-- **IPC Timeout**: 5s timeout prevents hangs (graceful fallback to empty state)
-- **Separate Handlers**: Independent workspace/cache persistence
-- **Error Recovery**: Workspace/cache load failures → empty structures (non-fatal)
-- **Consistent Response Format**: `{ success: boolean, content: string, message?: string }`
-- **Proper Null Handling**: Empty object `"{}"` instead of null in responses
+- **Type-Safe Responses**: `IPCResponseVariants` map enables compile-time checking
+- **Event Subscription**: `on()` returns cleanup function (idiomatic React pattern)
+- **IPC Timeout**: 5s timeout prevents hangs
+- **Non-Fatal Cache**: Cache errors logged but don't crash app
+- **Unvalidated Returns**: Load functions return `unknown` for honest typing
 
 ---
 

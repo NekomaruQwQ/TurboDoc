@@ -1,10 +1,9 @@
 mod prelude {
     pub use serde_json::Value as JsonValue;
 
+    pub type WebRequestBuilder = http::request::Builder;
     pub type WebRequest = http::Request<Vec<u8>>;
     pub type WebResponse = http::Response<Vec<u8>>;
-    pub use http::request::Builder as WebRequestBuilder;
-    pub use http::response::Builder as WebResponseBuilder;
 }
 
 mod app;

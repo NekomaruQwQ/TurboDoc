@@ -5,9 +5,6 @@ import { assert } from '@/prelude';
 import type { Workspace, Cache } from '@/data';
 import { IPC_TIMEOUT_MS } from '@/constants';
 
-const EMPTY_WORKSPACE = { groups: [], ungrouped: [] } satisfies Workspace;
-const EMPTY_CACHE = { crates: {} } satisfies Cache;
-
 /**
  * IPC message representing an event occurring on the host side.
  */
@@ -31,24 +28,23 @@ type IPCRequest =
  * sent `IPCRequest`.
  */
 type IPCResponse =
-    | IPCWorkspaceLoaded
-    | IPCWorkspaceSaved
-    | IPCCacheLoaded
-    | IPCCacheSaved;
-type IPCResponseBase<T> =
-    | { success: true } & T
-    | { success: false, message: string };
+    { success: false, message: string, type: IPCResponseType } |
+    { success: true } & (
+        | IPCResponseVariant<'workspace-loaded'>
+        | IPCResponseVariant<'workspace-saved'>
+        | IPCResponseVariant<'cache-loaded'>
+        | IPCResponseVariant<'cache-saved'>);
+type IPCResponseType = keyof IPCResponseVariants;
+type IPCResponseVariant<T extends IPCResponseType> =
+    { type: T } & IPCResponseVariants[T];
+type IPCResponseVariants = {
+    'workspace-loaded': { content: string };
+    'workspace-saved': {};
+    'cache-loaded': { content: string };
+    'cache-saved': {};
+}
 
-type IPCWorkspaceLoaded =
-    { type: 'workspace-loaded' } & IPCResponseBase<{ content: string | null }>;
-type IPCWorkspaceSaved =
-    { type: 'workspace-saved' } & IPCResponseBase<{}>;
-type IPCCacheLoaded =
-    { type: 'cache-loaded' } & IPCResponseBase<{ content: string | null }>;
-type IPCCacheSaved =
-    { type: 'cache-saved' } & IPCResponseBase<{}>;
-
-/** Handler funciton for a specific IPCEvent type */
+/** Handler function for a specific IPCEvent type */
 type IPCEventHandler =
     (event: ReadonlyDeep<IPCEvent>) => void;
 /** Handler function for a specific IPCResponse type */
@@ -127,9 +123,10 @@ class IPC {
      * @param timeoutMs - Timeout in milliseconds (default: 5000ms)
      * @returns Promise that resolves with the response or rejects on timeout
      */
-    public getResponseAsync<T extends IPCResponse>(
-        type: T['type'],
-        timeoutMs = IPC_TIMEOUT_MS): Promise<T> {
+    public getResponseAsync<T extends IPCResponseType>(
+        type: T,
+        timeoutMs = IPC_TIMEOUT_MS):
+        Promise<ReadonlyDeep<IPCResponseVariants[T]>> {
         return new Promise((resolve, reject) => {
             assert(
                 this.responseHandlerMap[type] === undefined,
@@ -138,13 +135,19 @@ class IPC {
             // Set up timeout to prevent infinite hangs
             const timeout = setTimeout(() => {
                 delete this.responseHandlerMap[type];
-                reject(new Error(`IPC timeout waiting for ${type} (${timeoutMs}ms)`));
+                reject(new Error("IPC request timeout"));
             }, timeoutMs);
 
             this.responseHandlerMap[type] = (response: IPCResponse) => {
                 clearTimeout(timeout);
                 delete this.responseHandlerMap[type];
-                resolve(response as T);
+
+                assert(response.type === type, "IPC response type mismatch");
+                if (response.success) {
+                    resolve(response as ReadonlyDeep<IPCResponseVariants[T]>);
+                } else {
+                    reject(new Error(`IPC request rejected by host: ${response.message}`));
+                }
             };
         });
     }
@@ -159,47 +162,34 @@ function postMessage(message: ReadonlyDeep<IPCRequest>): void {
 }
 
 /**
- * Request to load workspace from the host.
- *
- * Returns an empty workspace if the file doesn't exist or on timeout/error.
+ * Request to load workspace from the host. Throws an error if the file doesn't
+ * exist or any other error occurs.
+ * 
+ * This function does not perform any validation on the loaded workspace object,
+ * and as such, it resolves to `unknown`.
  */
-export async function loadWorkspace(): Promise<Workspace> {
+export async function loadWorkspace(): Promise<unknown> {
     try {
         postMessage({ type: 'load-workspace' });
-        const result = await (
-            IPC
+        const response =
+            await IPC
                 .getInstance()
-                .getResponseAsync<IPCWorkspaceLoaded>('workspace-loaded'));
-        if (result.success) {
-            // Handle null/empty content (workspace file doesn't exist yet)
-            if (result.content) {
-                return JSON.parse(result.content) as Workspace;
-            } else {
-                return EMPTY_WORKSPACE;
-            }
-        } else {
-            throw new Error(`Failed to load workspace: ${result.message}`);
-        }
+                .getResponseAsync('workspace-loaded');
+        return JSON.parse(response.content);
     } catch (err) {
         throw new Error(`Failed to load workspace: ${err}`);
     }
 }
 
 /**
- * Request to save workspace to the host.
- *
- * Throws an error if save fails or times out.
+ * Request to save workspace to the host. Throws an error if save fails or times out.
  */
-export async function saveWorkspace(workspace: ReadonlyDeep<PartialDeep<Workspace>>): Promise<void> {
+export async function saveWorkspace(workspace: unknown): Promise<void> {
     try {
         postMessage({ type: 'save-workspace', content: JSON.stringify(workspace) });
-        const result = await (
-            IPC
-                .getInstance()
-                .getResponseAsync<IPCWorkspaceSaved>('workspace-saved'));
-        if (!result.success) {
-            throw new Error(`Failed to save workspace: ${result.message}`);
-        }
+        await IPC
+            .getInstance()
+            .getResponseAsync('workspace-saved');
     } catch (err) {
         throw new Error(`Failed to save workspace: ${err}`);
     }
@@ -208,28 +198,25 @@ export async function saveWorkspace(workspace: ReadonlyDeep<PartialDeep<Workspac
 /**
  * Request to load cache from the host.
  *
- * Errors during cache loading are non-fatal, in which case an empty cache is returned.
- * As such, this function never throws.
+ * This function does not perform any validation on the loaded cache object,
+ * and as such, it resolves to `unknown`.
+ * 
+ * Errors during cache loading are non-fatal, in which case `null` is returned.
+ * As such, this function never throws an error.
  */
-export async function loadCache(): Promise<Cache> {
+export async function loadCache(): Promise<unknown> {
     try {
         postMessage({ type: 'load-cache' });
-        const result = await (
-            IPC
+        const result =
+            await IPC
                 .getInstance()
-                .getResponseAsync<IPCCacheLoaded>('cache-loaded'));
-        if (result.success) {
-            if (result.content) {
-                return JSON.parse(result.content) as Cache;
-            }
-        } else {
-            console.error(`Failed to load cache: ${result.message}`);
-        }
+                .getResponseAsync('cache-loaded');
+        return JSON.parse(result.content);
     } catch (err) {
         console.error('Failed to load cache:', err);
     }
 
-    return EMPTY_CACHE;
+    return null;
 }
 
 /**
@@ -237,16 +224,12 @@ export async function loadCache(): Promise<Cache> {
  *
  * Failures during cache saving are non-fatal, and as such, this function never throws.
  */
-export async function saveCache(cache: ReadonlyDeep<PartialDeep<Cache>>): Promise<void> {
+export async function saveCache(cache: ReadonlyDeep<unknown>): Promise<void> {
     try {
         postMessage({type: 'save-cache', content: JSON.stringify(cache) });
-        const result = await (
-            IPC
-                .getInstance()
-                .getResponseAsync<IPCCacheSaved>('cache-saved'));
-        if (!result.success) {
-            console.error(`Failed to save cache: ${result.message}`);
-        }
+        await IPC
+            .getInstance()
+            .getResponseAsync('cache-saved');
     } catch (err) {
         console.error(`Failed to save cache: ${err}`);
     }

@@ -39,8 +39,16 @@ export class AppContext {
     }
 
     public async load(): Promise<void> {
-        this.setCache(await IPC.loadCache());
-        this.setWorkspace(await IPC.loadWorkspace());
+        // Here we just assume that the loaded data is valid.
+        // Validation is deferred to later stages.
+        let cache =
+            await IPC.loadCache()
+            ?? { crates: {} } satisfies Cache;
+        let workspace =
+            await IPC.loadWorkspace()
+                ?? { groups: [], ungrouped: [] } satisfies Workspace;
+        this.setCache(cache as ReadonlyDeep<Cache>);
+        this.setWorkspace(workspace as ReadonlyDeep<Workspace>);
     }
 
     public async updateWorkspace(updater: (draft: Workspace) => void): Promise<void> {
