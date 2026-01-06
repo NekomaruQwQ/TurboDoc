@@ -8,7 +8,7 @@ import type { ExplorerItemProps } from '@/explorer/common';
 
 export function Explorer() {
     const app = useAppContext();
-    return <div className='p-2 space-y-4 w-full h-full'>
+    return <div className='p-2 space-y-4 w-full h-full overflow-x-hidden overflow-y-scroll' style={{ scrollbarWidth: 'thin' }}>
         <ExplorerUngrouped
             key=':ungrouped:'
             items={app.workspace.ungrouped}

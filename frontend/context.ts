@@ -50,7 +50,7 @@ export class AppContext {
 
         [this.state, this.updateState] =
             useImmer<AppState>({
-                workspace: { groups: [], ungrouped: [] },
+                workspace: { groups: [], ungrouped: [], currentPage: 'https://docs.rs/' },
                 cache: { crates: {} },
             });
 
@@ -79,7 +79,11 @@ export class AppContext {
 
         // Listen to the 'navigated' IPCEvent.
         useEffect(() => {
-            IPC.on('navigated', event => this.onNavigated(event.url))
+            IPC.on('navigated', event => {
+                if (event.url.startsWith('https://docs.rs/') &&
+                    !event.url.startsWith('https://docs.rs/-/'))
+                this.updateWorkspace(workspace => workspace.currentPage = event.url)
+            })
         }, []);
     }
 
@@ -139,14 +143,6 @@ export class AppContext {
         }
 
         return existing;
-    }
-
-    private onNavigated(url: string): void {
-        if (url.startsWith('https://docs.rs/')) {
-
-        } else {
-            console.warn(`Ignored navigation to unsupported URL: ${url}`);
-        }
     }
 }
 

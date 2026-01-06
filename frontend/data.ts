@@ -5,6 +5,8 @@ export interface Workspace {
     groups: Group[];
     /** Ungrouped items (displayed at top, simpler than a full Group) */
     ungrouped: Item[];
+    /** Currently active documentation page */
+    currentPage: string;
 }
 
 export type Group =
@@ -20,15 +22,13 @@ export interface ItemCrate {
 
     /**
      * List of pinned docs.rs pages.
-     * 
+     *
      * Each entry is a relative path (e.g., 'glam/struct.Vec3.html').
      * The full URL can be constructed as:
      * `https://docs.rs/{crate_name}/{version}/{path}`.
-    */
+     **/
     pinnedPages: string[];
 
-    /** Currently opened docs.rs page (may or may not be pinned). */
-    currentPage: string | null;
     /** Currently selected version */
     currentVersion: string;
 }

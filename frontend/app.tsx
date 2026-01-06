@@ -19,7 +19,7 @@ export function App() {
                     <Card className='w-full h-full p-0 rounded-none rounded-tl-lg'>
                         <iframe
                             ref={app.viewerRef}
-                            src='https://docs.rs/'
+                            src={app.workspace.currentPage ?? 'https://docs.rs/'}
                             className='w-full h-full rounded-tl-lg'/>
                     </Card>
                 </ResizablePanel>
