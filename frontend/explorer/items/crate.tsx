@@ -1,10 +1,10 @@
 import type { ReadonlyDeep } from 'type-fest';
-import type { ReactNode } from 'react';
+
+import { useState } from "react";
 
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
-import { Card } from '@/components/ui/card';
-import {cn} from "@/lib/utils.ts";
-import { ExternalLink, Home, Pin, PinOff } from 'lucide-react';
+import { cn } from "@/lib/utils.ts";
+import { ExternalLink, Pin } from 'lucide-react';
 
 import type { ItemCrate } from '@/data';
 import type { ExplorerItemProps } from '@/explorer/common';
@@ -20,20 +20,34 @@ export function CrateCard(props: ReadonlyDeep<ExplorerItemProps<ItemCrate>>) {
     const app = useAppContext();
     const crate = props.item;
     const crateCache = app.getCrateCache(crate.name);
+    const currentPage = app.workspace.currentPage;
+    if (currentPage.startsWith(`https://docs.rs/${crate.name}/`) &&
+        !currentPage.startsWith(`https://docs.rs/${crate.name}/${crate.currentVersion}/`)) {
+        if (currentPage.startsWith(`https://docs.rs/${crate.name}/latest/`)) {
+            props.updateItem(crate => crate.currentVersion = 'latest');
+        }
+        for (const version of crateCache?.versions ?? []) {
+            if (currentPage.startsWith(`https://docs.rs/${crate.name}/${version.num}/`)) {
+                // Update the crate's current version to match the current page
+                props.updateItem(crate => crate.currentVersion = version.num);
+                break;
+            }
+        }
+    }
 
     return (
-        <Card className='px-2 py-1 rounded bg-accent'>
+        <div className='flex flex-col p-1 rounded bg-accent border shadow-sm'>
             <Collapsible
                 open={props.expanded}
                 onOpenChange={() => props.setExpanded(!props.expanded)}>
-                <CollapsibleTrigger asChild>
+                <CollapsibleTrigger asChild className='px-1'>
                     <p className='font-mono opacity-90 cursor-pointer'>{crate.name}</p>
                 </CollapsibleTrigger>
-                <CollapsibleContent className='space-y-1'>
+                <CollapsibleContent className='text-sm gap-y-0.5'>
                     {/* Header row: links + version */}
-                    <div className='flex flex-row items-center gap-2 mt-2 text-sm text-muted-foreground'>
+                    <div className='flex flex-row items-center px-1 gap-2 my-0.5 text-muted-foreground'>
                         <span className='flex flex-1'>{crate.currentVersion}</span>
-                        <span className='flex flex-2 flex-row items-center gap-4'>
+                        <span className='flex flex-row items-center gap-4 text-xs'>
                             {crateCache?.repository && (
                                 <CrateLink label='Repository' url={crateCache.repository} />
                             )}
@@ -45,7 +59,7 @@ export function CrateCard(props: ReadonlyDeep<ExplorerItemProps<ItemCrate>>) {
                     <CratePageList crate={crate} updateCrate={props.updateItem} />
                 </CollapsibleContent>
             </Collapsible>
-        </Card>);
+        </div>);
 }
 
 function CrateLink(props: { url: string; label: string }) {
@@ -63,7 +77,6 @@ function CrateLink(props: { url: string; label: string }) {
 interface CratePageInfo {
     name: string;
     path: string;
-    root: string;
     active: boolean; // Is this the current page?
     pinned: boolean; // Is this page pinned?
     italic: boolean; // Is this page italicized (preview)?
@@ -85,44 +98,61 @@ export function CratePageList(props: {
     const crate = props.crate;
     const currentPage = app.workspace.currentPage;
 
-    function isPageActive(path: string): boolean {
-        return currentPage === `https://docs.rs/${crate.name}/${crate.currentVersion}/${path}`;
-    }
+    const baseUrl = `https://docs.rs/${crate.name}/${crate.currentVersion}/`;
+    const rootModuleName = crate.name.replaceAll('-', '_');
+    const rootModulePath = `${rootModuleName}/`;
 
-    function getModuleNameFromCrateName(crateName: string): string {
-        // Simple heuristic: replace hyphens with underscores
-        return crateName.replace(/-/g, '_');
-    }
+    /** Converts a docs.rs path to a Rust-style qualified name. */
+    function getPageNameFromPath(path: string): string {
+        // Module: ends with '/'
+        if (path.endsWith('/'))
+            return path.slice(0, -1).replaceAll('/', '::');
 
-    const rootPath = getModuleNameFromCrateName(crate.name) + '/';
+        // Module: ends with '/index.html'
+        if (path.endsWith('/index.html'))
+            return path.slice(0, -'/index.html'.length).replaceAll('/', '::');
+
+        // Item: {module}/{prefix}.{name}.html
+        // Examples:
+        //   glam/f32/struct.Vec2.html → glam::f32::Vec2
+        //   tokio/fn.spawn.html → tokio::spawn
+        const match = path.match(/^(.*)\/\w+\.(\w+)\.html$/);
+        if (match) {
+            const [, modulePath, itemName] = match;
+            return modulePath
+                ? `${modulePath.replaceAll('/', '::')}::${itemName}`
+                : itemName ?? '<error>';
+        }
+
+        // Fallback: convert slashes to ::, strip .html
+        return path.replace(/\.html$/, '').replaceAll('/', '::');
+    }
 
     const pages: CratePageInfo[] =
         crate.pinnedPages.map(path => ({
-            name: path,
+            name: getPageNameFromPath(path),
             path,
-            root: rootPath,
-            active: isPageActive(path),
+            active: currentPage === `${baseUrl}${path}`,
             pinned: true,
             italic: false,
         }));
 
     pages.push({
-        name: rootPath,
-        path: rootPath,
-        root: rootPath,
-        active: isPageActive(rootPath),
+        name: getPageNameFromPath(rootModulePath),
+        path: rootModulePath,
+        active: currentPage === `${baseUrl}${rootModulePath}`,
         pinned: false,
         italic: false,
     });
 
-    if (currentPage.startsWith(`https://docs.rs/${crate.name}/${crate.currentVersion}/`)) {
+    if (currentPage.startsWith(baseUrl) &&
+        currentPage !== `${baseUrl}${rootModulePath}`) {
         const path =
-            currentPage.substring(`https://docs.rs/${crate.name}/${crate.currentVersion}/`.length);
-        if (path !== rootPath && !crate.pinnedPages.includes(path)) {
+            currentPage.substring(baseUrl.length);
+        if (!crate.pinnedPages.includes(path)) {
             pages.push({
-                name: path,
+                name: getPageNameFromPath(path),
                 path: path,
-                root: rootPath,
                 active: true,
                 pinned: false,
                 italic: true,
@@ -133,21 +163,8 @@ export function CratePageList(props: {
     // Sort pages alphabetically by path to ensure consistent order
     pages.sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
 
-    function handlePin(path: string) {
-        props.updateCrate(c => {
-            if (!c.pinnedPages.includes(path))
-                c.pinnedPages.push(path);
-        });
-    }
-
-    function handleUnpin(path: string) {
-        props.updateCrate(c => {
-            c.pinnedPages = c.pinnedPages.filter(p => p !== path);
-        });
-    }
-
     return (
-        <div className='flex flex-col gap-0'>
+        <div className='flex flex-col'>
             {
                 pages.map(page => (
                     <CratePageItem
@@ -166,23 +183,47 @@ function CratePageItem(props: {
 }) {
     const app = useAppContext();
     const page = props.page;
+    const [hovered, setHovered] = useState(false);
+
+    const pin = () => {
+        props.updateCrate(crate => crate.pinnedPages.push(props.page.path));
+    };
+
+    const unpin = () => {
+        props.updateCrate(crate => {
+            crate.pinnedPages = crate.pinnedPages.filter(p => p !== props.page.path);
+        });
+    };
+
     return (
         <div
             className={cn(
-                'flex items-center rounded w-full px-2 py-0.5 my-0.5 cursor-pointer border',
+                'flex items-center rounded w-full px-1 py-px my-px cursor-pointer border',
                 (!page.active) && 'border-transparent hover:bg-input/50',
                 page.active && 'bg-input shadow-sm',
                 page.italic && 'italic')}
+            onMouseEnter={() => setHovered(true)}
+            onMouseLeave={() => setHovered(false)}
             onClick={() => app.navigateTo(`${props.baseUrl}${page.path}`)}>
-            <span className='flex-1 truncate text-sm'>{page.name}</span>
-            {/*<span*/}
-            {/*    className='opacity-50 hover:opacity-100'*/}
-            {/*    onClick={e => {*/}
-            {/*        e.stopPropagation();*/}
-            {/*        props.onAction();*/}
-            {/*    }}>*/}
-            {/*    {page.pinned && <Pin className='h-3 w-3'/>}*/}
-            {/*</span>*/}
+            <span className='flex-1 truncate font-mono font-light'>{page.name}</span>
+            {
+                page.italic && (
+                    <span className={cn(hovered? 'visible': 'hidden')} onClick={event => {
+                        pin();
+                        event.stopPropagation();
+                    }}>
+                        <Pin className='h-3 w-3'/>
+                    </span>)
+            }
+            {
+                page.pinned && (
+                    <span onClick={event => {
+                        unpin();
+                        event.stopPropagation();
+                    }}>
+                        <Pin className='h-3 w-3' fill='white'/>
+                    </span>)
+            }
         </div>
     );
 }

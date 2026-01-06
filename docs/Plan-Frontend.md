@@ -115,12 +115,11 @@ Component Path                              Status  Notes
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 [✓] frontend/explorer/index.tsx             Explorer, groups, items
 [✓] frontend/explorer/common.d.ts           ExplorerItemProps<T> interface
-[✓] frontend/explorer/items/crate.tsx       CrateCard (collapsible, links)
+[✓] frontend/explorer/items/crate.tsx       CrateCard + CratePageList + CratePageItem
 [ ] frontend/explorer/search-bar.tsx        Search input
 [ ] frontend/explorer/search-results.tsx    Search dropdown
 [ ] frontend/explorer/version-combobox.tsx  Version selector
 [ ] frontend/explorer/crate-menu.tsx        Crate actions menu
-[ ] frontend/explorer/page-list.tsx         Page tree
 ```
 
 ### Component Specifications
@@ -732,7 +731,19 @@ interface PageListProps {
 - **Component hierarchy**: `Explorer` → `ExplorerUngrouped`/`ExplorerGroup` → `ExplorerItem` → `CrateCard`
 - **Tagged union downcasting**: `ExplorerItem` uses `as any` cast when forwarding `updateItem` callback from `Item` to `ItemCrate` - pragmatic tradeoff since type safety is enforced by the switch statement
 
-**CrateCard (2025-01):**
-- Collapsible card using Radix Collapsible inside shadcn Card
-- External links use `app.navigateTo()` which triggers iframe navigation - Rust host intercepts and opens non-docs.rs URLs in system browser with confirmation dialog ([app.rs:182-201](../src/app.rs#L182-L201))
-- `crateInfo` fetched via `useEffect` + `useState` (cached by `getCrateInfo()`)
+**CrateCard + PageList (2025-01):**
+- Collapsible card using Radix Collapsible (removed shadcn Card wrapper for simpler styling)
+- External links use `app.navigateTo()` which triggers iframe navigation - Rust host intercepts and opens non-docs.rs URLs in system browser
+- `crateCache` fetched synchronously via `getCrateCache()` (triggers async refetch in background)
+- **Auto-version sync**: When user navigates to different version in iframe, `currentVersion` updates automatically
+- **Page list inlined**: `CratePageList` and `CratePageItem` components live in same file (no separate `page-list.tsx`)
+- **Preview page**: Derived from `workspace.currentPage` URL - if it belongs to crate and not in `pinnedPages`, shown in italic
+- **Path parsing**: `getPageNameFromPath()` converts docs.rs paths to Rust-style qualified names:
+  - `glam/f32/struct.Vec2.html` → `glam::f32::Vec2`
+  - `tokio/runtime/` → `tokio::runtime`
+- **Pin icons**: Single `Pin` icon - outline for preview (hover-to-show), filled for pinned
+
+**Data Model Changes (2025-01):**
+- `currentPage` moved from `ItemCrate` to `Workspace` level (global current page as full URL)
+- `ItemCrate.pinnedPages` simplified to `string[]` (just paths, no separate `CratePage` interface)
+- IPC `navigated` event listener in AppContext updates `workspace.currentPage` automatically

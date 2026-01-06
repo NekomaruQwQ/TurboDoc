@@ -61,11 +61,11 @@ TurboDoc is a documentation viewer for Rust crates with local caching and worksp
 - ✅ Search crates from crates.io
 - ✅ Display crate metadata (description, links)
 - ✅ Version selection with intelligent grouping
-- ⬜ Pin/unpin documentation pages
-- ⬜ Preview page system (VS Code-style)
+- ✅ Pin/unpin documentation pages
+- ✅ Preview page system (VS Code-style)
 - ⬜ Named groups for organization
 - ✅ Workspace persistence across sessions
-- ⬜ Automatic cross-crate navigation
+- ✅ Automatic cross-crate navigation (IPC 'navigated' event)
 - ⬜ Loading states and error handling
 - ⬜ Move crates between groups via menu
 
@@ -254,18 +254,19 @@ CrateCard
 - **Trade-off**: More complex persistence (2 files vs 1), but benefits outweigh complexity
 
 **2. Preview Page (Derived State)**
-- **Decision**: Remove `docs_preview_page` field, derive from `pinnedPages` and `currentPage`
-- **UX Concept**: Each crate has exactly one preview slot tracked via `currentPage` (like VS Code preview tabs)
+- **Decision**: Derive preview state from `workspace.currentPage` (global) and `crate.pinnedPages`
+- **UX Concept**: Global currentPage URL, per-crate pinned pages (like VS Code preview tabs)
   - Preview pages appear in italic to indicate temporary status
-  - Navigating to a new page replaces existing preview page (if any)
-  - Only one preview page per crate at a time
+  - Navigating to a new page updates global `currentPage`
+  - Only one preview page per crate at a time (derived from URL matching)
 - **Pinning Behavior**:
-  - Clicking pin icon on preview page: sets `pinned = true` (promotes to permanent)
-  - Clicking unpin icon on pinned page: sets `pinned = false` (demotes to preview, replaces previous preview if any)
-- **Implementation**: Preview page is identified as `currentPage` where `currentPage` is NOT in `pinnedPages`
-  - `pinnedPages` array contains pinned page paths
-  - `currentPage` references the currently active page path
-- **Rationale**: Avoids state duplication; preview state derived from current page + pin status
+  - Clicking pin icon on preview page: adds path to `pinnedPages` (promotes to permanent)
+  - Clicking unpin icon on pinned page: removes from `pinnedPages` (page disappears unless currently active)
+- **Implementation**: Preview page is identified when `currentPage` URL belongs to crate but path is NOT in `pinnedPages`
+  - `workspace.currentPage` is a full URL (e.g., `https://docs.rs/tokio/1.0.0/tokio/runtime/`)
+  - `crate.pinnedPages` is `string[]` of relative paths (e.g., `["tokio/runtime/"]`)
+  - IPC 'navigated' event updates `workspace.currentPage` automatically
+- **Rationale**: Global currentPage simplifies state; preview state derived from URL + pin status
 - **Trade-off**: Slightly more computation on render (negligible, worth the simplification)
 
 **3. Ungrouped as Array**
@@ -625,7 +626,7 @@ TurboDoc/
 │       ├── index.tsx              ✅ Explorer, groups, items
 │       ├── common.d.ts            ✅ ExplorerItemProps<T> interface
 │       └── items/
-│           └── crate.tsx          ✅ CrateCard component
+│           └── crate.tsx          ✅ CrateCard + CratePageList + CratePageItem
 ├── src/
 │   └── app.rs                     ✅ Backend IPC handlers
 └── docs/
@@ -689,11 +690,11 @@ All initial questions have been answered through implementation. No outstanding 
 
 ### Phase 5+ (In Progress)
 - ⬜ Users can search and add crates to workspace
-- ⬜ Crates display with metadata, version selection, and external links
+- ✅ Crates display with metadata, version selection, and external links
 - ⬜ Users can organize crates into named groups
-- ⬜ Navigation in iframe updates explorer state automatically
-- ⬜ Users can pin/unpin documentation pages
-- ⬜ Preview page system works like VS Code tabs
+- ✅ Navigation in iframe updates explorer state automatically (IPC 'navigated' event)
+- ✅ Users can pin/unpin documentation pages
+- ✅ Preview page system works like VS Code tabs
 - ⬜ UI is responsive and matches design mockup
 - ⬜ All interactions are smooth with proper loading/error states
 

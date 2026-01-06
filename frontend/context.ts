@@ -19,12 +19,15 @@ export async function loadAppState(): Promise<AppState> {
     // Here we just assume that the loaded data is valid.
     // Validation is deferred to later stages.
     const workspace =
-        await IPC.loadWorkspace() ?? { groups: [], ungrouped: [] } satisfies Workspace;
+        await IPC.loadWorkspace() as Record<string, unknown> ?? {};
     const cache =
         await IPC.loadCache() as Record<string, unknown> ?? {};
+    workspace.groups ??= [];
+    workspace.ungrouped ??= [];
+    workspace.currentPage ??= 'https://docs.rs/';
     cache.crates ??= {};
     return {
-        workspace: workspace as Workspace,
+        workspace: workspace as any as Workspace,
         cache: cache as any as Cache,
     }
 }
