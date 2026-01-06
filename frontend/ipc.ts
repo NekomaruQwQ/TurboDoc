@@ -1,8 +1,7 @@
-import type { PartialDeep, ReadonlyDeep } from 'type-fest';
+import type { ReadonlyDeep } from 'type-fest';
 
 import { assert } from '@/prelude';
 
-import type { Workspace, Cache } from '@/data';
 import { IPC_TIMEOUT_MS } from '@/constants';
 
 /**
@@ -164,7 +163,7 @@ function postMessage(message: ReadonlyDeep<IPCRequest>): void {
 /**
  * Request to load workspace from the host. Throws an error if the file doesn't
  * exist or any other error occurs.
- * 
+ *
  * This function does not perform any validation on the loaded workspace object,
  * and as such, it resolves to `unknown`.
  */
@@ -200,7 +199,7 @@ export async function saveWorkspace(workspace: unknown): Promise<void> {
  *
  * This function does not perform any validation on the loaded cache object,
  * and as such, it resolves to `unknown`.
- * 
+ *
  * Errors during cache loading are non-fatal, in which case `null` is returned.
  * As such, this function never throws an error.
  */

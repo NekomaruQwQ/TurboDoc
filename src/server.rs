@@ -1,4 +1,3 @@
-#![expect(clippy::panic_in_result_fn)]
 #![expect(clippy::map_err_ignore)]
 
 use std::borrow::Cow;

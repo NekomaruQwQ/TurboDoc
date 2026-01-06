@@ -202,7 +202,7 @@ mod handler {
 
     fn on_web_message_received(webview: &WebView, message: &str) {
         let result =
-            super::ipc::handle_request(message)
+            ipc::handle_request(message)
                 .map(|response| response.to_string())
                 .and_then(|response| webview.post_message_as_json(&response));
         if let Err(err) = result {
