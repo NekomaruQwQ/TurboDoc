@@ -2,9 +2,8 @@ import type { ReadonlyDeep } from 'type-fest';
 
 import { createContext, useContext, useEffect, useRef } from 'react';
 import { useImmer } from 'use-immer';
-import { produce } from 'immer';
 
-import type { Workspace, Cache, CrateInfo } from '@/data';
+import type { Workspace, Cache, CrateCache } from '@/data';
 import * as IPC from '@/ipc';
 
 import { CACHE_EXPIRY_MS } from '@/constants';
@@ -20,20 +19,22 @@ export async function loadAppState(): Promise<AppState> {
     // Here we just assume that the loaded data is valid.
     // Validation is deferred to later stages.
     const workspace =
-        await IPC.loadWorkspace()
-            ?? { groups: [], ungrouped: [] } satisfies Workspace;
+        await IPC.loadWorkspace() ?? { groups: [], ungrouped: [] } satisfies Workspace;
     const cache =
-        await IPC.loadCache()
-            ?? { crates: {} } satisfies Cache;
+        await IPC.loadCache() as Record<string, unknown> ?? {};
+    cache.crates ??= {};
     return {
         workspace: workspace as Workspace,
-        cache: cache as Cache,
+        cache: cache as any as Cache,
     }
 }
 
 export class AppContext {
+    /** Reference to the viewer iframe for programmatic navigation */
+    public readonly viewerRef: React.RefObject<HTMLIFrameElement | null>;
+
     private readonly state: ReadonlyDeep<AppState>;
-    private readonly updateState: (updater: (draft: AppState) => AppState) => void;
+    private readonly updateState: (updater: (draft: AppState) => void) => void;
 
     public get workspace(): ReadonlyDeep<Workspace> {
         return this.state.workspace;
@@ -43,16 +44,14 @@ export class AppContext {
         return this.state.cache;
     }
 
-    /** Reference to the viewer iframe for programmatic navigation */
-    public readonly viewerRef: React.RefObject<HTMLIFrameElement | null>;
-
-    public constructor(viewerRef: React.RefObject<HTMLIFrameElement | null>) {
-        this.viewerRef = viewerRef;
-
-        [this.state, this.updateState] = useImmer<AppState>({
-            workspace: { groups: [], ungrouped: [] },
-            cache: { crates: {} },
-        });
+    public constructor() {
+        this.viewerRef =
+            useRef<HTMLIFrameElement | null>(null);
+        [this.state, this.updateState] =
+            useImmer<AppState>({
+                workspace: { groups: [], ungrouped: [] },
+                cache: { crates: {} },
+            });
 
         useEffect(() => {
             loadAppState()
@@ -85,24 +84,23 @@ export class AppContext {
     }
 
     public updateWorkspace(updater: (draft: Workspace) => void): void {
-        this.updateState(state => ({ ...state, workspace: produce(state.workspace, updater) }));
+        this.updateState(state => { updater(state.workspace); });
         console.log('Workspace updated.');
     }
 
     private updateCache(updater: (draft: Cache) => void): void {
-        this.updateState(state => ({ ...state, cache: produce(state.cache, updater) }));
+        this.updateState(state => { updater(state.cache); });
         console.log('Cache updated.');
     }
 
-    public async getCrateInfo(crateName: string): Promise<ReadonlyDeep<CrateInfo> | undefined> {
-        function shouldRefetch(crateCache: ReadonlyDeep<CrateInfo> | undefined): boolean {
+    public getCrateCache(crateName: string): ReadonlyDeep<CrateCache> | undefined {
+        function shouldRefetch(crateCache: ReadonlyDeep<CrateCache> | undefined): boolean {
             if (!crateCache) return true;
             const age = Date.now() - crateCache.lastFetched;
             return age > CACHE_EXPIRY_MS;
         }
 
-        let existing = this.cache.crates ? this.cache.crates[crateName] : undefined;
-        if (shouldRefetch(existing)) {
+        async function refetch(crateName: string, callback: (crateCache: CrateCache) => void): Promise<void> {
             console.log(`Refetching crate info for ${crateName}.`);
             try {
                 const crateInfo = await CratesAPI.fetchCrateInfo(crateName);
@@ -111,23 +109,28 @@ export class AppContext {
                     name: crateInfo.crate.name,
                     versions: crateInfo.versions,
                     versionGroups: computeVersionGroups(crateInfo.versions),
-                    links: {
-                        repository: crateInfo.crate.repository ?? null,
-                        homepage: crateInfo.crate.homepage ?? null,
-                        documentation: crateInfo.crate.documentation ?? null,
-                    },
+                    repository: crateInfo.crate.repository ?? null,
+                    homepage: crateInfo.crate.homepage ?? null,
+                    documentation: crateInfo.crate.documentation ?? null,
                     lastFetched: Date.now(),
-                } satisfies CrateInfo;
+                } satisfies CrateCache;
 
-                this.updateCache(draft => {
-                    draft.crates[crateName] = newCrateInfo;
-                });
+                callback(newCrateInfo);
             } catch (err) {
                 console.error(`Failed to fetch crate info for ${crateName}:`, err);
             }
         }
 
-        return this.cache.crates![crateName]!;
+        let existing = this.cache.crates ? this.cache.crates[crateName] : undefined;
+        if (shouldRefetch(existing)) {
+            refetch(crateName, crateCache => {
+                this.updateCache(draft => {
+                    draft.crates[crateName] = crateCache;
+                });
+            });
+        }
+
+        return existing;
     }
 }
 

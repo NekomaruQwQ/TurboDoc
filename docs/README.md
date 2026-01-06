@@ -622,7 +622,10 @@ TurboDoc/
 │   │   ├── version-group.ts       ✅ Version grouping logic
 │   │   └── url-parser.ts          ✅ URL parsing utilities
 │   └── explorer/
-│       └── index.tsx              🚧 Explorer container (stub)
+│       ├── index.tsx              ✅ Explorer, groups, items
+│       ├── common.d.ts            ✅ ExplorerItemProps<T> interface
+│       └── items/
+│           └── crate.tsx          ✅ CrateCard component
 ├── src/
 │   └── app.rs                     ✅ Backend IPC handlers
 └── docs/

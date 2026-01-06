@@ -113,12 +113,11 @@ This document tracks the **remaining implementation work** for TurboDoc's fronte
 ```
 Component Path                              Status  Notes
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-[ ] frontend/explorer/index.tsx             Explorer container
+[✓] frontend/explorer/index.tsx             Explorer, groups, items
+[✓] frontend/explorer/common.d.ts           ExplorerItemProps<T> interface
+[✓] frontend/explorer/items/crate.tsx       CrateCard (collapsible, links)
 [ ] frontend/explorer/search-bar.tsx        Search input
 [ ] frontend/explorer/search-results.tsx    Search dropdown
-[ ] frontend/explorer/group-list.tsx        Group container
-[ ] frontend/explorer/group.tsx             Group component
-[ ] frontend/explorer/crate-card.tsx        Crate card
 [ ] frontend/explorer/version-combobox.tsx  Version selector
 [ ] frontend/explorer/crate-menu.tsx        Crate actions menu
 [ ] frontend/explorer/page-list.tsx         Page tree
@@ -721,12 +720,19 @@ interface PageListProps {
 
 ## Notes & Deviations
 
-_(Add notes here as you implement components)_
-
 **Pre-Phase 5 Refactoring:**
 - **2025-01**: Refactored `context.ts` to use `ReadonlyDeep<T>` from type-fest for type-level immutability
 - **2025-01**: Refactored `ipc.ts` to use singleton pattern with `IPC.getInstance()` for cleaner initialization
 
-**Example:**
-- **2024-01-15**: Changed SearchBar debounce from 300ms to 500ms for better UX
-- **2024-01-16**: Added loading skeleton to CrateCard while fetching metadata
+**Phase 5 Implementation Notes:**
+
+**Explorer Architecture (2025-01):**
+- **Callback-based data flow**: Updates flow through typed callbacks (`updateItems`, `updateItem`, `setExpanded`, `removeItem`) instead of components calling `appContext` directly
+- **`ExplorerItemProps<T>` interface** (`common.d.ts`): Generic props for item components with standard CRUD callbacks
+- **Component hierarchy**: `Explorer` → `ExplorerUngrouped`/`ExplorerGroup` → `ExplorerItem` → `CrateCard`
+- **Tagged union downcasting**: `ExplorerItem` uses `as any` cast when forwarding `updateItem` callback from `Item` to `ItemCrate` - pragmatic tradeoff since type safety is enforced by the switch statement
+
+**CrateCard (2025-01):**
+- Collapsible card using Radix Collapsible inside shadcn Card
+- External links use `app.navigateTo()` which triggers iframe navigation - Rust host intercepts and opens non-docs.rs URLs in system browser with confirmation dialog ([app.rs:182-201](../src/app.rs#L182-L201))
+- `crateInfo` fetched via `useEffect` + `useState` (cached by `getCrateInfo()`)

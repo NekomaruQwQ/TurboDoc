@@ -1,4 +1,4 @@
-interface Expandable { expanded: boolean }
+export interface Expandable { expanded: boolean }
 
 export interface Workspace {
     /** Named groups of crates */
@@ -15,27 +15,22 @@ export type Item =
         | { type: 'crate', data: ItemCrate });
 
 export interface ItemCrate {
-    /** Name of the crate */
+    /** Name of the crate. */
     name: string;
-    /** List of pinned docs.rs pages */
-    pinnedPages: CratePage[];
-    /** Currently opened docs.rs page (may or may not be pinned) */
-    currentPage: CratePage | null;
+
+    /**
+     * List of pinned docs.rs pages.
+     * 
+     * Each entry is a relative path (e.g., 'glam/struct.Vec3.html').
+     * The full URL can be constructed as:
+     * `https://docs.rs/{crate_name}/{version}/{path}`.
+    */
+    pinnedPages: string[];
+
+    /** Currently opened docs.rs page (may or may not be pinned). */
+    currentPage: string | null;
     /** Currently selected version */
     currentVersion: string;
-}
-
-export interface CratePage {
-    /**
-     * The relative path (e.g., 'struct.Vec3.html') of the page.
-     * 
-     * The full URL of the page can be constructed as
-     * `https://docs.rs/{crate_name}/{version}/{path}`.
-     **/
-    path: string;
-
-    /** Whether this page is pinned */
-    pinned: boolean;
 }
 
 // ==================== Cache ====================
@@ -46,24 +41,28 @@ export interface CratePage {
  */
 export interface Cache {
     /** Flat map of crate caches, keyed by crate name for O(1) lookup */
-    crates: Record<string, CrateInfo>;
+    crates: Record<string, CrateCache>;
 }
 
 /**
  * Cached crate metadata from crates.io.
  * Stored separately from workspace to enable independent cache management.
  */
-export interface CrateInfo {
+export interface CrateCache {
+    /** Timestamp when this cache entry was last updated */
+    lastFetched: number;
     /** Name of the crate (for validation) */
     name: string;
     /** Full version list fetched from crates.io API */
     versions: CrateVersion[];
     /** Grouped versions for display */
     versionGroups: { latest: string, versions: CrateVersion[] }[];
-    /** Links fetched from crates.io API */
-    links: CrateLinks;
-    /** Timestamp when this cache entry was last updated */
-    lastFetched: number;
+    /** Homepage URL */
+    homepage: string | null;
+    /** Repository URL */
+    repository: string | null;
+    /** Documentation URL (might differ from docs.rs) */
+    documentation: string | null;
 }
 
 export interface CrateVersion {
@@ -71,13 +70,4 @@ export interface CrateVersion {
     num: string;
     /** Whether this version is yanked */
     yanked: boolean;
-}
-
-export interface CrateLinks {
-    /** Repository URL */
-    repository: string | null;
-    /** Homepage URL */
-    homepage: string | null;
-    /** Documentation URL (might differ from docs.rs) */
-    documentation: string | null;
 }
