@@ -47,12 +47,14 @@ export class AppContext {
     public constructor() {
         this.viewerRef =
             useRef<HTMLIFrameElement | null>(null);
+
         [this.state, this.updateState] =
             useImmer<AppState>({
                 workspace: { groups: [], ungrouped: [] },
                 cache: { crates: {} },
             });
 
+        // Load the workspace and cache from disk on first render.
         useEffect(() => {
             loadAppState()
                 .then(appState => this.updateState(_ => appState))
@@ -61,6 +63,7 @@ export class AppContext {
 
         // If it is the first render, we skip saving to avoid overwriting existing data
         // before it is loaded.
+        // If not, we save the workspace and cache on every state change.
         const isFirstRender = useRef(true);
         useEffect(() => {
             if (isFirstRender.current) {
@@ -73,6 +76,11 @@ export class AppContext {
             IPC.saveCache(this.state.cache)
                 .catch(err => console.error(err));
         }, [this.state]);
+
+        // Listen to the 'navigated' IPCEvent.
+        useEffect(() => {
+            IPC.on('navigated', event => this.onNavigated(event.url))
+        }, []);
     }
 
     public navigateTo(url: string): void {
@@ -132,8 +140,17 @@ export class AppContext {
 
         return existing;
     }
+
+    private onNavigated(url: string): void {
+        if (url.startsWith('https://docs.rs/')) {
+
+        } else {
+            console.warn(`Ignored navigation to unsupported URL: ${url}`);
+        }
+    }
 }
 
-const context = createContext<AppContext>(undefined!);
-export const AppContextProvider = context.Provider;
-export const useAppContext = () => useContext(context);
+const appContext = createContext<AppContext>(undefined!);
+
+export const AppContextProvider = appContext.Provider;
+export const useAppContext = () => useContext(appContext);

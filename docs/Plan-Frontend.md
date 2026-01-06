@@ -37,7 +37,7 @@ This document tracks the **remaining implementation work** for TurboDoc's fronte
 │  │ [1.42.0 (latest) ▼]    │   │
 │  │                         │   │
 │  │ 🏠 Home                 │   │
-│  │ _struct.Runtime_ 📌    │   │  ← Half-open page (italic)
+│  │ _struct.Runtime_ 📌    │   │  ← Preview page (italic)
 │  │ tokio::task 📌⊗        │   │  ← Pinned page
 │  │ tokio::sync 📌⊗        │   │
 │  └─────────────────────────┘   │
@@ -58,7 +58,7 @@ This document tracks the **remaining implementation work** for TurboDoc's fronte
 - **Body section (expandable):**
   - Home link with house icon (always visible)
   - Documentation pages list
-  - Half-open page shown in italic with pin button
+  - Preview page shown in italic with pin button
   - Pinned pages shown normally with unpin button
   - Active page highlighted with accent background
 
@@ -519,7 +519,7 @@ interface PageListProps {
 
 **Features:**
 - Home page (always present)
-- Half-open page (italic, with pin icon)
+- Preview page (italic, with pin icon)
 - Pinned pages (with unpin icon)
 - Active page highlighted
 - Click navigates to page
@@ -572,7 +572,7 @@ interface PageListProps {
 1. **Wire up IPC navigation events**
    - Implement 'navigated' event handler in AppContext
    - Auto-detect navigation in iframe
-   - Update current page (half-open page logic)
+   - Update current page (preview page logic)
    - Auto-add crate if not in workspace
 
 2. **Test cross-crate navigation**
@@ -653,7 +653,7 @@ interface PageListProps {
 - **Home page**:
   - Icon: Lucide `Home` (12px)
   - Always visible first item
-- **Half-open page**:
+- **Preview page**:
   - Text: Italic (`italic` class)
   - Pin icon: Lucide `Pin` (12px)
   - Color: Normal foreground
@@ -696,7 +696,7 @@ interface PageListProps {
 - **Group names**: Larger, semibold
 - **Crate names**: Medium, bold
 - **Page links**: Normal weight
-- **Half-open pages**: Italic for emphasis
+- **Preview pages**: Italic for emphasis
 - **Muted text**: Reduced opacity or muted color
 
 ### Icon Reference (Lucide React)
@@ -707,7 +707,7 @@ interface PageListProps {
 | Clear | `X` | 16px | Search bar (right, conditional) |
 | External Link | `ExternalLink` | 12px | Crate external links |
 | Home | `Home` | 12px | Home page in page list |
-| Pin | `Pin` | 12px | Pin button for half-open pages |
+| Pin | `Pin` | 12px | Pin button for preview pages |
 | Unpin | `PinOff` | 12px | Unpin button for pinned pages |
 | Menu | `MoreVertical` | 16px | Crate actions menu |
 | Expand | `ChevronDown` | 16px | Group/crate expanded state |

@@ -11,19 +11,10 @@
             "name": "tokio",
             "currentVersion": "1.42.0",
             "pinnedPages": [
-              {
-                "path": "tokio/struct.Runtime.html",
-                "pinned": true
-              },
-              {
-                "path": "tokio/task/index.html",
-                "pinned": true
-              }
+              "tokio/struct.Runtime.html",
+              "tokio/task/index.html"
             ],
-            "currentPage": {
-              "path": "tokio/sync/struct.Mutex.html",
-              "pinned": false
-            }
+            "currentPage": "tokio/sync/struct.Mutex.html"
           }
         },
         {
@@ -49,19 +40,10 @@
             "name": "serde",
             "currentVersion": "1.0.215",
             "pinnedPages": [
-              {
-                "path": "serde/trait.Serialize.html",
-                "pinned": true
-              },
-              {
-                "path": "serde/trait.Deserialize.html",
-                "pinned": true
-              }
+              "serde/trait.Serialize.html",
+              "serde/trait.Deserialize.html"
             ],
-            "currentPage": {
-              "path": "serde/trait.Deserialize.html",
-              "pinned": true
-            }
+            "currentPage": "serde/trait.Deserialize.html"
           }
         },
         {
@@ -71,10 +53,7 @@
             "name": "serde_json",
             "currentVersion": "1.0.132",
             "pinnedPages": [
-              {
-                "path": "serde_json/fn.from_str.html",
-                "pinned": true
-              }
+              "serde_json/fn.from_str.html"
             ],
             "currentPage": null
           }
@@ -92,14 +71,8 @@
             "name": "glam",
             "currentVersion": "0.29.2",
             "pinnedPages": [
-              {
-                "path": "glam/struct.Vec3.html",
-                "pinned": true
-              },
-              {
-                "path": "glam/struct.Mat4.html",
-                "pinned": true
-              }
+              "glam/struct.Vec3.html",
+              "glam/struct.Mat4.html"
             ],
             "currentPage": null
           }
@@ -115,10 +88,7 @@
         "name": "anyhow",
         "currentVersion": "1.0.93",
         "pinnedPages": [],
-        "currentPage": {
-          "path": "anyhow/struct.Error.html",
-          "pinned": false
-        }
+        "currentPage": "anyhow/struct.Error.html"
       }
     },
     {
@@ -138,15 +108,9 @@
         "name": "regex",
         "currentVersion": "1.11.1",
         "pinnedPages": [
-          {
-            "path": "regex/struct.Regex.html",
-            "pinned": true
-          }
+          "regex/struct.Regex.html"
         ],
-        "currentPage": {
-          "path": "regex/struct.Captures.html",
-          "pinned": false
-        }
+        "currentPage": "regex/struct.Captures.html"
       }
     }
   ]

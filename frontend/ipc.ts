@@ -50,106 +50,90 @@ type IPCEventHandler =
 type IPCResponseHandler =
     (response: ReadonlyDeep<IPCResponse>) => void;
 
-class IPC {
-    private static instance: IPC | null = null;
+const eventHandlerMap:
+    Partial<Record<IPCEvent['type'], Set<IPCEventHandler>>> = {};
+const responseHandlerMap:
+    Partial<Record<IPCResponse['type'], IPCResponseHandler>> = {};
 
-    public static getInstance(): IPC {
-        if (!IPC.instance) {
-            IPC.instance = new IPC();
-            window.chrome.webview.addEventListener('message', (event) => {
-                IPC.instance!.handleMessage(event);
-            });
-            console.log('IPC ready.');
+window.chrome.webview.addEventListener('message', (event: any) => {
+    // Here we assume that the host always send well-formed messages and omit any type
+    // checking here for simplicity.
+    const message = event.data as IPCEvent | IPCResponse;
+
+    console.log('[->] ', message);
+
+    const eventHandlerMapCasted =
+        (eventHandlerMap as Partial<Record<string, Set<IPCEventHandler>>>);
+    const eventHandlers =
+        eventHandlerMapCasted[message.type];
+    if (eventHandlers) {
+        for (const handler of eventHandlers) {
+            handler(message as IPCEvent);
         }
-
-        return IPC.instance;
     }
 
-    private readonly eventHandlerMap:
-        Partial<Record<IPCEvent['type'], Set<IPCEventHandler>>> = {};
-    private readonly responseHandlerMap:
-        Partial<Record<IPCResponse['type'], IPCResponseHandler>> = {};
+    const responseHandlerMapCasted =
+        (responseHandlerMap as Partial<Record<string, IPCResponseHandler>>);
+    const responseHandler =
+        responseHandlerMapCasted[message.type];
+    if (responseHandler) {
+        responseHandler(message as IPCResponse);
+    }
 
-    private handleMessage(event: MessageEvent): void {
-        // Here we assume that the host always send well-formed messages and omit any type
-        // checking here for simplicity.
-        const message = event.data as IPCEvent | IPCResponse;
+    delete responseHandlerMapCasted[message.type];
+});
 
-        console.log('[->] ', message);
+/**
+ * Register a handler for a specific `IPCEvent`, returning a function that
+ * removes the handler when called.
+ */
+export function on<T extends IPCEvent>(type: T['type'], handler: (event: T) => void): () => void {
+    if (eventHandlerMap[type] === undefined) {
+        eventHandlerMap[type] = new Set();
+    }
 
-        const eventHandlerMap =
-            (this.eventHandlerMap as Partial<Record<string, Set<IPCEventHandler>>>);
-        const eventHandlers =
-            eventHandlerMap[message.type];
-        if (eventHandlers) {
-            for (const handler of eventHandlers) {
-                handler(message as IPCEvent);
+    const handlerCasted = handler as (event: IPCEvent) => void;
+    const handlerMap = eventHandlerMap[type]!;
+    handlerMap.add(handlerCasted);
+    return () => handlerMap.delete(handlerCasted);
+}
+
+/**
+ * Wait for a `IPCResponse` of the specified `type` from the host.
+ *
+ * Waiting for a response that is already being waited on is considered an error.
+ *
+ * @param type - The response type to wait for
+ * @param timeoutMs - Timeout in milliseconds (default: 5000ms)
+ * @returns Promise that resolves with the response or rejects on timeout
+ */
+export function getResponseAsync<T extends IPCResponseType>(
+    type: T,
+    timeoutMs = IPC_TIMEOUT_MS):
+    Promise<ReadonlyDeep<IPCResponseVariants[T]>> {
+    return new Promise((resolve, reject) => {
+        assert(
+            responseHandlerMap[type] === undefined,
+            `Multiple waiters for IPC response type '${type}'`);
+
+        // Set up timeout to prevent infinite hangs
+        const timeout = setTimeout(() => {
+            delete responseHandlerMap[type];
+            reject(new Error("IPC request timeout"));
+        }, timeoutMs);
+
+        responseHandlerMap[type] = (response: IPCResponse) => {
+            clearTimeout(timeout);
+            delete responseHandlerMap[type];
+
+            assert(response.type === type, "IPC response type mismatch");
+            if (response.success) {
+                resolve(response as ReadonlyDeep<IPCResponseVariants[T]>);
+            } else {
+                reject(new Error(`IPC request rejected by host: ${response.message}`));
             }
-        }
-
-        const responseHandlerMap =
-            (this.responseHandlerMap as Partial<Record<string, IPCResponseHandler>>);
-        const responseHandler =
-            responseHandlerMap[message.type];
-        if (responseHandler) {
-            responseHandler(message as IPCResponse);
-        }
-
-        delete responseHandlerMap[message.type];
-    }
-
-    /**
-     * Register a handler for a specific `IPCEvent`, returning a function that
-     * removes the handler when called.
-     */
-    public on<T extends IPCEvent>(type: T['type'], handler: (event: T) => void): () => void {
-        if (this.eventHandlerMap[type] === undefined) {
-            this.eventHandlerMap[type] = new Set();
-        }
-
-        const handlerCasted = handler as (event: IPCEvent) => void;
-        const handlerMap = this.eventHandlerMap[type]!;
-        handlerMap.add(handlerCasted);
-        return () => handlerMap.delete(handlerCasted);
-    }
-
-    /**
-     * Wait for a `IPCResponse` of the specified `type` from the host.
-     *
-     * Waiting for a response that is already being waited on is considered an error.
-     *
-     * @param type - The response type to wait for
-     * @param timeoutMs - Timeout in milliseconds (default: 5000ms)
-     * @returns Promise that resolves with the response or rejects on timeout
-     */
-    public getResponseAsync<T extends IPCResponseType>(
-        type: T,
-        timeoutMs = IPC_TIMEOUT_MS):
-        Promise<ReadonlyDeep<IPCResponseVariants[T]>> {
-        return new Promise((resolve, reject) => {
-            assert(
-                this.responseHandlerMap[type] === undefined,
-                `Multiple waiters for IPC response type '${type}'`);
-
-            // Set up timeout to prevent infinite hangs
-            const timeout = setTimeout(() => {
-                delete this.responseHandlerMap[type];
-                reject(new Error("IPC request timeout"));
-            }, timeoutMs);
-
-            this.responseHandlerMap[type] = (response: IPCResponse) => {
-                clearTimeout(timeout);
-                delete this.responseHandlerMap[type];
-
-                assert(response.type === type, "IPC response type mismatch");
-                if (response.success) {
-                    resolve(response as ReadonlyDeep<IPCResponseVariants[T]>);
-                } else {
-                    reject(new Error(`IPC request rejected by host: ${response.message}`));
-                }
-            };
-        });
-    }
+        };
+    });
 }
 
 /**
@@ -170,10 +154,7 @@ function postMessage(message: ReadonlyDeep<IPCRequest>): void {
 export async function loadWorkspace(): Promise<unknown> {
     try {
         postMessage({ type: 'load-workspace' });
-        const response =
-            await IPC
-                .getInstance()
-                .getResponseAsync('workspace-loaded');
+        const response = await getResponseAsync('workspace-loaded');
         return JSON.parse(response.content);
     } catch (err) {
         throw new Error(`Failed to load workspace: ${err}`);
@@ -186,9 +167,7 @@ export async function loadWorkspace(): Promise<unknown> {
 export async function saveWorkspace(workspace: unknown): Promise<void> {
     try {
         postMessage({ type: 'save-workspace', content: JSON.stringify(workspace) });
-        await IPC
-            .getInstance()
-            .getResponseAsync('workspace-saved');
+        await getResponseAsync('workspace-saved');
     } catch (err) {
         throw new Error(`Failed to save workspace: ${err}`);
     }
@@ -206,10 +185,7 @@ export async function saveWorkspace(workspace: unknown): Promise<void> {
 export async function loadCache(): Promise<unknown> {
     try {
         postMessage({ type: 'load-cache' });
-        const result =
-            await IPC
-                .getInstance()
-                .getResponseAsync('cache-loaded');
+        const result = await getResponseAsync('cache-loaded');
         return JSON.parse(result.content);
     } catch (err) {
         console.error('Failed to load cache:', err);
@@ -226,9 +202,7 @@ export async function loadCache(): Promise<unknown> {
 export async function saveCache(cache: ReadonlyDeep<unknown>): Promise<void> {
     try {
         postMessage({type: 'save-cache', content: JSON.stringify(cache) });
-        await IPC
-            .getInstance()
-            .getResponseAsync('cache-saved');
+        await getResponseAsync('cache-saved');
     } catch (err) {
         console.error(`Failed to save cache: ${err}`);
     }

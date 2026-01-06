@@ -1,4 +1,6 @@
 :root {
-    --font-sans: 'Segoe UI', sans-serif;
-    --font-mono: 'Cascadia Mono', monospace;
+    --font-sans: 'Ubuntu Light', sans-serif;
+    --font-mono: 'Ubuntu Mono', monospace;
+
+    color-scheme: dark;
 }

@@ -35,9 +35,9 @@ TurboDoc is a documentation viewer for Rust crates with local caching and worksp
 **Navigation:**
 - Clicking page in sidebar → loads in iframe
 - Clicking link in iframe docs → auto-detects navigation via IPC (planned)
-- Navigating to new page → appears as "half-open" page (not pinned)
-- Clicking pin icon → promotes half-open page to pinned
-- Only one half-open page per crate (like VS Code tabs)
+- Navigating to new page → appears as "preview" page (not pinned)
+- Clicking pin icon → promotes preview page to pinned
+- Only one preview page per crate (like VS Code tabs)
 
 **Organization:**
 - Menu-based move between groups (V1)
@@ -62,7 +62,7 @@ TurboDoc is a documentation viewer for Rust crates with local caching and worksp
 - ✅ Display crate metadata (description, links)
 - ✅ Version selection with intelligent grouping
 - ⬜ Pin/unpin documentation pages
-- ⬜ Half-open page system (VS Code-style)
+- ⬜ Preview page system (VS Code-style)
 - ⬜ Named groups for organization
 - ✅ Workspace persistence across sessions
 - ⬜ Automatic cross-crate navigation
@@ -161,7 +161,7 @@ CrateCard
 - **CrateCard**: Card layout with header (name, links, version, menu) and collapsible page list
 - **VersionCombobox**: Radix Select showing version groups (max 5), latest version marked
 - **CrateMenu**: Radix DropdownMenu with move/remove/refresh options
-- **PageList**: Collapsible list with home page, half-open page (italic), and pinned pages
+- **PageList**: Collapsible list with home page, preview page (italic), and pinned pages
 
 ---
 
@@ -216,7 +216,7 @@ CrateCard
 ### Typography
 - Monospace font for consistency with code
 - Clear hierarchy: group names > crate names > page links
-- Italic for half-open pages (emphasis without weight)
+- Italic for preview pages (emphasis without weight)
 
 ### Spacing
 - Compact 8px grid for information density
@@ -253,19 +253,19 @@ CrateCard
   - Separate save timing (workspace: immediate, cache: on metadata fetch)
 - **Trade-off**: More complex persistence (2 files vs 1), but benefits outweigh complexity
 
-**2. Half-Open Page (Derived State)**
-- **Decision**: Remove `docs_half_open_page` field, derive from `pinnedPages` and `currentPage`
-- **UX Concept**: Each crate has exactly one half-open slot tracked via `currentPage` (like VS Code preview tabs)
-  - Half-open pages appear in italic to indicate temporary status
-  - Navigating to a new page replaces existing half-open page (if any)
-  - Only one half-open page per crate at a time
+**2. Preview Page (Derived State)**
+- **Decision**: Remove `docs_preview_page` field, derive from `pinnedPages` and `currentPage`
+- **UX Concept**: Each crate has exactly one preview slot tracked via `currentPage` (like VS Code preview tabs)
+  - Preview pages appear in italic to indicate temporary status
+  - Navigating to a new page replaces existing preview page (if any)
+  - Only one preview page per crate at a time
 - **Pinning Behavior**:
-  - Clicking pin icon on half-open page: sets `pinned = true` (promotes to permanent)
-  - Clicking unpin icon on pinned page: sets `pinned = false` (demotes to half-open, replaces previous half-open if any)
-- **Implementation**: Half-open page is identified as `currentPage` where `currentPage.pinned === false`
-  - `pinnedPages` array contains all pages (both pinned and half-open)
-  - `currentPage` references the currently active page from `pinnedPages`
-- **Rationale**: Avoids state duplication; half-open state derived from current page + pin status
+  - Clicking pin icon on preview page: sets `pinned = true` (promotes to permanent)
+  - Clicking unpin icon on pinned page: sets `pinned = false` (demotes to preview, replaces previous preview if any)
+- **Implementation**: Preview page is identified as `currentPage` where `currentPage` is NOT in `pinnedPages`
+  - `pinnedPages` array contains pinned page paths
+  - `currentPage` references the currently active page path
+- **Rationale**: Avoids state duplication; preview state derived from current page + pin status
 - **Trade-off**: Slightly more computation on render (negligible, worth the simplification)
 
 **3. Ungrouped as Array**
@@ -281,7 +281,7 @@ CrateCard
 #### Implementation Summary
 
 - **Workspace/Cache Split**: Clean separation of user data vs API data in separate files (~90% size reduction for workspace)
-- **Derived Half-Open State**: No duplication, derive from pinnedPages + currentPage
+- **Derived Preview State**: No duplication, derive from pinnedPages + currentPage
 - **Ungrouped as Array**: Simpler than Group, clearer special-case handling
 - **DocsPage Interface**: Proper structure for page data with pin state and metadata
 - **Single-Level Expandability**: Only crate cards expand/collapse (no nested expanders)
@@ -646,8 +646,8 @@ TurboDoc/
 2. **Semver compliance**: All crate versions follow semver format (enforced by crates.io)
    - ✅ **Confirmed**: crates.io enforces semver, safe to rely on
 
-3. **Single half-open page**: Each crate has at most one half-open page at a time (like VS Code)
-   - Data model: `currentPage` can be half-open if not in `pinnedPages` or `!currentPage.pinned`
+3. **Single preview page**: Each crate has at most one preview page at a time (like VS Code)
+   - Data model: `currentPage` is a preview page if not in `pinnedPages`
 
 4. **No nested groups**: Groups cannot contain other groups (flat structure)
    - ✅ **Confirmed**: Data model enforces this - `Group` contains `Item[]`, not other groups
@@ -693,7 +693,7 @@ All initial questions have been answered through implementation. No outstanding 
 - ⬜ Users can organize crates into named groups
 - ⬜ Navigation in iframe updates explorer state automatically
 - ⬜ Users can pin/unpin documentation pages
-- ⬜ Half-open page system works like VS Code tabs
+- ⬜ Preview page system works like VS Code tabs
 - ⬜ UI is responsive and matches design mockup
 - ⬜ All interactions are smooth with proper loading/error states
 

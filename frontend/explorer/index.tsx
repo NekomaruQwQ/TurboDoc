@@ -119,7 +119,7 @@ function ExplorerItem(props: ReadonlyDeep<ExplorerItemProps<Item>>) {
                     expanded={props.expanded}
                     setExpanded={props.setExpanded}
                     item={props.item.data}
-                    updateItem={updater => props.updateItem(updater as any)}
+                    updateItem={updater => props.updateItem(draft => updater(draft.data))}
                     removeItem={() => props.removeItem()} />);
         default:
             return null;
