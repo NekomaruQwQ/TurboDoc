@@ -36,7 +36,7 @@ export function CrateCard(props: ReadonlyDeep<ExplorerItemProps<ItemCrate>>) {
     }
 
     return (
-        <div className='flex flex-col p-1 rounded bg-accent border shadow-sm'>
+        <div className='flex flex-col p-1 rounded bg-accent border shadow-sm truncate'>
             <Collapsible
                 open={props.expanded}
                 onOpenChange={() => props.setExpanded(!props.expanded)}>
@@ -74,12 +74,29 @@ function CrateLink(props: { url: string; label: string }) {
         </span>);
 }
 
+type SymbolType =
+    | 'constant'
+    | 'enum'
+    | 'fn'
+    | 'macro'
+    | 'module'
+    | 'struct'
+    | 'trait'
+    | 'type'
+    | 'unknown';
+
+interface CrateSymbol {
+    module: string[]; // e.g., ["glam", "f32"]
+    symbol: string;   // e.g., "Vec2"
+    type: SymbolType; // e.g., "struct"
+}
+
 interface CratePageInfo {
-    name: string;
+    symbol: CrateSymbol;
     path: string;
-    active: boolean; // Is this the current page?
-    pinned: boolean; // Is this page pinned?
-    italic: boolean; // Is this page italicized (preview)?
+    active: boolean;
+    pinned: boolean;
+    italic: boolean;
 }
 
 /**
@@ -102,35 +119,65 @@ export function CratePageList(props: {
     const rootModuleName = crate.name.replaceAll('-', '_');
     const rootModulePath = `${rootModuleName}/`;
 
-    /** Converts a docs.rs path to a Rust-style qualified name. */
-    function getPageNameFromPath(path: string): string {
+    function parseSymbolType(prefix: string): SymbolType {
+        switch (prefix) {
+            case 'constant': return 'constant';
+            case 'enum': return 'enum';
+            case 'fn': return 'fn';
+            case 'macro': return 'macro';
+            case 'struct': return 'struct';
+            case 'trait': return 'trait';
+            case 'type': return 'type';
+            default: return 'unknown';
+        }
+    }
+
+    /** Converts a docs.rs path to a parsed path with module, symbol, and type. */
+    function parseSymbol(path: string): CrateSymbol {
         // Module: ends with '/'
-        if (path.endsWith('/'))
-            return path.slice(0, -1).replaceAll('/', '::');
-
-        // Module: ends with '/index.html'
-        if (path.endsWith('/index.html'))
-            return path.slice(0, -'/index.html'.length).replaceAll('/', '::');
-
-        // Item: {module}/{prefix}.{name}.html
-        // Examples:
-        //   glam/f32/struct.Vec2.html → glam::f32::Vec2
-        //   tokio/fn.spawn.html → tokio::spawn
-        const match = path.match(/^(.*)\/\w+\.(\w+)\.html$/);
-        if (match) {
-            const [, modulePath, itemName] = match;
-            return modulePath
-                ? `${modulePath.replaceAll('/', '::')}::${itemName}`
-                : itemName ?? '<error>';
+        if (path.endsWith('/')) {
+            const parts = path.slice(0, -1).split('/');
+            return {
+                module: parts.slice(0, -1),
+                symbol: parts.at(-1) ?? '',
+                type: 'module',
+            };
         }
 
-        // Fallback: convert slashes to ::, strip .html
-        return path.replace(/\.html$/, '').replaceAll('/', '::');
+        // Module: ends with '/index.html'
+        if (path.endsWith('/index.html')) {
+            const parts = path.slice(0, -'/index.html'.length).split('/');
+            return {
+                module: parts.slice(0, -1),
+                symbol: parts.at(-1) ?? '',
+                type: 'module',
+            };
+        }
+
+        // Item: {module}/{prefix}.{name}.html
+        const match = path.match(/^(.*)\/(\w+)\.(\w+)\.html$/);
+        if (match) {
+            const [, modulePath, prefix, itemName] = match;
+            return {
+                module: modulePath?.split('/') ?? [],
+                symbol: itemName ?? '',
+                type: parseSymbolType(prefix ?? ''),
+            };
+        }
+
+        // Fallback
+        const name = path.replace(/\.html$/, '');
+        const parts = name.split('/');
+        return {
+            module: parts.slice(0, -1),
+            symbol: parts.at(-1) ?? name,
+            type: 'unknown',
+        };
     }
 
     const pages: CratePageInfo[] =
         crate.pinnedPages.map(path => ({
-            name: getPageNameFromPath(path),
+            symbol: parseSymbol(path),
             path,
             active: currentPage === `${baseUrl}${path}`,
             pinned: true,
@@ -138,7 +185,7 @@ export function CratePageList(props: {
         }));
 
     pages.push({
-        name: getPageNameFromPath(rootModulePath),
+        symbol: parseSymbol(rootModulePath),
         path: rootModulePath,
         active: currentPage === `${baseUrl}${rootModulePath}`,
         pinned: false,
@@ -151,7 +198,7 @@ export function CratePageList(props: {
             currentPage.substring(baseUrl.length);
         if (!crate.pinnedPages.includes(path)) {
             pages.push({
-                name: getPageNameFromPath(path),
+                symbol: parseSymbol(path),
                 path: path,
                 active: true,
                 pinned: false,
@@ -174,6 +221,24 @@ export function CratePageList(props: {
                         updateCrate={props.updateCrate} />))
             }
         </div>);
+}
+
+function getSymbolColor(type: SymbolType): string {
+    switch (type) {
+        case 'struct':
+        case 'enum':
+        case 'type':
+            return 'text-[var(--color-yellow)]';
+        case 'trait':
+            return 'text-[var(--color-cyan)]';
+        case 'fn':
+            return 'text-[var(--color-blue)]';
+        case 'macro':
+        case 'constant':
+            return 'text-[var(--color-orange)]';
+        default:
+            return '';
+    }
 }
 
 function CratePageItem(props: {
@@ -205,7 +270,10 @@ function CratePageItem(props: {
             onMouseEnter={() => setHovered(true)}
             onMouseLeave={() => setHovered(false)}
             onClick={() => app.navigateTo(`${props.baseUrl}${page.path}`)}>
-            <span className='flex-1 truncate font-mono font-light'>{page.name}</span>
+            <span className='flex-1 truncate font-mono font-light'>
+                {page.symbol.module.length > 0 && <span>{page.symbol.module.join('::')}::</span>}
+                <span className={getSymbolColor(page.symbol.type)}>{page.symbol.symbol}</span>
+            </span>
             {
                 page.italic && (
                     <span className={cn(hovered? 'visible': 'hidden')} onClick={event => {

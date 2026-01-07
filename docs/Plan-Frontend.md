@@ -738,10 +738,21 @@ interface PageListProps {
 - **Auto-version sync**: When user navigates to different version in iframe, `currentVersion` updates automatically
 - **Page list inlined**: `CratePageList` and `CratePageItem` components live in same file (no separate `page-list.tsx`)
 - **Preview page**: Derived from `workspace.currentPage` URL - if it belongs to crate and not in `pinnedPages`, shown in italic
-- **Path parsing**: `getPageNameFromPath()` converts docs.rs paths to Rust-style qualified names:
-  - `glam/f32/struct.Vec2.html` → `glam::f32::Vec2`
-  - `tokio/runtime/` → `tokio::runtime`
 - **Pin icons**: Single `Pin` icon - outline for preview (hover-to-show), filled for pinned
+
+**Symbol Parsing & Color Coding (2026-01):**
+- **`CrateSymbol` interface**: `{ module: string[], symbol: string, type: SymbolType }`
+- **`SymbolType`**: `'module' | 'struct' | 'enum' | 'fn' | 'trait' | 'macro' | 'type' | 'constant' | 'unknown'`
+- **`parseSymbol(path)`**: Converts docs.rs paths to structured symbol info:
+  - `glam/f32/struct.Vec2.html` → `{ module: ["glam", "f32"], symbol: "Vec2", type: "struct" }`
+  - `tokio/runtime/` → `{ module: ["tokio"], symbol: "runtime", type: "module" }`
+- **One Dark color coding** (CSS variables in `global.css`):
+  - Yellow (`--color-yellow`): struct, enum, type
+  - Cyan (`--color-cyan`): trait
+  - Blue (`--color-blue`): fn
+  - Orange (`--color-orange`): macro, constant
+  - Default: module, unknown
+- **Rendering**: Module path in default color, symbol name colored by type
 
 **Data Model Changes (2025-01):**
 - `currentPage` moved from `ItemCrate` to `Workspace` level (global current page as full URL)

@@ -63,6 +63,7 @@ TurboDoc is a documentation viewer for Rust crates with local caching and worksp
 - ✅ Version selection with intelligent grouping
 - ✅ Pin/unpin documentation pages
 - ✅ Preview page system (VS Code-style)
+- ✅ Symbol type color coding (One Dark theme)
 - ⬜ Named groups for organization
 - ✅ Workspace persistence across sessions
 - ✅ Automatic cross-crate navigation (IPC 'navigated' event)
@@ -615,6 +616,7 @@ TurboDoc/
 │   ├── app.tsx                    ✅ App component with useAppContext hook
 │   ├── context.ts                 ✅ AppContext class definition
 │   ├── data.ts                    ✅ Type definitions (Workspace, Cache, etc.)
+│   ├── global.css                 ✅ Global styles + One Dark color palette
 │   ├── ipc.ts                     ✅ IPC message passing with timeout
 │   ├── constants.ts               ✅ Constants (timeouts, rate limits)
 │   ├── services/
