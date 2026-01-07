@@ -119,7 +119,7 @@ Component Path                                  Status  Notes
 [✓] frontend/explorer/crate/CratePageList.tsx   Page list + CratePageItem
 [ ] frontend/explorer/search-bar.tsx            Search input
 [ ] frontend/explorer/search-results.tsx        Search dropdown
-[ ] frontend/explorer/version-combobox.tsx      Version selector
+[✓] frontend/explorer/crate/CrateVersionSelector.tsx  Version selector
 [ ] frontend/explorer/crate-menu.tsx            Crate actions menu
 ```
 
@@ -391,7 +391,7 @@ interface CrateCardProps {
     {crateInfo?.links.repository && (
       <ExternalLink onClick={() => window.open(crateInfo.links.repository)} className="h-3 w-3" />
     )}
-    <VersionCombobox crate={crate} crateInfo={crateInfo} />
+    <CrateVersionSelector crate={crate} crateCache={crateCache} updateCrate={...} />
     <CrateMenu crate={crate} groupIndex={groupIndex} />
   </div>
   <Collapsible open={!crate.isCollapsed} onOpenChange={handleToggle}>
@@ -413,43 +413,48 @@ interface CrateCardProps {
 
 ---
 
-#### **VersionCombobox Component** (`frontend/explorer/version-combobox.tsx`)
+#### **CrateVersionSelector Component** (`frontend/explorer/crate/CrateVersionSelector.tsx`)
+
+**Status:** ✅ Implemented
 
 **Purpose:** Version selector dropdown
 
 **Props:**
 ```typescript
-interface VersionComboboxProps {
-  crate: ItemCrate;
-  crateInfo: CrateInfo | undefined;
+interface CrateVersionSelectorProps {
+    crate: ReadonlyDeep<ItemCrate>;
+    crateCache: ReadonlyDeep<CrateCache> | undefined;
+    updateCrate: (updater: (crate: ItemCrate) => void) => void;
 }
 ```
 
 **Features:**
-- Uses Radix Select
-- Shows version groups (max 5)
-- Latest version with "(latest)" label
-- Green indicator for latest in group
-- Grey/dim for older versions
+- Uses shadcn Select (Radix UI)
+- Shows "latest" as first option (stores literal string)
+- Shows latest version from each of the 5 most recent version groups
+- Shows current version if not in the list above
+- Yanked versions shown with strikethrough
+- "..." placeholder item for future full version list popup
 
-**Layout:**
-```tsx
-<Select value={crate.currentVersion} onValueChange={handleVersionChange}>
-  <SelectTrigger className="w-32">
-    <SelectValue />
-  </SelectTrigger>
-  <SelectContent>
-    {crateInfo?.versionGroups.map(group => (
-      <SelectItem key={group.latest} value={group.latest}>
-        {group.latest} {group.latest === crateInfo.versions[0].num && "(latest)"}
-      </SelectItem>
-    ))}
-  </SelectContent>
-</Select>
+**Version List Logic:**
+```typescript
+function getDisplayVersions(currentVersion, versionGroups): string[] {
+    const versions = ['latest'];
+    const seen = new Set(['latest']);
+    for (const group of versionGroups?.slice(0, 5) ?? []) {
+        if (!seen.has(group.latest)) {
+            versions.push(group.latest);
+            seen.add(group.latest);
+        }
+    }
+    if (!seen.has(currentVersion)) {
+        versions.push(currentVersion);
+    }
+    return versions;
+}
 ```
 
-**Actions to Implement:**
-- `appContext.updateCrateVersion(crateName: string, version: string)` - Change version
+**Version update:** Uses `updateCrate(c => c.currentVersion = version)` callback
 
 ---
 
@@ -755,6 +760,14 @@ interface PageListProps {
   - Orange (`--color-orange`): macro, constant
   - Default: module, unknown
 - **Rendering**: Module path in default color, symbol name colored by type
+
+**CrateVersionSelector (2026-01):**
+- **File**: `crate/CrateVersionSelector.tsx`
+- **Version list**: "latest" + top 5 version groups + current version (if not in list)
+- **"latest" behavior**: Stores literal string "latest" (docs.rs supports `/crate/latest/` URLs)
+- **Yanked indicator**: Strikethrough styling for yanked versions
+- **"..." placeholder**: Disabled item at bottom for future full version list popup
+- **Styling**: Borderless select trigger to blend with header row
 
 **Data Model Changes (2025-01):**
 - `currentPage` moved from `ItemCrate` to `Workspace` level (global current page as full URL)

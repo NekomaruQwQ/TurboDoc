@@ -8,6 +8,7 @@ import type { ItemCrate } from '@/data';
 import type { ExplorerItemProps } from '@/explorer/common';
 import { useAppContext } from '@/context';
 import CratePageList from '@/explorer/crate/CratePageList.tsx';
+import CrateVersionSelector from '@/explorer/crate/CrateVersionSelector.tsx';
 
 /**
  * Displays a crate as a collapsible card.
@@ -35,30 +36,34 @@ export default function CrateCard(props: ReadonlyDeep<ExplorerItemProps<ItemCrat
     }
 
     return (
-        <div className='flex flex-col p-1 rounded bg-accent border shadow-sm truncate'>
-            <Collapsible
-                open={props.expanded}
-                onOpenChange={() => props.setExpanded(!props.expanded)}>
-                <CollapsibleTrigger asChild className='px-1'>
-                    <p className='font-mono opacity-90 cursor-pointer'>{crate.name}</p>
-                </CollapsibleTrigger>
-                <CollapsibleContent className='text-sm gap-y-0.5'>
-                    {/* Header row: links + version */}
-                    <div className='flex flex-row items-center px-1 gap-2 my-0.5 text-muted-foreground'>
-                        <span className='flex flex-1'>{crate.currentVersion}</span>
-                        <span className='flex flex-row items-center gap-4 text-xs'>
-                            {crateCache?.repository && (
-                                <CrateLink label='Repository' url={crateCache.repository} />
-                            )}
-                            {crateCache?.homepage && (
-                                <CrateLink label='Homepage' url={crateCache.homepage} />
-                            )}
-                        </span>
-                    </div>
-                    <CratePageList crate={crate} updateCrate={props.updateItem} />
-                </CollapsibleContent>
-            </Collapsible>
-        </div>);
+        <Collapsible
+            className='flex flex-col p-1 gap-1 rounded bg-accent border shadow-sm truncate'
+            open={props.expanded}
+            onOpenChange={() => props.setExpanded(!props.expanded)}>
+            <CollapsibleTrigger asChild className='px-1'>
+                <p className='font-mono opacity-90 cursor-pointer'>{crate.name}</p>
+            </CollapsibleTrigger>
+            <CollapsibleContent className='flex flex-col text-sm gap-1'>
+                {/* Header row: version + links */}
+                <div className='flex flex-row items-center px-1 gap-2 text-muted-foreground'>
+                    <span className='flex-1'>
+                        <CrateVersionSelector
+                            crate={crate}
+                            crateCache={crateCache}
+                            updateCrate={props.updateItem} />
+                    </span>
+                    <span className='flex flex-row items-center gap-4 text-xs'>
+                        {crateCache?.repository && (
+                            <CrateLink label='Repository' url={crateCache.repository} />
+                        )}
+                        {crateCache?.homepage && (
+                            <CrateLink label='Homepage' url={crateCache.homepage} />
+                        )}
+                    </span>
+                </div>
+                <CratePageList crate={crate} updateCrate={props.updateItem} />
+            </CollapsibleContent>
+        </Collapsible>);
 }
 
 function CrateLink(props: { url: string; label: string }) {
