@@ -108,6 +108,11 @@ export class AppContext {
         console.log('Cache updated.');
     }
 
+    /** Invalidates cached metadata for a crate, forcing a refetch on next access. */
+    public refreshCrateCache(crateName: string): void {
+        this.updateCache(draft => { delete draft.crates[crateName]; });
+    }
+
     public getCrateCache(crateName: string): ReadonlyDeep<CrateCache> | undefined {
         function shouldRefetch(crateCache: ReadonlyDeep<CrateCache> | undefined): boolean {
             if (!crateCache) return true;

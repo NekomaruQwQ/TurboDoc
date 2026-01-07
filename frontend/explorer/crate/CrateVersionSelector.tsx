@@ -12,13 +12,6 @@ import {
 } from '@/components/ui/select';
 
 import type { ItemCrate, CrateCache } from '@/data';
-import {cn} from "@/lib/utils.ts";
-
-interface CrateVersionSelectorProps {
-    crate: ReadonlyDeep<ItemCrate>;
-    crateCache: ReadonlyDeep<CrateCache> | undefined;
-    updateCrate: (updater: (crate: ItemCrate) => void) => void;
-}
 
 /**
  * Builds the list of versions to display in the selector.
@@ -37,9 +30,12 @@ function getDisplayVersions(
 
     // Add latest from each version group (max 5)
     for (const group of versionGroups?.slice(0, 5) ?? []) {
-        if (!seen.has(group.latest)) {
-            versions.push(group.latest);
-            seen.add(group.latest);
+        const latestInGroup = group.versions[0] ?? null;
+        if (latestInGroup &&
+            !seen.has(latestInGroup.num) &&
+            !latestInGroup.yanked) {
+            versions.push(latestInGroup.num);
+            seen.add(latestInGroup.num);
         }
     }
 
@@ -57,34 +53,26 @@ function getDisplayVersions(
  * Shows "latest" plus the 5 most recent major.minor versions,
  * with a placeholder "..." item for future full version list.
  */
-export default function CrateVersionSelector(props: CrateVersionSelectorProps) {
-    const { crate, crateCache, updateCrate } = props;
+export default function CrateVersionSelector(props: {
+    crate: ReadonlyDeep<ItemCrate>;
+    crateCache: ReadonlyDeep<CrateCache> | undefined;
+    setVersion(version: string): void;
+}) {
+    const { crate, crateCache } = props;
     const versions = getDisplayVersions(crate.currentVersion, crateCache?.versionGroups);
-
-    // Build a set of yanked versions for quick lookup
-    const yankedVersions = new Set(
-        crateCache?.versions.filter(v => v.yanked).map(v => v.num) ?? []);
-
-    function handleVersionChange(version: string) {
-        // Ignore clicks on the "..." placeholder
-        if (version === '...') return;
-        updateCrate(c => c.currentVersion = version);
-    }
-
     return (
-        <Select value={crate.currentVersion} onValueChange={handleVersionChange}>
+        <Select value={crate.currentVersion} onValueChange={version => {
+            if (version == 'latest' || crateCache?.versions.find(({ num }) => num === version)) {
+                props.setVersion(version);
+            }
+        }}>
             <SelectTrigger size={'xs' as any} className='px-2 py-0 w-24 h-6 text-xs rounded-sm shadow-none'>
                 <SelectValue />
             </SelectTrigger>
             <SelectContent>
                 {versions.map(version => (
-                    <SelectItem
-                        key={version}
-                        value={version}
-                        className={cn(
-                            'text-xs h-6',
-                            yankedVersions.has(version) ? 'line-through opacity-60' : '')}>
-                        {version === 'latest' ? 'latest' : version}
+                    <SelectItem key={version} value={version} className='text-xs h-6'>
+                        {version}
                     </SelectItem>
                 ))}
                 <SelectSeparator className='m-0.5' />

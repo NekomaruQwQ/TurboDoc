@@ -120,7 +120,7 @@ Component Path                                  Status  Notes
 [ ] frontend/explorer/search-bar.tsx            Search input
 [ ] frontend/explorer/search-results.tsx        Search dropdown
 [✓] frontend/explorer/crate/CrateVersionSelector.tsx  Version selector
-[ ] frontend/explorer/crate-menu.tsx            Crate actions menu
+[✓] frontend/explorer/crate/CrateMenu.tsx       Crate actions menu
 ```
 
 ### Component Specifications
@@ -361,55 +361,42 @@ interface GroupProps {
 
 ---
 
-#### **CrateCard Component** (`frontend/explorer/crate-card.tsx`)
+#### **CrateCard Component** (`frontend/explorer/crate/CrateCard.tsx`)
+
+**Status:** ✅ Implemented
 
 **Purpose:** Card displaying crate info and pages
 
-**Props:**
-```typescript
-interface CrateCardProps {
-  crate: ItemCrate;
-  groupIndex: number; // -1 for ungrouped
-}
-```
+**Props:** Uses `ExplorerItemProps<ItemCrate>` from common.d.ts
 
 **Features:**
-- Collapsible page list
-- Clickable crate name (navigates to home)
-- External links (crates.io, repo)
-- Version combobox
-- "..." menu (move, remove, refresh)
+- Collapsible page list (Radix Collapsible)
+- Clickable crate name (toggles collapse)
+- Version selector with navigation support
+- "..." menu (external links, move, refresh, remove)
+- Auto-syncs version from current page URL
 
 **Layout:**
 ```tsx
-<Card className="p-3">
-  <div className="flex items-center gap-2">
-    <Package className="h-4 w-4" />
-    <span className="font-semibold cursor-pointer" onClick={handleGoHome}>
-      {crate.name}
-    </span>
-    {crateInfo?.links.repository && (
-      <ExternalLink onClick={() => window.open(crateInfo.links.repository)} className="h-3 w-3" />
-    )}
-    <CrateVersionSelector crate={crate} crateCache={crateCache} updateCrate={...} />
-    <CrateMenu crate={crate} groupIndex={groupIndex} />
-  </div>
-  <Collapsible open={!crate.isCollapsed} onOpenChange={handleToggle}>
+<Collapsible>
+    <div className='flex flex-row items-stretch px-1 gap-1'>
+        <CollapsibleTrigger>{crate.name}</CollapsibleTrigger>
+        <CrateVersionSelector crate={crate} crateCache={crateCache} setVersion={...} />
+        <CrateMenu crate={crate} removeItem={props.removeItem} />
+    </div>
     <CollapsibleContent>
-      <PageList crate={crate} />
+        <CratePageList crate={crate} updateCrate={props.updateItem} />
     </CollapsibleContent>
-  </Collapsible>
-</Card>
+</Collapsible>
 ```
 
-**State:**
-- Fetch `crateInfo` via `appContext.getCrateInfo(crate.name)` on mount
+**Version change behavior:**
+- If currently viewing this crate's docs, navigates to new version URL
+- Otherwise, just updates `crate.currentVersion`
 
-**Actions to Implement:**
-- `appContext.toggleCrateCollapse(crateName: string)` - Toggle page list
-- `appContext.navigateTo(url: string)` - Navigate to home page
-
-**Icons:** `Package`, `ExternalLink` (lucide-react)
+**Auto-version sync:**
+- Detects when `currentPage` URL has different version than `crate.currentVersion`
+- Automatically updates to match (handles "latest" and specific versions)
 
 ---
 
@@ -421,19 +408,19 @@ interface CrateCardProps {
 
 **Props:**
 ```typescript
-interface CrateVersionSelectorProps {
+{
     crate: ReadonlyDeep<ItemCrate>;
     crateCache: ReadonlyDeep<CrateCache> | undefined;
-    updateCrate: (updater: (crate: ItemCrate) => void) => void;
+    setVersion(version: string): void;
 }
 ```
 
 **Features:**
 - Uses shadcn Select (Radix UI)
 - Shows "latest" as first option (stores literal string)
-- Shows latest version from each of the 5 most recent version groups
+- Shows first non-yanked version from each of the 5 most recent version groups
 - Shows current version if not in the list above
-- Yanked versions shown with strikethrough
+- Validates version exists before calling `setVersion`
 - "..." placeholder item for future full version list popup
 
 **Version List Logic:**
@@ -442,9 +429,10 @@ function getDisplayVersions(currentVersion, versionGroups): string[] {
     const versions = ['latest'];
     const seen = new Set(['latest']);
     for (const group of versionGroups?.slice(0, 5) ?? []) {
-        if (!seen.has(group.latest)) {
-            versions.push(group.latest);
-            seen.add(group.latest);
+        const latestInGroup = group.versions[0] ?? null;
+        if (latestInGroup && !seen.has(latestInGroup.num) && !latestInGroup.yanked) {
+            versions.push(latestInGroup.num);
+            seen.add(latestInGroup.num);
         }
     }
     if (!seen.has(currentVersion)) {
@@ -454,60 +442,48 @@ function getDisplayVersions(currentVersion, versionGroups): string[] {
 }
 ```
 
-**Version update:** Uses `updateCrate(c => c.currentVersion = version)` callback
+**Version update:** CrateCard passes `setVersion` callback that handles navigation to new version URL
 
 ---
 
-#### **CrateMenu Component** (`frontend/explorer/crate-menu.tsx`)
+#### **CrateMenu Component** (`frontend/explorer/crate/CrateMenu.tsx`)
 
-**Purpose:** Actions menu for crate
+**Status:** ✅ Implemented
+
+**Purpose:** Actions menu for crate (also hosts external links)
 
 **Props:**
 ```typescript
 interface CrateMenuProps {
-  crate: ItemCrate;
-  groupIndex: number;
+    crate: ReadonlyDeep<ItemCrate>;
+    removeItem: () => void;
 }
 ```
 
 **Features:**
-- Dropdown from "..." button (Radix DropdownMenu)
-- Move to group (submenu with group list)
-- Remove crate (with confirmation)
-- Refresh metadata (re-fetch from crates.io)
+- Dropdown from "..." button (shadcn DropdownMenu)
+- External links (Repository, Homepage) at top - moved from CrateCard header
+- Move to group (submenu with "Ungrouped" + all named groups)
+- Refresh metadata (invalidates cache, triggers refetch)
+- Remove crate (uses `removeItem` callback, destructive styling)
 
-**Layout:**
-```tsx
-<DropdownMenu>
-  <DropdownMenuTrigger>
-    <MoreVertical className="h-4 w-4" />
-  </DropdownMenuTrigger>
-  <DropdownMenuContent>
-    <DropdownMenuSub>
-      <DropdownMenuSubTrigger>Move to group</DropdownMenuSubTrigger>
-      <DropdownMenuSubContent>
-        {workspace.groups.map((group, index) => (
-          <DropdownMenuItem onClick={() => handleMove(index)}>
-            {group.name}
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuSubContent>
-    </DropdownMenuSub>
-    <DropdownMenuItem onClick={handleRefresh}>Refresh metadata</DropdownMenuItem>
-    <DropdownMenuSeparator />
-    <DropdownMenuItem onClick={handleRemove} className="text-destructive">
-      Remove crate
-    </DropdownMenuItem>
-  </DropdownMenuContent>
-</DropdownMenu>
-```
+**Menu items:**
+1. Repository link (if available)
+2. Homepage link (if available)
+3. (separator)
+4. Move to group → submenu with Ungrouped + named groups
+5. Refresh metadata
+6. (separator)
+7. Remove crate (destructive)
 
-**Actions to Implement:**
-- `appContext.moveCrate(crateName: string, toGroupIndex: number)` - Move crate
-- `appContext.removeCrate(crateName: string)` - Remove crate
-- `appContext.refreshCrateMetadata(crateName: string)` - Force refetch
+**Implementation notes:**
+- External links: Uses `CrateLink` helper (moved from CrateCard), opens via `app.navigateTo()`
+- Move: Creates new Item, adds to target group, then calls `removeItem()` to remove from source
+- Refresh: Uses `app.refreshCrateCache(name)` which deletes cache entry
+- Remove: Uses `removeItem` callback from `ExplorerItemProps`
+- Added `refreshCrateCache(name)` method to AppContext
 
-**Icons:** `MoreVertical` (lucide-react)
+**Icons:** `MoreVertical`, `FolderInput`, `RefreshCw`, `Trash2`, `ExternalLink` (lucide-react)
 
 ---
 
@@ -763,11 +739,33 @@ interface PageListProps {
 
 **CrateVersionSelector (2026-01):**
 - **File**: `crate/CrateVersionSelector.tsx`
-- **Version list**: "latest" + top 5 version groups + current version (if not in list)
+- **Props**: `{ crate, crateCache, setVersion(version) }` - callback-based version update
+- **Version list**: "latest" + first non-yanked version from top 5 groups + current version
 - **"latest" behavior**: Stores literal string "latest" (docs.rs supports `/crate/latest/` URLs)
-- **Yanked indicator**: Strikethrough styling for yanked versions
+- **Yanked handling**: Skips yanked versions in display list (uses `group.versions[0]` with yanked check)
 - **"..." placeholder**: Disabled item at bottom for future full version list popup
-- **Styling**: Borderless select trigger to blend with header row
+- **Navigation**: CrateCard passes `setVersion` that navigates to new version URL if currently viewing crate docs
+
+**CrateMenu (2026-01):**
+- **File**: `crate/CrateMenu.tsx`
+- **Position**: Menu button ("...") on same line as crate name and version selector
+- **Menu items** (top to bottom):
+  1. Repository link (if available)
+  2. Homepage link (if available)
+  3. (separator)
+  4. Move to group (submenu with Ungrouped + named groups)
+  5. Refresh metadata
+  6. (separator)
+  7. Remove crate (destructive)
+- **CrateLink helper**: Moved from CrateCard - handles external link navigation via `app.navigateTo()`
+- **Move logic**: Creates new Item, adds to target, then removes from source via callback
+- **Refresh**: Uses `app.refreshCrateCache(name)` - deletes cache entry to force refetch
+- **AppContext addition**: `refreshCrateCache(crateName)` method added
+
+**CrateCard Layout (2026-01 refactor):**
+- **Header row**: `[crate name] [version selector] [menu button]` - all on one line
+- **External links**: Moved from header row into CrateMenu dropdown
+- **Version change**: CrateCard handles navigation - if viewing current crate, navigates to new version URL
 
 **Data Model Changes (2025-01):**
 - `currentPage` moved from `ItemCrate` to `Workspace` level (global current page as full URL)

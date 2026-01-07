@@ -629,7 +629,9 @@ TurboDoc/
 │       ├── common.d.ts            ✅ ExplorerItemProps<T> interface
 │       └── crate/
 │           ├── CrateCard.tsx      ✅ Collapsible crate card with header
-│           └── CratePageList.tsx  ✅ Page list with symbol parsing + CratePageItem
+│           ├── CratePageList.tsx  ✅ Page list with symbol parsing + CratePageItem
+│           ├── CrateVersionSelector.tsx  ✅ Version selector dropdown
+│           └── CrateMenu.tsx      ✅ Crate actions menu (links, move, refresh, remove)
 ├── src/
 │   └── app.rs                     ✅ Backend IPC handlers
 └── docs/
