@@ -111,15 +111,16 @@ This document tracks the **remaining implementation work** for TurboDoc's fronte
 ### Implementation Checklist
 
 ```
-Component Path                              Status  Notes
+Component Path                                  Status  Notes
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-[✓] frontend/explorer/index.tsx             Explorer, groups, items
-[✓] frontend/explorer/common.d.ts           ExplorerItemProps<T> interface
-[✓] frontend/explorer/items/crate.tsx       CrateCard + CratePageList + CratePageItem
-[ ] frontend/explorer/search-bar.tsx        Search input
-[ ] frontend/explorer/search-results.tsx    Search dropdown
-[ ] frontend/explorer/version-combobox.tsx  Version selector
-[ ] frontend/explorer/crate-menu.tsx        Crate actions menu
+[✓] frontend/explorer/index.tsx                 Explorer, groups, items
+[✓] frontend/explorer/common.d.ts               ExplorerItemProps<T> interface
+[✓] frontend/explorer/crate/CrateCard.tsx       Collapsible crate card with header
+[✓] frontend/explorer/crate/CratePageList.tsx   Page list + CratePageItem
+[ ] frontend/explorer/search-bar.tsx            Search input
+[ ] frontend/explorer/search-results.tsx        Search dropdown
+[ ] frontend/explorer/version-combobox.tsx      Version selector
+[ ] frontend/explorer/crate-menu.tsx            Crate actions menu
 ```
 
 ### Component Specifications
@@ -731,14 +732,15 @@ interface PageListProps {
 - **Component hierarchy**: `Explorer` → `ExplorerUngrouped`/`ExplorerGroup` → `ExplorerItem` → `CrateCard`
 - **Tagged union downcasting**: `ExplorerItem` uses `as any` cast when forwarding `updateItem` callback from `Item` to `ItemCrate` - pragmatic tradeoff since type safety is enforced by the switch statement
 
-**CrateCard + PageList (2025-01):**
+**CrateCard + PageList (2025-01, refactored 2026-01):**
+- **File structure**: Split into `crate/CrateCard.tsx` and `crate/CratePageList.tsx` (moved from `items/crate.tsx`)
 - Collapsible card using Radix Collapsible (removed shadcn Card wrapper for simpler styling)
 - External links use `app.navigateTo()` which triggers iframe navigation - Rust host intercepts and opens non-docs.rs URLs in system browser
 - `crateCache` fetched synchronously via `getCrateCache()` (triggers async refetch in background)
 - **Auto-version sync**: When user navigates to different version in iframe, `currentVersion` updates automatically
-- **Page list inlined**: `CratePageList` and `CratePageItem` components live in same file (no separate `page-list.tsx`)
 - **Preview page**: Derived from `workspace.currentPage` URL - if it belongs to crate and not in `pinnedPages`, shown in italic
 - **Pin icons**: Single `Pin` icon - outline for preview (hover-to-show), filled for pinned
+- **CratePageItem**: Inline component in `CratePageList.tsx` handling individual page rendering with hover state
 
 **Symbol Parsing & Color Coding (2026-01):**
 - **`CrateSymbol` interface**: `{ module: string[], symbol: string, type: SymbolType }`

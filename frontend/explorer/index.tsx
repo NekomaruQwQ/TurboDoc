@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 
 import { useAppContext } from '@/context';
 import type { Item } from '@/data';
-import { CrateCard } from '@/explorer/items/crate';
+import CrateCard from '@/explorer/crate/CrateCard.tsx';
 import type { ExplorerItemProps } from '@/explorer/common';
 
 export function Explorer() {

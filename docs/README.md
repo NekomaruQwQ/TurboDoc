@@ -627,8 +627,9 @@ TurboDoc/
 │   └── explorer/
 │       ├── index.tsx              ✅ Explorer, groups, items
 │       ├── common.d.ts            ✅ ExplorerItemProps<T> interface
-│       └── items/
-│           └── crate.tsx          ✅ CrateCard + CratePageList + CratePageItem
+│       └── crate/
+│           ├── CrateCard.tsx      ✅ Collapsible crate card with header
+│           └── CratePageList.tsx  ✅ Page list with symbol parsing + CratePageItem
 ├── src/
 │   └── app.rs                     ✅ Backend IPC handlers
 └── docs/
