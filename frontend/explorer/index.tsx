@@ -8,35 +8,40 @@ import type { ExplorerItemProps } from '@/explorer/common';
 
 export function Explorer() {
     const app = useAppContext();
-    return <div className='p-2 space-y-4 w-full h-full overflow-x-hidden overflow-y-scroll' style={{ scrollbarWidth: 'thin' }}>
-        <ExplorerUngrouped
-            key=':ungrouped:'
-            items={app.workspace.ungrouped}
-            updateItems={updater => app.updateWorkspace(draft => updater(draft.ungrouped)) } />
-        {
-            app.workspace.groups.map((group, i) => (
-                <ExplorerGroup
-                    key={group.name}
-                    name={group.name}
-                    items={group.items}
-                    expanded={group.expanded}
-                    setName={name => {
-                        app.updateWorkspace(draft => draft.groups[i]!.name = name);
-                    }}
-                    setExpanded={expanded => {
-                        app.updateWorkspace(draft => draft.groups[i]!.expanded = expanded);
-                    }}
-                    updateItems={updater => {
-                        app.updateWorkspace(draft => updater(draft.groups[i]!.items))
-                    }}
-                    removeGroup={() =>{
-                        app.updateWorkspace(draft => {
-                            draft.groups.splice(i, 1);
-                        });
-                    }} />
-            ))
-        }
-    </div>;
+    return (
+        <div className='px-2 w-full h-full'>
+            <div
+                className='flex flex-col gap-4 py-2 w-full h-full rounded overflow-x-hidden overflow-y-scroll'
+                style={{ scrollbarWidth: 'none' }}>
+                <ExplorerUngrouped
+                    key=':ungrouped:'
+                    items={app.workspace.ungrouped}
+                    updateItems={updater => app.updateWorkspace(draft => updater(draft.ungrouped)) } />
+                    {
+                        app.workspace.groups.map((group, i) => (
+                            <ExplorerGroup
+                                key={group.name}
+                                name={group.name}
+                                items={group.items}
+                                expanded={group.expanded}
+                                setName={name => {
+                                    app.updateWorkspace(draft => draft.groups[i]!.name = name);
+                                }}
+                                setExpanded={expanded => {
+                                    app.updateWorkspace(draft => draft.groups[i]!.expanded = expanded);
+                                }}
+                                updateItems={updater => {
+                                    app.updateWorkspace(draft => updater(draft.groups[i]!.items))
+                                }}
+                                removeGroup={() =>{
+                                    app.updateWorkspace(draft => {
+                                        draft.groups.splice(i, 1);
+                                    });
+                                }} />
+                        ))
+                    }
+            </div>
+        </div>);
 }
 
 function ExplorerGroupCommon(props: ReadonlyDeep<{

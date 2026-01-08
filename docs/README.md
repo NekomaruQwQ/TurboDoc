@@ -263,10 +263,12 @@ CrateCard
 - **Pinning Behavior**:
   - Clicking pin icon on preview page: adds path to `pinnedPages` (promotes to permanent)
   - Clicking unpin icon on pinned page: removes from `pinnedPages` (page disappears unless currently active)
-- **Implementation**: Preview page is identified when `currentPage` URL belongs to crate but path is NOT in `pinnedPages`
-  - `workspace.currentPage` is a full URL (e.g., `https://docs.rs/tokio/1.0.0/tokio/runtime/`)
+- **Implementation**: Preview page is identified when `currentPage` belongs to crate but path is NOT in `pinnedPages`
+  - `workspace.currentPage` is a `Page` tagged union (`PageCrate | PageUnknown`)
+  - `PageCrate` contains `{ crateName, crateVersion, pathSegments }` for structured URL handling
   - `crate.pinnedPages` is `string[]` of relative paths (e.g., `["tokio/runtime/"]`)
-  - IPC 'navigated' event updates `workspace.currentPage` automatically
+  - IPC 'navigated' event parses URL via `parseUrl()` and updates `workspace.currentPage`
+  - `buildUrl(page)` reconstructs the full URL when needed for navigation
 - **Rationale**: Global currentPage simplifies state; preview state derived from URL + pin status
 - **Trade-off**: Slightly more computation on render (negligible, worth the simplification)
 
@@ -297,7 +299,6 @@ CrateCard
 **Files:**
 - `frontend/services/crates-api.ts` - API client with rate limiting
 - `frontend/utils/version-group.ts` - Version grouping logic
-- `frontend/utils/url-parser.ts` - URL parsing utilities
 
 #### Crates.io API Client
 
@@ -330,14 +331,6 @@ CrateCard
 1.0.0           ← First stable
 0.9.5           ← Latest pre-1.0
 ```
-
-#### URL Parser
-
-**Functions:**
-- `parseDocsRsUrl(url: string)` - Parse docs.rs URLs into `{ crate, version, page }`
-- `buildDocsRsUrl(crate, version, page?)` - Build docs.rs URLs
-
-**Pattern:** `/crate/version/path/to/page.html`
 
 #### Design Decisions
 
@@ -615,15 +608,14 @@ TurboDoc/
 ├── frontend/
 │   ├── app.tsx                    ✅ App component with useAppContext hook
 │   ├── context.ts                 ✅ AppContext class definition
-│   ├── data.ts                    ✅ Type definitions (Workspace, Cache, etc.)
+│   ├── data.ts                    ✅ Type definitions + URL parsing (parseUrl, buildUrl)
 │   ├── global.css                 ✅ Global styles + One Dark color palette
 │   ├── ipc.ts                     ✅ IPC message passing with timeout
 │   ├── constants.ts               ✅ Constants (timeouts, rate limits)
 │   ├── services/
 │   │   └── crates-api.ts          ✅ Crates.io API client
 │   ├── utils/
-│   │   ├── version-group.ts       ✅ Version grouping logic
-│   │   └── url-parser.ts          ✅ URL parsing utilities
+│   │   └── version-group.ts       ✅ Version grouping logic
 │   └── explorer/
 │       ├── index.tsx              ✅ Explorer, groups, items
 │       ├── common.d.ts            ✅ ExplorerItemProps<T> interface

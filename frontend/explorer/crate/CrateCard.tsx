@@ -4,12 +4,13 @@ import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/component
 
 import type { ItemCrate } from '@/data';
 import type { ExplorerItemProps } from '@/explorer/common';
+import { buildUrl } from '@/data';
 import { useAppContext } from '@/context';
 
 import CrateMenu from '@/explorer/crate/CrateMenu';
 import CratePageList from '@/explorer/crate/CratePageList';
 import CrateVersionSelector from '@/explorer/crate/CrateVersionSelector';
-import {Separator} from "@/components/ui/separator.tsx";
+import {Separator} from '@/components/ui/separator.tsx';
 
 /**
  * Displays a crate as a collapsible card.
@@ -23,18 +24,11 @@ export default function CrateCard(props: ReadonlyDeep<ExplorerItemProps<ItemCrat
     const crateCache = app.getCrateCache(crate.name);
     const currentPage = app.workspace.currentPage;
 
-    if (currentPage.startsWith(`https://docs.rs/${crate.name}/`) &&
-        !currentPage.startsWith(`https://docs.rs/${crate.name}/${crate.currentVersion}/`)) {
-        if (currentPage.startsWith(`https://docs.rs/${crate.name}/latest/`)) {
-            props.updateItem(crate => crate.currentVersion = 'latest');
-        }
-        for (const version of crateCache?.versions ?? []) {
-            if (currentPage.startsWith(`https://docs.rs/${crate.name}/${version.num}/`)) {
-                // Update the crate's current version to match the current page
-                props.updateItem(crate => crate.currentVersion = version.num);
-                break;
-            }
-        }
+    // Auto-sync version: if viewing this crate with a different version, update to match
+    if (currentPage.type === 'crate' &&
+        currentPage.crateName === crate.name &&
+        currentPage.crateVersion !== crate.currentVersion) {
+        props.updateItem(crate => crate.currentVersion = currentPage.crateVersion);
     }
 
     return (
@@ -50,11 +44,11 @@ export default function CrateCard(props: ReadonlyDeep<ExplorerItemProps<ItemCrat
                     crate={crate}
                     crateCache={crateCache}
                     setVersion={version => {
-                        if (currentPage.startsWith(`https://docs.rs/${crate.name}/${crate.currentVersion}/`)) {
-                            app.navigateTo(
-                                currentPage.replace(
-                                    `https://docs.rs/${crate.name}/${crate.currentVersion}/`,
-                                    `https://docs.rs/${crate.name}/${version}/`));
+                        // If viewing this crate's docs, navigate to the same page with new version
+                        if (currentPage.type === 'crate' &&
+                            currentPage.crateName === crate.name &&
+                            currentPage.crateVersion === crate.currentVersion) {
+                            app.navigateTo(buildUrl({ ...currentPage, crateVersion: version }));
                         } else {
                             props.updateItem(crate => crate.currentVersion = version);
                         }

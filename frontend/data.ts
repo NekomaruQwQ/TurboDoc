@@ -1,3 +1,5 @@
+import type { ReadonlyDeep } from 'type-fest';
+
 export interface Expandable { expanded: boolean }
 
 export interface Workspace {
@@ -6,11 +8,57 @@ export interface Workspace {
     /** Ungrouped items (displayed at top, simpler than a full Group) */
     ungrouped: Item[];
     /** Currently active documentation page */
-    currentPage: string;
+    currentPage: Page;
 }
 
 export type Group =
     Expandable & { name: string, items: Item[] }
+
+export type Page =
+    | PageUnknown
+    | PageCrate;
+
+export interface PageUnknown {
+    type: 'unknown',
+    url: string,
+}
+
+export interface PageCrate {
+    type: 'crate',
+    crateName: string,
+    crateVersion: string,
+    pathSegments: string[],
+}
+
+export function parseUrl(url: string): Page {
+    if (url.startsWith('https://docs.rs/')) {
+        const urlPath = url.substring('https://docs.rs/'.length);
+        const [
+            crateName,
+            crateVersionOrUndefined,
+            ...pathSegments
+        ] = urlPath.split('/');
+
+        if (crateName)
+            return {
+                type: 'crate',
+                crateName,
+                crateVersion: crateVersionOrUndefined ?? 'latest',
+                pathSegments,
+            };
+    }
+
+    return { type: 'unknown', url };
+}
+
+export function buildUrl(page: ReadonlyDeep<Page>): string {
+    switch (page.type) {
+        case 'unknown':
+            return page.url;
+        case 'crate':
+            return `https://docs.rs/${page.crateName}/${page.crateVersion}/${page.pathSegments.join('/')}`;
+    }
+}
 
 export type Item =
     Expandable & (

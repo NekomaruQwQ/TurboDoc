@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useRef } from 'react';
 import { useImmer } from 'use-immer';
 
 import type { Workspace, Cache, CrateCache } from '@/data';
+import { parseUrl, buildUrl } from '@/data';
 import * as IPC from '@/ipc';
 
 import { CACHE_EXPIRY_MS } from '@/constants';
@@ -24,7 +25,7 @@ export async function loadAppState(): Promise<AppState> {
         await IPC.loadCache() as Record<string, unknown> ?? {};
     workspace.groups ??= [];
     workspace.ungrouped ??= [];
-    workspace.currentPage ??= 'https://docs.rs/';
+    workspace.currentPage ??= { type: 'unknown', url: 'https://docs.rs/' };
     cache.crates ??= {};
     return {
         workspace: workspace as any as Workspace,
@@ -53,7 +54,14 @@ export class AppContext {
 
         [this.state, this.updateState] =
             useImmer<AppState>({
-                workspace: { groups: [], ungrouped: [], currentPage: 'https://docs.rs/' },
+                workspace: {
+                    groups: [],
+                    ungrouped: [],
+                    currentPage: {
+                        type: 'unknown',
+                        url: 'https://docs.rs/',
+                    },
+                },
                 cache: { crates: {} },
             });
 
@@ -83,9 +91,20 @@ export class AppContext {
         // Listen to the 'navigated' IPCEvent.
         useEffect(() => {
             IPC.on('navigated', event => {
-                if (event.url.startsWith('https://docs.rs/') &&
-                    !event.url.startsWith('https://docs.rs/-/'))
-                this.updateWorkspace(workspace => workspace.currentPage = event.url)
+                // Ignore false navigations to "https://docs.rs/-/storage-change-detection.html".
+                if (event.url == 'https://docs.rs/-/storage-change-detection.html')
+                    return;
+
+                const page = parseUrl(event.url);
+                const pageUrl = buildUrl(page);
+                if (pageUrl !== event.url) {
+                    // URL normalization: redirect to the normalized URL.
+                    console.log(`Redirecting from ${event.url} to ${buildUrl(page)}`);
+                    this.navigateTo(pageUrl);
+                    return;
+                }
+
+                this.updateWorkspace(workspace => workspace.currentPage = page)
             })
         }, []);
     }

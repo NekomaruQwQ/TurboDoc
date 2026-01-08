@@ -1,9 +1,9 @@
 import type { ReadonlyDeep } from 'type-fest';
 
-import { useState } from "react";
+import { useState } from 'react';
 import { Pin } from 'lucide-react';
 
-import { cn } from "@/lib/utils.ts";
+import { cn } from '@/lib/utils.ts';
 
 import type { ItemCrate } from '@/data';
 import { useAppContext } from '@/context';
@@ -19,15 +19,18 @@ type SymbolType =
     | 'type'
     | 'unknown';
 
-interface CrateSymbol {
-    module: string[]; // e.g., ["glam", "f32"]
-    symbol: string;   // e.g., "Vec2"
-    type: SymbolType; // e.g., "struct"
-}
+type CrateSymbol =
+    | { symbolType: 'unknown', path: string }
+    | { symbolType: 'module', modulePath: string[] }
+    | {
+        modulePath: string[], // Full module path, e.g., ["glam", "f32"]
+        symbolName: string, // Symbol name (e.g., "Vec2")
+        symbolType: Exclude<SymbolType, 'unknown' | 'module'>,
+    };
 
 interface CratePageInfo {
-    symbol: CrateSymbol;
     path: string;
+    symbol: CrateSymbol;
     active: boolean;
     pinned: boolean;
     italic: boolean;
@@ -60,44 +63,52 @@ export default function CratePageList(props: {
         </div>);
 }
 
-function createPageList(crate: ReadonlyDeep<ItemCrate>): CratePageInfo[] {
+function createPageList(crate: ReadonlyDeep<ItemCrate>): ReadonlyDeep<CratePageInfo>[] {
     const app = useAppContext();
     const currentPage = app.workspace.currentPage;
 
-    const baseUrl = `https://docs.rs/${crate.name}/${crate.currentVersion}/`;
     const rootModuleName = crate.name.replaceAll('-', '_');
     const rootModulePath = `${rootModuleName}/`;
 
-    const pages: CratePageInfo[] =
+    if (currentPage.type === 'unknown') {
+        console.warn('CratePageList: currentPage is unknown, cannot create page list.', currentPage);
+    }
+
+    // Check if currentPage belongs to this crate (same name and version)
+    const isThisCrate =
+        currentPage.type === 'crate' &&
+        currentPage.crateName === crate.name &&
+        currentPage.crateVersion === crate.currentVersion;
+    const currentPath = isThisCrate ? currentPage.pathSegments.join('/') : null;
+
+    const pages: ReadonlyDeep<CratePageInfo>[] =
         crate.pinnedPages.map(path => ({
-            symbol: parseSymbol(path),
             path,
-            active: currentPage === `${baseUrl}${path}`,
+            symbol: parseSymbol(path.split('/')),
+            active: currentPath === path,
             pinned: true,
             italic: false,
         }));
 
     pages.push({
-        symbol: parseSymbol(rootModulePath),
         path: rootModulePath,
-        active: currentPage === `${baseUrl}${rootModulePath}`,
+        symbol: parseSymbol([rootModuleName]),
+        active: currentPath === rootModulePath,
         pinned: false,
         italic: false,
     });
 
-    if (currentPage.startsWith(baseUrl) &&
-        currentPage !== `${baseUrl}${rootModulePath}`) {
-        const path =
-            currentPage.substring(baseUrl.length);
-        if (!crate.pinnedPages.includes(path)) {
-            pages.push({
-                symbol: parseSymbol(path),
-                path: path,
-                active: true,
-                pinned: false,
-                italic: true,
-            });
-        }
+    // Add preview page if viewing this crate and the path is not root and not pinned
+    if (isThisCrate &&
+        currentPath !== rootModulePath &&
+        !crate.pinnedPages.includes(currentPath!)) {
+        pages.push({
+            path: currentPath!,
+            symbol: parseSymbol(currentPage.pathSegments),
+            active: true,
+            pinned: false,
+            italic: true,
+        });
     }
 
     // Sort pages alphabetically by path to ensure consistent order
@@ -137,56 +148,48 @@ function parseSymbolType(prefix: string): SymbolType {
     }
 }
 
-/** Converts a docs.rs path to a parsed path with module, symbol, and type. */
-function parseSymbol(path: string): CrateSymbol {
-    // Module: ends with '/'
-    if (path.endsWith('/')) {
-        const parts = path.slice(0, -1).split('/');
-        return {
-            module: parts.slice(0, -1),
-            symbol: parts.at(-1) ?? '',
-            type: 'module',
-        };
+/** Parses path segments into module path, symbol name, and type. */
+function parseSymbol(segments: ReadonlyDeep<string[]>): ReadonlyDeep<CrateSymbol> {
+    if (segments.length === 0) {
+        return { symbolType: 'unknown', path: '' };
     }
 
-    // Module: ends with '/index.html'
-    if (path.endsWith('/index.html')) {
-        const parts = path.slice(0, -'/index.html'.length).split('/');
-        return {
-            module: parts.slice(0, -1),
-            symbol: parts.at(-1) ?? '',
-            type: 'module',
-        };
+    if (segments.length === 1) {
+        // Root module page (e.g., ['tokio'])
+        return { symbolType: 'module', modulePath: [segments[0]!] };
     }
 
-    // Item: {module}/{prefix}.{name}.html
-    const match = path.match(/^(.*)\/(\w+)\.(\w+)\.html$/);
-    if (match) {
-        const [, modulePath, prefix, itemName] = match;
-        return {
-            module: modulePath?.split('/') ?? [],
-            symbol: itemName ?? '',
-            type: parseSymbolType(prefix ?? ''),
-        };
+    const modulePath = segments.slice(0, -1);
+    const fileName = segments.at(-1)!;
+
+    // Module page with index.html (e.g., ['tokio', 'runtime', 'index.html'])
+    if (fileName === 'index.html')
+        return { symbolType: 'module', modulePath };
+
+    // Symbol: {prefix}.{name}.html (e.g., 'struct.Vec3.html')
+    const dotParts =
+        fileName
+            .slice(0, -'.html'.length)
+            .split('.');
+    if (dotParts.length === 2) {
+        const [prefix, symbolName] = dotParts as [string, string];
+        const symbolType = parseSymbolType(prefix);
+        if (symbolType !== 'unknown')
+            return { symbolType, modulePath, symbolName };
     }
 
-    // Fallback
-    const name = path.replace(/\.html$/, '');
-    const parts = name.split('/');
-    return {
-        module: parts.slice(0, -1),
-        symbol: parts.at(-1) ?? name,
-        type: 'unknown',
-    };
+    // Unknown - not a recognized pattern
+    return { symbolType: 'unknown', path: segments.join('/') };
 }
 
 function CratePageItem(props: {
-    page: CratePageInfo;
+    page: ReadonlyDeep<CratePageInfo>;
     baseUrl: string;
     updateCrate(updater: (crate: ItemCrate) => void): void;
 }) {
     const app = useAppContext();
     const page = props.page;
+    const symbol = page.symbol;
     const [hovered, setHovered] = useState(false);
 
     const pin = () => {
@@ -203,33 +206,42 @@ function CratePageItem(props: {
         <div
             className={cn(
                 'flex items-center rounded w-full px-1 py-px my-px cursor-pointer border',
-                (!page.active) && 'border-transparent hover:bg-input/50',
-                page.active && 'bg-input shadow-sm',
+                page.active
+                    ? 'bg-input shadow-sm'
+                    : 'border-transparent hover:bg-input/50',
                 page.italic && 'italic')}
             onMouseEnter={() => setHovered(true)}
             onMouseLeave={() => setHovered(false)}
             onClick={() => app.navigateTo(`${props.baseUrl}${page.path}`)}>
             <span className='flex-1 truncate font-mono font-light'>
-                {page.symbol.module.length > 0 && <span>{page.symbol.module.join('::')}::</span>}
-                <span className={getSymbolColor(page.symbol.type)}>{page.symbol.symbol}</span>
+                {symbol.symbolType === 'unknown'
+                    ? <span className='text-(--color-red)'>{symbol.path}</span>
+                    : <span>
+                        {/* Module path*/}
+                        <span>{symbol.modulePath.join('::')}</span>
+                        {/* Symbol name */}
+                        {symbol.symbolType !== 'module' && <>
+                            <span>::</span>
+                            <span className={getSymbolColor(symbol.symbolType)}>{symbol.symbolName}</span>
+                        </>}
+                    </span>
+                }
             </span>
-            {
-                page.italic && (
-                    <span className={cn(hovered? 'visible': 'hidden')} onClick={event => {
-                        pin();
-                        event.stopPropagation();
-                    }}>
-                        <Pin className='h-3 w-3'/>
-                    </span>)
+            {page.italic && (
+                <span className={cn(hovered? 'visible': 'hidden')} onClick={event => {
+                    pin();
+                    event.stopPropagation();
+                }}>
+                    <Pin className='h-3 w-3'/>
+                </span>)
             }
-            {
-                page.pinned && (
-                    <span onClick={event => {
-                        unpin();
-                        event.stopPropagation();
-                    }}>
-                        <Pin className='h-3 w-3' fill='white'/>
-                    </span>)
+            {page.pinned && (
+                <span onClick={event => {
+                    unpin();
+                    event.stopPropagation();
+                }}>
+                    <Pin className='h-3 w-3' fill='white'/>
+                </span>)
             }
         </div>
     );

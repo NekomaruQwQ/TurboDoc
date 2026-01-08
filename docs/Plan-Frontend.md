@@ -771,3 +771,13 @@ interface PageListProps {
 - `currentPage` moved from `ItemCrate` to `Workspace` level (global current page as full URL)
 - `ItemCrate.pinnedPages` simplified to `string[]` (just paths, no separate `CratePage` interface)
 - IPC `navigated` event listener in AppContext updates `workspace.currentPage` automatically
+
+**Page Type Refactoring (2026-01):**
+- `workspace.currentPage` changed from `string` URL to `Page` tagged union
+- `Page = PageCrate | PageUnknown` for type-safe URL handling
+- `PageCrate`: `{ type: 'crate', crateName, crateVersion, pathSegments }`
+- `PageUnknown`: `{ type: 'unknown', url }` for non-docs.rs URLs
+- Added `parseUrl(url): Page` and `buildUrl(page): string` in `data.ts`
+- `CrateCard.tsx`: Uses `currentPage.type === 'crate'` checks instead of string `.startsWith()`
+- `CratePageList.tsx`: Compares `pathSegments.join('/')` instead of URL string operations
+- Cleaner code with structured data instead of string manipulation
