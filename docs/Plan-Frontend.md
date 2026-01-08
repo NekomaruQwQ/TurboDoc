@@ -115,6 +115,7 @@ Component Path                                  Status  Notes
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 [✓] frontend/explorer/index.tsx                 Explorer, groups, items
 [✓] frontend/explorer/common.d.ts               ExplorerItemProps<T> interface
+[✓] frontend/explorer/ExplorerGroupMenu.tsx     Group actions menu (move up/down, remove)
 [✓] frontend/explorer/crate/CrateCard.tsx       Collapsible crate card with header
 [✓] frontend/explorer/crate/CratePageList.tsx   Page list + CratePageItem
 [ ] frontend/explorer/search-bar.tsx            Search input
@@ -141,10 +142,13 @@ Component Path                                  Status  Notes
 
 **Inline Components (in `index.tsx`):**
 - **ExplorerUngrouped**: Renders "Not Yet Grouped" section (if `ungrouped.length > 0`)
-- **ExplorerGroup**: Collapsible named group with header (Radix Collapsible)
-  - Editable group name (inline input on click)
-  - Delete button (with confirmation)
-  - Expand/collapse icon (ChevronDown/ChevronRight)
+- **ExplorerGroup**: Named group with header actions
+  - Expand/collapse all items button (`ChevronsDown`/`ChevronsUp`)
+  - Rename button → inline input (Enter/Escape/blur to confirm/cancel)
+  - Group menu (`ExplorerGroupMenu`) with move up/down and remove (with confirmation dialog)
+- **ExplorerGroupActions**: Slot component for header actions (children-based pattern with typed `ReactElement`)
+- **ExplorerGroupCommon**: Shared layout for group sections with `renderItem` prop and optional `children` slot for actions
+- **CreateGroupComponent**: "Add Group" button that transforms into inline input + confirm button
 - **ExplorerItem**: Renders `Item` tagged union - switches on `item.type` to render appropriate component (currently only `CrateCard`)
 
 **Responsibilities:**
@@ -616,10 +620,16 @@ interface CratePageListProps {
 | Home | `Home` | 12px | Home page in page list |
 | Pin | `Pin` | 12px | Pin button for preview pages |
 | Unpin | `PinOff` | 12px | Unpin button for pinned pages |
-| Menu | `MoreVertical` | 16px | Crate actions menu |
+| Menu | `MoreVertical` | 16px | Crate/group actions menu |
 | Expand | `ChevronDown` | 16px | Group/crate expanded state |
 | Collapse | `ChevronRight` | 16px | Group/crate collapsed state |
+| Expand All | `ChevronsDown` | 12px | Expand all items in group |
+| Collapse All | `ChevronsUp` | 12px | Collapse all items in group |
+| Move Up | `ChevronUp` | 12px | Move group up |
+| Move Down | `ChevronDown` | 12px | Move group down |
+| Rename | `Pencil` | 12px | Rename group |
 | Add | `Plus` | 16px | Add group button |
+| Confirm | `Check` | 12px | Confirm rename/add |
 | Delete | `Trash2` | 16px | Delete group/crate |
 | Package | `Package` | 16px | Crate icon |
 
@@ -629,8 +639,13 @@ interface CratePageListProps {
 
 Brief timeline of significant changes (design decisions are documented in component specs above):
 
-- **2025-01**: Initial Phase 5 implementation - Explorer architecture with callback-based data flow
-- **2025-01**: `currentPage` moved from per-crate to global `Workspace` level
+- **2026-01**: Initial Phase 5 implementation - Explorer architecture with callback-based data flow
+- **2026-01**: `currentPage` moved from per-crate to global `Workspace` level
 - **2026-01**: Refactored crate components into `crate/` subdirectory
 - **2026-01**: Added symbol parsing with One Dark color coding
 - **2026-01**: `workspace.currentPage` changed from URL string to `Page` tagged union
+- **2026-01**: Group editing features - add/rename/delete groups, move up/down, expand/collapse all
+  - `ExplorerGroupMenu.tsx`: Dropdown menu for group actions (move up/down, remove with confirmation)
+  - `CreateGroupComponent`: Inline input for creating new groups
+  - `ExplorerGroupActions`: Children-based slot pattern for header actions (`ReactElement` typed)
+  - `CratePageItem`: Simplified hover state using Tailwind `group/page` pattern (removed `useState`)

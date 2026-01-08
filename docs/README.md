@@ -64,11 +64,11 @@ TurboDoc is a documentation viewer for Rust crates with local caching and worksp
 - ✅ Pin/unpin documentation pages
 - ✅ Preview page system (VS Code-style)
 - ✅ Symbol type color coding (One Dark theme)
-- ⬜ Named groups for organization
+- ✅ Named groups for organization
 - ✅ Workspace persistence across sessions
 - ✅ Automatic cross-crate navigation (IPC 'navigated' event)
 - ⬜ Loading states and error handling
-- ⬜ Move crates between groups via menu
+- ✅ Move crates between groups via menu
 
 #### Should Have (Future)
 - 🔲 Drag-and-drop reordering
@@ -617,8 +617,9 @@ TurboDoc/
 │   ├── utils/
 │   │   └── version-group.ts       ✅ Version grouping logic
 │   └── explorer/
-│       ├── index.tsx              ✅ Explorer, groups, items
+│       ├── index.tsx              ✅ Explorer, groups, items, CreateGroupComponent
 │       ├── common.d.ts            ✅ ExplorerItemProps<T> interface
+│       ├── ExplorerGroupMenu.tsx  ✅ Group actions menu (move up/down, remove)
 │       └── crate/
 │           ├── CrateCard.tsx      ✅ Collapsible crate card with header
 │           ├── CratePageList.tsx  ✅ Page list with symbol parsing + CratePageItem
