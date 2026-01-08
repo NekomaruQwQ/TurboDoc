@@ -127,15 +127,31 @@ Component Path                                  Status  Notes
 
 #### **Explorer Component** (`frontend/explorer/index.tsx`)
 
+**Status:** ✅ Implemented
+
 **Purpose:** Main container for sidebar
 
 **Props:** None (uses AppContext)
+
+**Architecture:**
+- **Callback-based data flow**: Updates flow through typed callbacks (`updateItems`, `updateItem`, `setExpanded`, `removeItem`) instead of components calling `appContext` directly
+- **`ExplorerItemProps<T>` interface** (`common.d.ts`): Generic props for item components with standard CRUD callbacks
+- **Component hierarchy**: `Explorer` → `ExplorerUngrouped`/`ExplorerGroup` → `ExplorerItem` → `CrateCard`
+- **Tagged union downcasting**: `ExplorerItem` uses `as any` cast when forwarding `updateItem` callback from `Item` to `ItemCrate` - pragmatic tradeoff since type safety is enforced by the switch statement
+
+**Inline Components (in `index.tsx`):**
+- **ExplorerUngrouped**: Renders "Not Yet Grouped" section (if `ungrouped.length > 0`)
+- **ExplorerGroup**: Collapsible named group with header (Radix Collapsible)
+  - Editable group name (inline input on click)
+  - Delete button (with confirmation)
+  - Expand/collapse icon (ChevronDown/ChevronRight)
+- **ExplorerItem**: Renders `Item` tagged union - switches on `item.type` to render appropriate component (currently only `CrateCard`)
 
 **Responsibilities:**
 - Manages search state (query, results, isSearching)
 - Renders SearchBar component
 - Conditionally renders SearchResults (when query is not empty)
-- Renders GroupList component
+- Renders ungrouped section and named groups
 - Renders AddGroupButton
 
 **State:**
@@ -160,7 +176,8 @@ const [isSearching, setIsSearching] = useState(false);
       onSelect={handleSelectCrate}
     />
   )}
-  <GroupList />
+  <ExplorerUngrouped ... />
+  {workspace.groups.map(group => <ExplorerGroup ... />)}
   <button onClick={handleAddGroup}>+ Add Group</button>
 </div>
 ```
@@ -277,90 +294,6 @@ interface SearchResult {
 
 ---
 
-#### **GroupList Component** (`frontend/explorer/group-list.tsx`)
-
-**Purpose:** Container for all groups
-
-**Props:** None (uses AppContext)
-
-**Responsibilities:**
-- Renders "Not Yet Grouped" section (if ungrouped.length > 0)
-- Renders all named groups
-
-**Layout:**
-```tsx
-<div className="flex flex-col gap-2 flex-1 overflow-y-auto">
-  {workspace.ungrouped.length > 0 && (
-    <div className="mb-2">
-      <div className="text-sm text-muted-foreground mb-2">Not Yet Grouped</div>
-      {workspace.ungrouped.map(crate => (
-        <CrateCard key={crate.name} crate={crate} groupIndex={-1} />
-      ))}
-    </div>
-  )}
-  {workspace.groups.map((group, index) => (
-    <Group key={group.name} group={group} groupIndex={index} />
-  ))}
-</div>
-```
-
----
-
-#### **Group Component** (`frontend/explorer/group.tsx`)
-
-**Purpose:** Collapsible group with header
-
-**Props:**
-```typescript
-interface GroupProps {
-  group: Group;
-  groupIndex: number;
-}
-```
-
-**Features:**
-- Collapsible (using Radix Collapsible)
-- Editable group name (inline input on click)
-- Delete button (with confirmation)
-- Expand/collapse icon (ChevronDown/ChevronRight)
-
-**Layout:**
-```tsx
-<Collapsible open={!group.isCollapsed} onOpenChange={handleToggle}>
-  <CollapsibleTrigger className="w-full">
-    <div className="flex items-center gap-2 p-2 hover:bg-accent rounded">
-      <ChevronRight className={cn("h-4 w-4 transition", !group.isCollapsed && "rotate-90")} />
-      {isEditing ? (
-        <Input
-          value={editedName}
-          onChange={(e) => setEditedName(e.target.value)}
-          onBlur={handleSaveName}
-          onKeyDown={handleKeyDown}
-          autoFocus
-        />
-      ) : (
-        <span onClick={handleStartEdit}>{group.name}</span>
-      )}
-      <Trash2 onClick={handleDelete} className="h-4 w-4 ml-auto opacity-0 group-hover:opacity-100" />
-    </div>
-  </CollapsibleTrigger>
-  <CollapsibleContent>
-    {group.crates.map(crate => (
-      <CrateCard key={crate.name} crate={crate} groupIndex={groupIndex} />
-    ))}
-  </CollapsibleContent>
-</Collapsible>
-```
-
-**Actions to Implement:**
-- `appContext.renameGroup(groupIndex: number, newName: string)` - Rename group
-- `appContext.removeGroup(groupIndex: number)` - Delete group
-- `appContext.toggleGroupCollapse(groupIndex: number)` - Toggle collapse state
-
-**Icons:** `ChevronRight`, `Trash2` (lucide-react)
-
----
-
 #### **CrateCard Component** (`frontend/explorer/crate/CrateCard.tsx`)
 
 **Status:** ✅ Implemented
@@ -370,7 +303,7 @@ interface GroupProps {
 **Props:** Uses `ExplorerItemProps<ItemCrate>` from common.d.ts
 
 **Features:**
-- Collapsible page list (Radix Collapsible)
+- Collapsible page list (Radix Collapsible, no shadcn Card wrapper for simpler styling)
 - Clickable crate name (toggles collapse)
 - Version selector with navigation support
 - "..." menu (external links, move, refresh, remove)
@@ -389,6 +322,11 @@ interface GroupProps {
     </CollapsibleContent>
 </Collapsible>
 ```
+
+**Implementation notes:**
+- `crateCache` fetched synchronously via `getCrateCache()` (triggers async refetch in background)
+- External links use `app.navigateTo()` which triggers iframe navigation - Rust host intercepts and opens non-docs.rs URLs in system browser
+- Uses `currentPage.type === 'crate'` checks instead of string `.startsWith()` for URL matching
 
 **Version change behavior:**
 - If currently viewing this crate's docs, navigates to new version URL
@@ -487,62 +425,50 @@ interface CrateMenuProps {
 
 ---
 
-#### **PageList Component** (`frontend/explorer/page-list.tsx`)
+#### **CratePageList Component** (`frontend/explorer/crate/CratePageList.tsx`)
 
-**Purpose:** List of documentation pages
+**Status:** ✅ Implemented
+
+**Purpose:** List of documentation pages with symbol parsing and color coding
 
 **Props:**
 ```typescript
-interface PageListProps {
-  crate: ItemCrate;
+interface CratePageListProps {
+    crate: ReadonlyDeep<ItemCrate>;
+    updateCrate: (updater: (crate: ItemCrate) => void) => void;
 }
 ```
 
 **Features:**
 - Home page (always present)
-- Preview page (italic, with pin icon)
-- Pinned pages (with unpin icon)
+- Preview page (italic, with outline pin icon on hover)
+- Pinned pages (with filled pin icon)
 - Active page highlighted
 - Click navigates to page
+- Symbol parsing with One Dark color coding
 
-**Layout:**
-```tsx
-<div className="ml-6 mt-2 flex flex-col gap-1">
-  <div
-    onClick={() => handleNavigate('home')}
-    className={cn("flex items-center gap-2 p-1 cursor-pointer hover:bg-accent rounded",
-                  crate.currentPage === 'home' && "bg-accent")}
-  >
-    <Home className="h-3 w-3" />
-    <span>Home</span>
-  </div>
-  {crate.pinnedPages.map(page => (
-    <div
-      key={page.path}
-      onClick={() => handleNavigate(page.path)}
-      className={cn(
-        "flex items-center gap-2 p-1 cursor-pointer hover:bg-accent rounded",
-        crate.currentPage === page.path && "bg-accent",
-        !page.pinned && "italic"
-      )}
-    >
-      <span className="flex-1">{page.title || page.path}</span>
-      {page.pinned ? (
-        <PinOff onClick={(e) => handleUnpin(e, page.path)} className="h-3 w-3" />
-      ) : (
-        <Pin onClick={(e) => handlePin(e, page.path)} className="h-3 w-3" />
-      )}
-    </div>
-  ))}
-</div>
-```
+**Symbol Parsing:**
+- **`CrateSymbol` interface**: `{ module: string[], symbol: string, type: SymbolType }`
+- **`SymbolType`**: `'module' | 'struct' | 'enum' | 'fn' | 'trait' | 'macro' | 'type' | 'constant' | 'unknown'`
+- **`parseSymbol(path)`**: Converts docs.rs paths to structured symbol info:
+  - `glam/f32/struct.Vec2.html` → `{ module: ["glam", "f32"], symbol: "Vec2", type: "struct" }`
+  - `tokio/runtime/` → `{ module: ["tokio"], symbol: "runtime", type: "module" }`
 
-**Actions to Implement:**
-- `appContext.setOpenPage(crateName: string, pagePath: string)` - Navigate to page
-- `appContext.pinPage(crateName: string, pagePath: string)` - Pin page
-- `appContext.unpinPage(crateName: string, pagePath: string)` - Unpin page
+**One Dark Color Coding** (CSS variables in `global.css`):
+- Yellow (`--color-yellow`): struct, enum, type
+- Cyan (`--color-cyan`): trait
+- Blue (`--color-blue`): fn
+- Orange (`--color-orange`): macro, constant
+- Default: module, unknown
 
-**Icons:** `Home`, `Pin`, `PinOff` (lucide-react)
+**Rendering:** Module path in default color, symbol name colored by type
+
+**CratePageItem (inline component):**
+- Handles individual page rendering with hover state
+- Pin icon: outline for preview (shown on hover), filled for pinned
+- Compares `pathSegments.join('/')` for active page detection
+
+**Icons:** `Home`, `Pin` (lucide-react)
 
 ---
 
@@ -699,85 +625,12 @@ interface PageListProps {
 
 ---
 
-## Notes & Deviations
+## Change History
 
-**Pre-Phase 5 Refactoring:**
-- **2025-01**: Refactored `context.ts` to use `ReadonlyDeep<T>` from type-fest for type-level immutability
-- **2025-01**: Refactored `ipc.ts` to use singleton pattern with `IPC.getInstance()` for cleaner initialization
+Brief timeline of significant changes (design decisions are documented in component specs above):
 
-**Phase 5 Implementation Notes:**
-
-**Explorer Architecture (2025-01):**
-- **Callback-based data flow**: Updates flow through typed callbacks (`updateItems`, `updateItem`, `setExpanded`, `removeItem`) instead of components calling `appContext` directly
-- **`ExplorerItemProps<T>` interface** (`common.d.ts`): Generic props for item components with standard CRUD callbacks
-- **Component hierarchy**: `Explorer` → `ExplorerUngrouped`/`ExplorerGroup` → `ExplorerItem` → `CrateCard`
-- **Tagged union downcasting**: `ExplorerItem` uses `as any` cast when forwarding `updateItem` callback from `Item` to `ItemCrate` - pragmatic tradeoff since type safety is enforced by the switch statement
-
-**CrateCard + PageList (2025-01, refactored 2026-01):**
-- **File structure**: Split into `crate/CrateCard.tsx` and `crate/CratePageList.tsx` (moved from `items/crate.tsx`)
-- Collapsible card using Radix Collapsible (removed shadcn Card wrapper for simpler styling)
-- External links use `app.navigateTo()` which triggers iframe navigation - Rust host intercepts and opens non-docs.rs URLs in system browser
-- `crateCache` fetched synchronously via `getCrateCache()` (triggers async refetch in background)
-- **Auto-version sync**: When user navigates to different version in iframe, `currentVersion` updates automatically
-- **Preview page**: Derived from `workspace.currentPage` URL - if it belongs to crate and not in `pinnedPages`, shown in italic
-- **Pin icons**: Single `Pin` icon - outline for preview (hover-to-show), filled for pinned
-- **CratePageItem**: Inline component in `CratePageList.tsx` handling individual page rendering with hover state
-
-**Symbol Parsing & Color Coding (2026-01):**
-- **`CrateSymbol` interface**: `{ module: string[], symbol: string, type: SymbolType }`
-- **`SymbolType`**: `'module' | 'struct' | 'enum' | 'fn' | 'trait' | 'macro' | 'type' | 'constant' | 'unknown'`
-- **`parseSymbol(path)`**: Converts docs.rs paths to structured symbol info:
-  - `glam/f32/struct.Vec2.html` → `{ module: ["glam", "f32"], symbol: "Vec2", type: "struct" }`
-  - `tokio/runtime/` → `{ module: ["tokio"], symbol: "runtime", type: "module" }`
-- **One Dark color coding** (CSS variables in `global.css`):
-  - Yellow (`--color-yellow`): struct, enum, type
-  - Cyan (`--color-cyan`): trait
-  - Blue (`--color-blue`): fn
-  - Orange (`--color-orange`): macro, constant
-  - Default: module, unknown
-- **Rendering**: Module path in default color, symbol name colored by type
-
-**CrateVersionSelector (2026-01):**
-- **File**: `crate/CrateVersionSelector.tsx`
-- **Props**: `{ crate, crateCache, setVersion(version) }` - callback-based version update
-- **Version list**: "latest" + first non-yanked version from top 5 groups + current version
-- **"latest" behavior**: Stores literal string "latest" (docs.rs supports `/crate/latest/` URLs)
-- **Yanked handling**: Skips yanked versions in display list (uses `group.versions[0]` with yanked check)
-- **"..." placeholder**: Disabled item at bottom for future full version list popup
-- **Navigation**: CrateCard passes `setVersion` that navigates to new version URL if currently viewing crate docs
-
-**CrateMenu (2026-01):**
-- **File**: `crate/CrateMenu.tsx`
-- **Position**: Menu button ("...") on same line as crate name and version selector
-- **Menu items** (top to bottom):
-  1. Repository link (if available)
-  2. Homepage link (if available)
-  3. (separator)
-  4. Move to group (submenu with Ungrouped + named groups)
-  5. Refresh metadata
-  6. (separator)
-  7. Remove crate (destructive)
-- **CrateLink helper**: Moved from CrateCard - handles external link navigation via `app.navigateTo()`
-- **Move logic**: Creates new Item, adds to target, then removes from source via callback
-- **Refresh**: Uses `app.refreshCrateCache(name)` - deletes cache entry to force refetch
-- **AppContext addition**: `refreshCrateCache(crateName)` method added
-
-**CrateCard Layout (2026-01 refactor):**
-- **Header row**: `[crate name] [version selector] [menu button]` - all on one line
-- **External links**: Moved from header row into CrateMenu dropdown
-- **Version change**: CrateCard handles navigation - if viewing current crate, navigates to new version URL
-
-**Data Model Changes (2025-01):**
-- `currentPage` moved from `ItemCrate` to `Workspace` level (global current page as full URL)
-- `ItemCrate.pinnedPages` simplified to `string[]` (just paths, no separate `CratePage` interface)
-- IPC `navigated` event listener in AppContext updates `workspace.currentPage` automatically
-
-**Page Type Refactoring (2026-01):**
-- `workspace.currentPage` changed from `string` URL to `Page` tagged union
-- `Page = PageCrate | PageUnknown` for type-safe URL handling
-- `PageCrate`: `{ type: 'crate', crateName, crateVersion, pathSegments }`
-- `PageUnknown`: `{ type: 'unknown', url }` for non-docs.rs URLs
-- Added `parseUrl(url): Page` and `buildUrl(page): string` in `data.ts`
-- `CrateCard.tsx`: Uses `currentPage.type === 'crate'` checks instead of string `.startsWith()`
-- `CratePageList.tsx`: Compares `pathSegments.join('/')` instead of URL string operations
-- Cleaner code with structured data instead of string manipulation
+- **2025-01**: Initial Phase 5 implementation - Explorer architecture with callback-based data flow
+- **2025-01**: `currentPage` moved from per-crate to global `Workspace` level
+- **2026-01**: Refactored crate components into `crate/` subdirectory
+- **2026-01**: Added symbol parsing with One Dark color coding
+- **2026-01**: `workspace.currentPage` changed from URL string to `Page` tagged union
