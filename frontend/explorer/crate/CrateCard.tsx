@@ -1,16 +1,16 @@
 import type { ReadonlyDeep } from 'type-fest';
 
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
+import { Separator } from '@/components/ui/separator';
 
 import type { ItemCrate } from '@/data';
-import type { ExplorerItemProps } from '@/explorer/common';
 import { buildUrl } from '@/data';
 import { useAppContext } from '@/context';
 
+import type { ExplorerItemProps } from '@/explorer/common';
 import CrateMenu from '@/explorer/crate/CrateMenu';
 import CratePageList from '@/explorer/crate/CratePageList';
 import CrateVersionSelector from '@/explorer/crate/CrateVersionSelector';
-import {Separator} from '@/components/ui/separator.tsx';
 
 /**
  * Displays a crate as a collapsible card.

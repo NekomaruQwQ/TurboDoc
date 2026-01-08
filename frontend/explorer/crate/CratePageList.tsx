@@ -1,6 +1,5 @@
 import type { ReadonlyDeep } from 'type-fest';
 
-import { useState } from 'react';
 import { Pin } from 'lucide-react';
 
 import { cn } from '@/lib/utils.ts';
@@ -190,59 +189,50 @@ function CratePageItem(props: {
     const app = useAppContext();
     const page = props.page;
     const symbol = page.symbol;
-    const [hovered, setHovered] = useState(false);
 
-    const pin = () => {
-        props.updateCrate(crate => crate.pinnedPages.push(props.page.path));
-    };
-
-    const unpin = () => {
+    function pin() {
         props.updateCrate(crate => {
-            crate.pinnedPages = crate.pinnedPages.filter(p => p !== props.page.path);
+            crate.pinnedPages.push(page.path);
         });
-    };
+    }
+
+    function unpin() {
+        props.updateCrate(crate => {
+            crate.pinnedPages = crate.pinnedPages.filter(p => p !== page.path);
+        });
+    }
 
     return (
         <div
             className={cn(
-                'flex items-center rounded w-full px-1 py-px my-px cursor-pointer border',
+                'group/page flex items-center rounded w-full px-1 py-px my-px cursor-pointer border',
                 page.active
                     ? 'bg-input shadow-sm'
                     : 'border-transparent hover:bg-input/50',
                 page.italic && 'italic')}
-            onMouseEnter={() => setHovered(true)}
-            onMouseLeave={() => setHovered(false)}
             onClick={() => app.navigateTo(`${props.baseUrl}${page.path}`)}>
             <span className='flex-1 truncate font-mono font-light'>
                 {symbol.symbolType === 'unknown'
                     ? <span className='text-(--color-red)'>{symbol.path}</span>
                     : <span>
-                        {/* Module path*/}
+                        {/* Module path */}
                         <span>{symbol.modulePath.join('::')}</span>
                         {/* Symbol name */}
                         {symbol.symbolType !== 'module' && <>
                             <span>::</span>
                             <span className={getSymbolColor(symbol.symbolType)}>{symbol.symbolName}</span>
                         </>}
-                    </span>
-                }
+                    </span>}
             </span>
             {page.italic && (
-                <span className={cn(hovered? 'visible': 'hidden')} onClick={event => {
-                    pin();
-                    event.stopPropagation();
-                }}>
-                    <Pin className='h-3 w-3'/>
-                </span>)
-            }
+                <span
+                    className='invisible group-hover/page:visible'
+                    onClick={event => { pin(); event.stopPropagation(); }}>
+                    <Pin className='h-3 w-3' />
+                </span>)}
             {page.pinned && (
-                <span onClick={event => {
-                    unpin();
-                    event.stopPropagation();
-                }}>
-                    <Pin className='h-3 w-3' fill='white'/>
-                </span>)
-            }
-        </div>
-    );
+                <span onClick={event => { unpin(); event.stopPropagation(); }}>
+                    <Pin className='h-3 w-3' fill='white' />
+                </span>)}
+        </div>);
 }
