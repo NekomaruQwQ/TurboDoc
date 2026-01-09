@@ -1,9 +1,13 @@
 {
-    "include": ["frontend"],
+    "exclude": [
+        "node_modules",
+        "target",
+    ],
     "compilerOptions": {
         "baseUrl": ".",
         "paths": {
             "@/*": ["frontend/*"],
+            "@shadcn/*": ["3rdparty/shadcn/*"],
         },
 
         "target": "ESNext",
@@ -27,6 +31,6 @@
         "noUnusedLocals": true,
         "noUnusedParameters": true,
         "noUncheckedIndexedAccess": true,
-        "noImplicitOverride": true,
-    },
+        "noImplicitOverride": true
+    }
 }

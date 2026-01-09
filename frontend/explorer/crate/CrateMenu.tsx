@@ -9,7 +9,7 @@ import {
     faTrash
 } from '@fortawesome/free-solid-svg-icons';
 
-import { Button } from '@/components/ui/button';
+import { Button } from '@shadcn/components/ui/button';
 
 import {
     DropdownMenu,
@@ -20,7 +20,7 @@ import {
     DropdownMenuSubContent,
     DropdownMenuSubTrigger,
     DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+} from '@shadcn/components/ui/dropdown-menu';
 
 import type { Item, ItemCrate } from '@/data';
 import { useAppContext } from '@/context';

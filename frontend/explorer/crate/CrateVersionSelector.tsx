@@ -10,7 +10,7 @@ import {
     SelectSeparator,
     SelectTrigger,
     SelectValue,
-} from '@/components/ui/select';
+} from '@shadcn/components/ui/select';
 
 import type { ItemCrate, CrateCache } from '@/data';
 

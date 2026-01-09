@@ -13,8 +13,8 @@ import {
     faTrash,
 } from '@fortawesome/free-solid-svg-icons';
 
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Button } from '@shadcn/components/ui/button';
+import { Input } from '@shadcn/components/ui/input';
 
 import {
     Dialog,
@@ -23,7 +23,7 @@ import {
     DialogFooter,
     DialogHeader,
     DialogTitle,
-} from '@/components/ui/dialog';
+} from '@shadcn/components/ui/dialog';
 
 import {
     DropdownMenu,
@@ -31,7 +31,7 @@ import {
     DropdownMenuItem,
     DropdownMenuSeparator,
     DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+} from '@shadcn/components/ui/dropdown-menu';
 
 interface ExplorerGroupHeaderProps {
     /** Name of the group. */

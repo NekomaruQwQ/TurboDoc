@@ -1,7 +1,7 @@
 import type { ReadonlyDeep } from 'type-fest';
 
-import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
-import { Separator } from '@/components/ui/separator';
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@shadcn/components/ui/collapsible';
+import { Separator } from '@shadcn/components/ui/separator';
 
 import type { ItemCrate } from '@/data';
 import { buildUrl } from '@/data';

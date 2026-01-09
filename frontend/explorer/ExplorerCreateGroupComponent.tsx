@@ -4,8 +4,8 @@ import { useState } from "react";
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faCheck, faPlus } from '@fortawesome/free-solid-svg-icons';
 
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Button } from '@shadcn/components/ui/button';
+import { Input } from '@shadcn/components/ui/input';
 
 import { useAppContext } from '@/context';
 

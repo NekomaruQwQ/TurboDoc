@@ -11,7 +11,10 @@ export default defineConfig({
     ],
     resolve: {
         alias: {
-            '@': path.resolve(__dirname, 'frontend'),
+            '@':
+                path.resolve(__dirname, 'frontend'),
+            '@shadcn':
+                path.resolve(__dirname, '3rdparty', 'shadcn'),
         },
     },
     server: {

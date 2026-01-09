@@ -3,7 +3,7 @@ import type { ReadonlyDeep } from 'type-fest';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faThumbtack } from '@fortawesome/free-solid-svg-icons';
 
-import { cn } from '@/lib/utils.ts';
+import { cn } from '@/prelude';
 
 import type { ItemCrate } from '@/data';
 import { useAppContext } from '@/context';

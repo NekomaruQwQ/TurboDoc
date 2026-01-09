@@ -1,4 +1,4 @@
-import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@shadcn/components/ui/resizable';
 
 import { AppContext, AppContextProvider } from '@/context';
 import { buildUrl } from '@/data';
