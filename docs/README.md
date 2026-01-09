@@ -617,9 +617,12 @@ TurboDoc/
 │   ├── utils/
 │   │   └── version-group.ts       ✅ Version grouping logic
 │   └── explorer/
-│       ├── index.tsx              ✅ Explorer, groups, items, CreateGroupComponent
+│       ├── index.tsx              ✅ Explorer, ExplorerUngrouped, ExplorerGroup, ExplorerItemList
 │       ├── common.d.ts            ✅ ExplorerItemProps<T> interface
-│       ├── ExplorerGroupMenu.tsx  ✅ Group actions menu (move up/down, remove)
+│       ├── ExplorerGroupHeader.tsx ✅ Group header with rename and menu
+│       ├── ExplorerGroupMenu.tsx  ✅ Group menu (expand/collapse all, move, remove)
+│       ├── components/
+│       │   └── misc.tsx           ✅ ExplorerGroupHeaderCommon, ExplorerGroupActions, CreateGroupComponent
 │       └── crate/
 │           ├── CrateCard.tsx      ✅ Collapsible crate card with header
 │           ├── CratePageList.tsx  ✅ Page list with symbol parsing + CratePageItem

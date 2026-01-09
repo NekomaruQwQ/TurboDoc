@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-import { MoreVertical, ChevronUp, ChevronDown, Trash2 } from 'lucide-react';
+import { MoreVertical, ChevronUp, ChevronDown, ChevronsDown, ChevronsUp, Trash2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 
@@ -27,6 +27,8 @@ interface ExplorerGroupMenuProps {
     isFirst: boolean;
     /** Whether this is the last group (disables "Move down"). */
     isLast: boolean;
+    expandAll(): void;
+    collapseAll(): void;
     moveUp(): void;
     moveDown(): void;
     /** Called after user confirms deletion. Should move items to ungrouped and remove the group. */
@@ -56,6 +58,15 @@ export default function ExplorerGroupMenu(props: ExplorerGroupMenuProps) {
                 </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align='end'>
+                <DropdownMenuItem onClick={props.expandAll}>
+                    <ChevronsDown className='h-3 w-3' />
+                    <span>Expand all</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={props.collapseAll}>
+                    <ChevronsUp className='h-3 w-3' />
+                    <span>Collapse all</span>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem
                     disabled={props.isFirst}
                     onClick={props.moveUp}>

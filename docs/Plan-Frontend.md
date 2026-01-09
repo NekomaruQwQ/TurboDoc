@@ -113,9 +113,11 @@ This document tracks the **remaining implementation work** for TurboDoc's fronte
 ```
 Component Path                                  Status  Notes
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-[✓] frontend/explorer/index.tsx                 Explorer, groups, items
+[✓] frontend/explorer/index.tsx                 Explorer, groups, items, ExplorerItemList
 [✓] frontend/explorer/common.d.ts               ExplorerItemProps<T> interface
-[✓] frontend/explorer/ExplorerGroupMenu.tsx     Group actions menu (move up/down, remove)
+[✓] frontend/explorer/ExplorerGroupHeader.tsx   Group header with rename and menu
+[✓] frontend/explorer/ExplorerGroupMenu.tsx     Group menu (expand/collapse all, move, remove)
+[✓] frontend/explorer/components/misc.tsx       ExplorerGroupHeaderCommon, ExplorerGroupActions, CreateGroupComponent
 [✓] frontend/explorer/crate/CrateCard.tsx       Collapsible crate card with header
 [✓] frontend/explorer/crate/CratePageList.tsx   Page list + CratePageItem
 [ ] frontend/explorer/search-bar.tsx            Search input
@@ -141,15 +143,16 @@ Component Path                                  Status  Notes
 - **Tagged union downcasting**: `ExplorerItem` uses `as any` cast when forwarding `updateItem` callback from `Item` to `ItemCrate` - pragmatic tradeoff since type safety is enforced by the switch statement
 
 **Inline Components (in `index.tsx`):**
-- **ExplorerUngrouped**: Renders "Not Yet Grouped" section (if `ungrouped.length > 0`)
-- **ExplorerGroup**: Named group with header actions
-  - Expand/collapse all items button (`ChevronsDown`/`ChevronsUp`)
-  - Rename button → inline input (Enter/Escape/blur to confirm/cancel)
-  - Group menu (`ExplorerGroupMenu`) with move up/down and remove (with confirmation dialog)
-- **ExplorerGroupActions**: Slot component for header actions (children-based pattern with typed `ReactElement`)
-- **ExplorerGroupCommon**: Shared layout for group sections with `renderItem` prop and optional `children` slot for actions
-- **CreateGroupComponent**: "Add Group" button that transforms into inline input + confirm button
+- **ExplorerUngrouped**: Renders "Ungrouped" section with expand/collapse all button
+- **ExplorerGroup**: Named group with `ExplorerGroupHeader` and item list
+- **ExplorerItemList**: Shared component for rendering item lists (used by both ungrouped and groups)
 - **ExplorerItem**: Renders `Item` tagged union - switches on `item.type` to render appropriate component (currently only `CrateCard`)
+
+**Extracted Components:**
+- **ExplorerGroupHeader** (`ExplorerGroupHeader.tsx`): Header for named groups with rename state (inline input) and group menu
+- **ExplorerGroupHeaderCommon** (`components/misc.tsx`): Shared header layout with title and action slot
+- **ExplorerGroupActions** (`components/misc.tsx`): Typed slot wrapper for header action buttons
+- **CreateGroupComponent** (`components/misc.tsx`): "Add Group" button that transforms into inline input
 
 **Responsibilities:**
 - Manages search state (query, results, isSearching)
@@ -649,3 +652,8 @@ Brief timeline of significant changes (design decisions are documented in compon
   - `CreateGroupComponent`: Inline input for creating new groups
   - `ExplorerGroupActions`: Children-based slot pattern for header actions (`ReactElement` typed)
   - `CratePageItem`: Simplified hover state using Tailwind `group/page` pattern (removed `useState`)
+- **2026-01**: Refactored explorer group components
+  - Extracted `ExplorerGroupHeader.tsx`: Manages rename state, renders header with menu
+  - Created `components/misc.tsx`: Shared components (`ExplorerGroupHeaderCommon`, `ExplorerGroupActions`, `CreateGroupComponent`)
+  - Added `ExplorerItemList`: Shared item list renderer for groups
+  - `ExplorerGroupMenu`: Added "Expand all" / "Collapse all" menu items, removed toggle button from header
