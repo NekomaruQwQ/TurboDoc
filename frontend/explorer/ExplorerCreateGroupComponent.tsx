@@ -1,35 +1,13 @@
-import type { KeyboardEvent, MouseEvent, ReactElement, ReactNode } from "react";
+import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
 import { useState } from "react";
 
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faCheck, faPlus } from '@fortawesome/free-solid-svg-icons';
 
-import { Button } from "@/components/ui/button.tsx";
-import { Input } from "@/components/ui/input.tsx";
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 
-import { useAppContext} from "@/context.ts";
-
-/** Wrapper for group action buttons in the header. Used for type-safe slot pattern. */
-export function ExplorerGroupActions(props: { children: ReactNode }) {
-    return <>{props.children}</>;
-}
-
-/**
- * Shared header layout for group sections (ungrouped and named groups).
- * Renders a title with hover-visible action buttons.
- */
-export function ExplorerGroupHeaderCommon(props:  {
-    title: string;
-    /** Action buttons wrapped in ExplorerGroupActions, shown on hover. */
-    children?: ReactElement<{ children: ReactNode }, typeof ExplorerGroupActions>;
-}) {
-    const actions = props.children?.props.children ?? null;
-    return (
-        <div className='group/header flex flex-row h-6 items-center px-0.5 gap-0.5 text-muted-foreground'>
-            <p className='flex-1 text-sm font-semibold uppercase'>{props.title}</p>
-            {actions}
-        </div>);
-}
+import { useAppContext } from '@/context';
 
 /**
  * Button that transforms into an inline input for creating a new group.
@@ -37,7 +15,7 @@ export function ExplorerGroupHeaderCommon(props:  {
  * - Enter or click check → creates group and resets
  * - Escape or blur → cancels and resets
  */
-export function CreateGroupComponent() {
+export default function ExplorerCreateGroupComponent() {
     const app = useAppContext();
     const [inputMode, setInputMode] = useState(false);
     const [inputText, setInputText] = useState('');
@@ -107,12 +85,12 @@ export function CreateGroupComponent() {
                     e.preventDefault();
                     onOK();
                 }}>
-                    <FontAwesomeIcon icon={faCheck} size='sm' />
+                    <FontAwesomeIcon icon={faCheck} size='sm'/>
                 </ActionButton>
             </> : <>
                 {/* Use onClick to avoid (what?) */}
                 <ActionButton className='w-full' onClick={() => setInputMode(true)}>
-                    <FontAwesomeIcon icon={faPlus} size='sm' />
+                    <FontAwesomeIcon icon={faPlus} size='sm'/>
                     <span>Add Group</span>
                 </ActionButton>
             </>}

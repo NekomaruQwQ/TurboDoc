@@ -7,7 +7,7 @@ import type { ItemCrate } from '@/data';
 import { buildUrl } from '@/data';
 import { useAppContext } from '@/context';
 
-import type { ExplorerItemProps } from '@/explorer/common';
+import type ExplorerItemProps from '@/explorer/ExplorerItemProps';
 import CrateMenu from '@/explorer/crate/CrateMenu';
 import CratePageList from '@/explorer/crate/CratePageList';
 import CrateVersionSelector from '@/explorer/crate/CrateVersionSelector';

@@ -9,7 +9,7 @@ import {
     faTrash
 } from '@fortawesome/free-solid-svg-icons';
 
-import { Button } from "@/components/ui/button.tsx";
+import { Button } from '@/components/ui/button';
 
 import {
     DropdownMenu,

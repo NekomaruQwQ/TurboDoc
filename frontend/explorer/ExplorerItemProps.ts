@@ -1,4 +1,4 @@
-export interface ExplorerItemProps<T> {
+export default interface ExplorerItemProps<T> {
     item: T;
     expanded: boolean;
     setExpanded(expanded: boolean): void;

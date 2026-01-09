@@ -618,7 +618,7 @@ TurboDoc/
 │   │   └── version-group.ts       ✅ Version grouping logic
 │   └── explorer/
 │       ├── index.tsx              ✅ Explorer, ExplorerUngrouped, ExplorerGroup, ExplorerItemList
-│       ├── common.d.ts            ✅ ExplorerItemProps<T> interface
+│       ├── ExplorerItemProps.ts            ✅ ExplorerItemProps<T> interface
 │       ├── ExplorerGroupHeader.tsx ✅ Group header with rename and menu
 │       ├── ExplorerGroupMenu.tsx  ✅ Group menu (expand/collapse all, move, remove)
 │       ├── components/

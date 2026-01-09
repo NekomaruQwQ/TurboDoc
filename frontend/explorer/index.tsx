@@ -1,17 +1,13 @@
 import type { ReadonlyDeep } from 'type-fest';
-
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faAnglesDown, faAnglesUp } from '@fortawesome/free-solid-svg-icons';
-
-import { Button } from '@/components/ui/button';
+import type { ReactElement } from "react";
 
 import type { Item } from '@/data';
 import { useAppContext } from '@/context';
 
-import type { ExplorerItemProps } from '@/explorer/common';
-import { CreateGroupComponent, ExplorerGroupActions, ExplorerGroupHeaderCommon } from "@/explorer/components/misc";
+import type ExplorerItemProps from '@/explorer/ExplorerItemProps';
 import CrateCard from '@/explorer/crate/CrateCard';
 import ExplorerGroupHeader from '@/explorer/ExplorerGroupHeader';
+import ExplorerCreateGroupComponent from '@/explorer/ExplorerCreateGroupComponent';
 
 export function Explorer() {
     const app = useAppContext();
@@ -61,7 +57,7 @@ export function Explorer() {
                             app.updateWorkspace(draft => { draft.groups.splice(i, 1); });
                         }} />
                 ))}
-                <CreateGroupComponent />
+                <ExplorerCreateGroupComponent />
             </div>
         </div>);
 }
@@ -70,40 +66,39 @@ function ExplorerUngrouped(props: ReadonlyDeep<{
     items: Item[];
     updateItems(updater: (items: Item[]) => void): void;
 }>) {
-    // Expand/collapse all: if any item is collapsed, show "expand all"
-    const anyCollapsed = props.items.some(item => !item.expanded);
-
-    function toggleAll() {
+    function expandAll() {
         props.updateItems(items => {
-            for (const item of items) {
-                item.expanded = anyCollapsed;
-            }
+            for (const item of items) item.expanded = true;
         });
     }
 
+    function collapseAll() {
+        props.updateItems(items => {
+            for (const item of items) item.expanded = false;
+        });
+    }
+
+    function unreachable() {
+        throw new Error('Unreachable code executed');
+    }
+
     return (
-        <div className='flex flex-col gap-1'>
-            <ExplorerGroupHeaderCommon title='Ungrouped'>
-                <ExplorerGroupActions>
-                    <Button
-                        variant='ghost'
-                        size='icon'
-                        className='h-5 w-5'
-                        title={anyCollapsed ? 'Expand all' : 'Collapse all'}
-                        onClick={toggleAll}>
-                        {anyCollapsed
-                            ? <FontAwesomeIcon icon={faAnglesDown} size='sm' />
-                            : <FontAwesomeIcon icon={faAnglesUp} size='sm' />}
-                    </Button>
-                </ExplorerGroupActions>
-            </ExplorerGroupHeaderCommon>
-            <div className='flex flex-col gap-2'>
-                <ExplorerItemList
-                    expanded={true}
-                    items={props.items}
-                    updateItems={props.updateItems} />
-            </div>
-        </div>);
+        <ExplorerGroupCommon
+            expanded={true}
+            items={props.items}
+            updateItems={props.updateItems}>
+            <ExplorerGroupHeader
+                groupName='Ungrouped'
+                isFrozen={true}
+                isFirst={true}
+                isLast={true}
+                expandAll={expandAll}
+                collapseAll={collapseAll}
+                moveUp={unreachable}
+                moveDown={unreachable}
+                renameGroup={unreachable}
+                removeGroup={unreachable} />
+        </ExplorerGroupCommon>);
 }
 
 function ExplorerGroup(props: ReadonlyDeep<{
@@ -143,9 +138,13 @@ function ExplorerGroup(props: ReadonlyDeep<{
     }
 
     return (
-        <div className='flex flex-col gap-1'>
+        <ExplorerGroupCommon
+            expanded={true}
+            items={props.items}
+            updateItems={props.updateItems}>
             <ExplorerGroupHeader
-                name={props.name}
+                groupName={props.name}
+                isFrozen={false}
                 isFirst={props.groupIndex === 0}
                 isLast={props.groupIndex === props.groupCount - 1}
                 expandAll={expandAll}
@@ -154,35 +153,45 @@ function ExplorerGroup(props: ReadonlyDeep<{
                 moveDown={props.moveDown}
                 renameGroup={props.setName}
                 removeGroup={removeGroup} />
-            <div className='flex flex-col gap-2'>
-                <ExplorerItemList
-                    expanded={true}
-                    items={props.items}
-                    updateItems={props.updateItems} />
-            </div>
-        </div>);
+        </ExplorerGroupCommon>);
 }
 
-function ExplorerItemList(props: ReadonlyDeep<{
+function ExplorerGroupCommon(props: ReadonlyDeep<{
+    children: ReactElement<{}, typeof ExplorerGroupHeader>;
     expanded: boolean;
     items: Item[];
     updateItems(updater: (items: Item[]) => void): void;
 }>) {
+    function getKeyForItem(item: ReadonlyDeep<Item>): string {
+        switch (item.type) {
+            case 'crate':
+                return ':crate:' + item.data.name;
+            default:
+                console.warn('Unknown item type for key generation:', item);
+                return ':unknown:';
+        }
+    }
+
     return (
-        props.expanded && props.items.map((item, i) => (
-            <ExplorerItem
-                key={getKeyForItem(item)}
-                item={item}
-                expanded={item.expanded}
-                setExpanded={expanded => {
-                    props.updateItems(items => { items[i]!.expanded = expanded; });
-                }}
-                updateItem={updater => {
-                    props.updateItems(items => updater(items[i]!));
-                }}
-                removeItem={() => {
-                    props.updateItems(items => { items.splice(i, 1); });
-                }} />)))
+        <div className='flex flex-col gap-1'>
+            {props.children}
+            <div className='flex flex-col gap-2'>
+                {props.expanded && props.items.map((item, i) => (
+                    <ExplorerItem
+                        key={getKeyForItem(item)}
+                        item={item}
+                        expanded={item.expanded}
+                        setExpanded={expanded => {
+                            props.updateItems(items => { items[i]!.expanded = expanded; });
+                        }}
+                        updateItem={updater => {
+                            props.updateItems(items => updater(items[i]!));
+                        }}
+                        removeItem={() => {
+                            props.updateItems(items => { items.splice(i, 1); });
+                        }} />))}
+            </div>
+        </div>);
 }
 
 function ExplorerItem(props: ReadonlyDeep<ExplorerItemProps<Item>>) {
@@ -197,15 +206,5 @@ function ExplorerItem(props: ReadonlyDeep<ExplorerItemProps<Item>>) {
                     removeItem={() => props.removeItem()} />);
         default:
             return null;
-    }
-}
-
-function getKeyForItem(item: ReadonlyDeep<Item>): string {
-    switch (item.type) {
-        case 'crate':
-            return ':crate:' + item.data.name;
-        default:
-            console.warn('Unknown item type for key generation:', item);
-            return ':unknown:';
     }
 }

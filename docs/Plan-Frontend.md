@@ -114,7 +114,7 @@ This document tracks the **remaining implementation work** for TurboDoc's fronte
 Component Path                                  Status  Notes
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 [✓] frontend/explorer/index.tsx                 Explorer, groups, items, ExplorerItemList
-[✓] frontend/explorer/common.d.ts               ExplorerItemProps<T> interface
+[✓] frontend/explorer/ExplorerItemProps.ts               ExplorerItemProps<T> interface
 [✓] frontend/explorer/ExplorerGroupHeader.tsx   Group header with rename and menu
 [✓] frontend/explorer/ExplorerGroupMenu.tsx     Group menu (expand/collapse all, move, remove)
 [✓] frontend/explorer/components/misc.tsx       ExplorerGroupHeaderCommon, ExplorerGroupActions, CreateGroupComponent
@@ -138,7 +138,7 @@ Component Path                                  Status  Notes
 
 **Architecture:**
 - **Callback-based data flow**: Updates flow through typed callbacks (`updateItems`, `updateItem`, `setExpanded`, `removeItem`) instead of components calling `appContext` directly
-- **`ExplorerItemProps<T>` interface** (`common.d.ts`): Generic props for item components with standard CRUD callbacks
+- **`ExplorerItemProps<T>` interface** (`ExplorerItemProps.ts`): Generic props for item components with standard CRUD callbacks
 - **Component hierarchy**: `Explorer` → `ExplorerUngrouped`/`ExplorerGroup` → `ExplorerItem` → `CrateCard`
 - **Tagged union downcasting**: `ExplorerItem` uses `as any` cast when forwarding `updateItem` callback from `Item` to `ItemCrate` - pragmatic tradeoff since type safety is enforced by the switch statement
 
@@ -307,7 +307,7 @@ interface SearchResult {
 
 **Purpose:** Card displaying crate info and pages
 
-**Props:** Uses `ExplorerItemProps<ItemCrate>` from common.d.ts
+**Props:** Uses `ExplorerItemProps<ItemCrate>` from ExplorerItemProps.ts
 
 **Features:**
 - Collapsible page list (Radix Collapsible, no shadcn Card wrapper for simpler styling)
