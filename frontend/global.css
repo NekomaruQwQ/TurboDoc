@@ -1,6 +1,7 @@
 :root {
     --font-sans: 'Ubuntu Light', sans-serif;
     --font-mono: 'Ubuntu Mono', monospace;
+    --font-icon: 'UbuntuMono Nerd Font', monospace;
 
     color-scheme: dark;
 

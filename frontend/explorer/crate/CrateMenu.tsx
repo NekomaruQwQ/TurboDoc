@@ -1,6 +1,15 @@
 import type { ReadonlyDeep } from 'type-fest';
 
-import { MoreVertical, RefreshCw, Trash2, FolderInput, ExternalLink } from 'lucide-react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import {
+    faArrowUpRightFromSquare,
+    faEllipsisVertical,
+    faRightToBracket,
+    faRotate,
+    faTrash
+} from '@fortawesome/free-solid-svg-icons';
+
+import { Button } from "@/components/ui/button.tsx";
 
 import {
     DropdownMenu,
@@ -59,9 +68,9 @@ export default function CrateMenu(props: CrateMenuProps) {
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
-                <button className='p-0.5 border rounded hover:bg-background/50 text-muted-foreground hover:text-foreground'>
-                    <MoreVertical className='h-4 w-4' />
-                </button>
+                <Button variant='ghost' size='icon' className='size-6 border rounded-sm hover:bg-input/50'>
+                    <FontAwesomeIcon icon={faEllipsisVertical} size='sm' />
+                </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align='end'>
                 <DropdownMenuItem>
@@ -80,7 +89,7 @@ export default function CrateMenu(props: CrateMenuProps) {
                 <DropdownMenuSeparator />
                 <DropdownMenuSub>
                     <DropdownMenuSubTrigger>
-                        <FolderInput className='h-3 w-3' />
+                        <FontAwesomeIcon icon={faRightToBracket} size='sm' />
                         <span>Move to group</span>
                     </DropdownMenuSubTrigger>
                     <DropdownMenuSubContent>
@@ -98,12 +107,12 @@ export default function CrateMenu(props: CrateMenuProps) {
                     </DropdownMenuSubContent>
                 </DropdownMenuSub>
                 <DropdownMenuItem onClick={refreshMetadata}>
-                    <RefreshCw className='h-3 w-3' />
+                    <FontAwesomeIcon icon={faRotate} size='sm' />
                     <span>Refresh metadata</span>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem variant='destructive' onClick={props.removeItem}>
-                    <Trash2 className='h-3 w-3' />
+                    <FontAwesomeIcon icon={faTrash} size='sm' />
                     <span>Remove crate</span>
                 </DropdownMenuItem>
             </DropdownMenuContent>
@@ -117,7 +126,7 @@ function CrateLink(props: { url: string; label: string }) {
             title={props.url}
             className='hover:text-foreground flex flex-row items-center gap-1'
             onClick={() => app.navigateTo(props.url)}>
-            <ExternalLink className='h-3 w-3' />
+            <FontAwesomeIcon icon={faArrowUpRightFromSquare} size='sm' />
             <span>{props.label}</span>
         </span>);
 }

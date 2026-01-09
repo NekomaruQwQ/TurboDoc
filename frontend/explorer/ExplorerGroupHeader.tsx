@@ -1,6 +1,7 @@
 import { useState, type KeyboardEvent } from 'react';
 
-import { Pencil, Check } from 'lucide-react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faCheck, faPencil } from '@fortawesome/free-solid-svg-icons';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -64,13 +65,13 @@ export default function ExplorerGroupHeader(props: ExplorerGroupHeaderProps) {
                     onKeyDown={onRenameKeyDown}
                     onBlur={confirmRename}
                     autoFocus
-                    className='h-6 text-sm font-semibold' />
+                    className='h-6 rounded text-sm font-semibold' />
                 <Button
-                    variant='ghost'
+                    variant='secondary'
                     size='icon'
-                    className='h-5 w-5'
+                    className='size-6 rounded'
                     onClick={confirmRename}>
-                    <Check className='h-3 w-3' />
+                    <FontAwesomeIcon icon={faCheck} size='sm' />
                 </Button>
             </div>);
     }
@@ -83,10 +84,10 @@ export default function ExplorerGroupHeader(props: ExplorerGroupHeaderProps) {
                 <Button
                     variant='ghost'
                     size='icon'
-                    className='h-5 w-5 invisible group-hover/header:visible'
+                    className='h-5 w-5 rounded invisible group-hover/header:visible'
                     title='Rename group'
                     onClick={beginRename}>
-                    <Pencil className='h-3 w-3' />
+                    <FontAwesomeIcon icon={faPencil} size='sm' />
                 </Button>
                 {/* Group Menu */}
                 <ExplorerGroupMenu

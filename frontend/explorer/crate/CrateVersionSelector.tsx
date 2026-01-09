@@ -1,6 +1,7 @@
 import type { ReadonlyDeep } from 'type-fest';
 
-import { MoreHorizontal } from 'lucide-react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faEllipsis } from '@fortawesome/free-solid-svg-icons';
 
 import {
     Select,
@@ -66,7 +67,7 @@ export default function CrateVersionSelector(props: {
                 props.setVersion(version);
             }
         }}>
-            <SelectTrigger size={'xs' as any} className='px-2 py-0 w-24 h-6 text-xs rounded-sm shadow-none'>
+            <SelectTrigger size={'xs' as any} className='px-2 py-0 w-24 h-6 text-xs rounded-sm shadow-none hover:bg-accent/50'>
                 <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -78,7 +79,7 @@ export default function CrateVersionSelector(props: {
                 <SelectSeparator className='m-0.5' />
                 {/* Placeholder for future full version list popup */}
                 <SelectItem value='...' disabled className='h-6 text-xs'>
-                    <MoreHorizontal className='h-3 w-3 mr-1 inline' />
+                    <FontAwesomeIcon icon={faEllipsis} size='sm' className='mr-1 inline' />
                     <span>More versions</span>
                 </SelectItem>
             </SelectContent>

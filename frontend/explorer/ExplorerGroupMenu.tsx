@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
-import { MoreVertical, ChevronUp, ChevronDown, ChevronsDown, ChevronsUp, Trash2 } from 'lucide-react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faAnglesDown, faAnglesUp, faArrowDown, faArrowUp, faEllipsisVertical, faTrash } from '@fortawesome/free-solid-svg-icons';
 
 import { Button } from '@/components/ui/button';
 
@@ -53,37 +54,37 @@ export default function ExplorerGroupMenu(props: ExplorerGroupMenuProps) {
                 <Button
                     variant='ghost'
                     size='icon'
-                    className='h-5 w-5'>
-                    <MoreVertical className='h-3 w-3' />
+                    className='h-5 w-5 rounded'>
+                    <FontAwesomeIcon icon={faEllipsisVertical} size='sm' />
                 </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align='end'>
                 <DropdownMenuItem onClick={props.expandAll}>
-                    <ChevronsDown className='h-3 w-3' />
+                    <FontAwesomeIcon icon={faAnglesDown} size='sm' />
                     <span>Expand all</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={props.collapseAll}>
-                    <ChevronsUp className='h-3 w-3' />
+                    <FontAwesomeIcon icon={faAnglesUp} size='sm' />
                     <span>Collapse all</span>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                     disabled={props.isFirst}
                     onClick={props.moveUp}>
-                    <ChevronUp className='h-3 w-3' />
+                    <FontAwesomeIcon icon={faArrowUp} size='sm' />
                     <span>Move up</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem
                     disabled={props.isLast}
                     onClick={props.moveDown}>
-                    <ChevronDown className='h-3 w-3' />
+                    <FontAwesomeIcon icon={faArrowDown} size='sm' />
                     <span>Move down</span>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                     variant='destructive'
                     onClick={() => setShowRemoveDialog(true)}>
-                    <Trash2 className='h-3 w-3' />
+                    <FontAwesomeIcon icon={faTrash} size='sm' />
                     <span>Remove group</span>
                 </DropdownMenuItem>
             </DropdownMenuContent>

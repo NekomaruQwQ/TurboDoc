@@ -1,7 +1,8 @@
 import type { KeyboardEvent, MouseEvent, ReactElement, ReactNode } from "react";
 import { useState } from "react";
 
-import { Check, Plus } from "lucide-react";
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faCheck, faPlus } from '@fortawesome/free-solid-svg-icons';
 
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
@@ -24,11 +25,9 @@ export function ExplorerGroupHeaderCommon(props:  {
 }) {
     const actions = props.children?.props.children ?? null;
     return (
-        <div className='group/header flex flex-row items-center gap-1'>
-            <p className='flex-1 text-muted-foreground text-sm font-semibold uppercase'>{props.title}</p>
-            <div className='flex flex-row items-center justify-end gap-0.5 text-muted-foreground'>
-                {actions}
-            </div>
+        <div className='group/header flex flex-row h-6 items-center px-0.5 gap-0.5 text-muted-foreground'>
+            <p className='flex-1 text-sm font-semibold uppercase'>{props.title}</p>
+            {actions}
         </div>);
 }
 
@@ -108,12 +107,12 @@ export function CreateGroupComponent() {
                     e.preventDefault();
                     onOK();
                 }}>
-                    <Check className='h-3 w-3'/>
+                    <FontAwesomeIcon icon={faCheck} size='sm' />
                 </ActionButton>
             </> : <>
                 {/* Use onClick to avoid (what?) */}
                 <ActionButton className='w-full' onClick={() => setInputMode(true)}>
-                    <Plus className='h-3 w-3'/>
+                    <FontAwesomeIcon icon={faPlus} size='sm' />
                     <span>Add Group</span>
                 </ActionButton>
             </>}

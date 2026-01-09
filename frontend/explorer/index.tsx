@@ -1,6 +1,7 @@
 import type { ReadonlyDeep } from 'type-fest';
 
-import { ChevronsDown, ChevronsUp } from 'lucide-react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faAnglesDown, faAnglesUp } from '@fortawesome/free-solid-svg-icons';
 
 import { Button } from '@/components/ui/button';
 
@@ -81,7 +82,7 @@ function ExplorerUngrouped(props: ReadonlyDeep<{
     }
 
     return (
-        <div className='flex flex-col gap-2'>
+        <div className='flex flex-col gap-1'>
             <ExplorerGroupHeaderCommon title='Ungrouped'>
                 <ExplorerGroupActions>
                     <Button
@@ -90,14 +91,18 @@ function ExplorerUngrouped(props: ReadonlyDeep<{
                         className='h-5 w-5'
                         title={anyCollapsed ? 'Expand all' : 'Collapse all'}
                         onClick={toggleAll}>
-                        {anyCollapsed ? <ChevronsDown className='h-3 w-3' /> : <ChevronsUp className='h-3 w-3' />}
+                        {anyCollapsed
+                            ? <FontAwesomeIcon icon={faAnglesDown} size='sm' />
+                            : <FontAwesomeIcon icon={faAnglesUp} size='sm' />}
                     </Button>
                 </ExplorerGroupActions>
             </ExplorerGroupHeaderCommon>
-            <ExplorerItemList
-                expanded={true}
-                items={props.items}
-                updateItems={props.updateItems} />
+            <div className='flex flex-col gap-2'>
+                <ExplorerItemList
+                    expanded={true}
+                    items={props.items}
+                    updateItems={props.updateItems} />
+            </div>
         </div>);
 }
 
@@ -138,7 +143,7 @@ function ExplorerGroup(props: ReadonlyDeep<{
     }
 
     return (
-        <div className='flex flex-col gap-2'>
+        <div className='flex flex-col gap-1'>
             <ExplorerGroupHeader
                 name={props.name}
                 isFirst={props.groupIndex === 0}
@@ -149,10 +154,12 @@ function ExplorerGroup(props: ReadonlyDeep<{
                 moveDown={props.moveDown}
                 renameGroup={props.setName}
                 removeGroup={removeGroup} />
-            <ExplorerItemList
-                expanded={true}
-                items={props.items}
-                updateItems={props.updateItems} />
+            <div className='flex flex-col gap-2'>
+                <ExplorerItemList
+                    expanded={true}
+                    items={props.items}
+                    updateItems={props.updateItems} />
+            </div>
         </div>);
 }
 

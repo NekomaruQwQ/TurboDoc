@@ -1,6 +1,7 @@
 import type { ReadonlyDeep } from 'type-fest';
 
-import { Pin } from 'lucide-react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faThumbtack } from '@fortawesome/free-solid-svg-icons';
 
 import { cn } from '@/lib/utils.ts';
 
@@ -228,11 +229,11 @@ function CratePageItem(props: {
                 <span
                     className='invisible group-hover/page:visible'
                     onClick={event => { pin(); event.stopPropagation(); }}>
-                    <Pin className='h-3 w-3' />
+                    <FontAwesomeIcon icon={faThumbtack} size='xs' className='text-foreground/50'/>
                 </span>)}
             {page.pinned && (
                 <span onClick={event => { unpin(); event.stopPropagation(); }}>
-                    <Pin className='h-3 w-3' fill='white' />
+                    <FontAwesomeIcon icon={faThumbtack} size='xs' />
                 </span>)}
         </div>);
 }
