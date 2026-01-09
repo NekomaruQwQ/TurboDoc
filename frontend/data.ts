@@ -1,4 +1,4 @@
-import type { ReadonlyDeep } from 'type-fest';
+import type { ReadonlyDeep } from "type-fest";
 
 export interface Expandable { expanded: boolean }
 
@@ -19,50 +19,50 @@ export type Page =
     | PageCrate;
 
 export interface PageUnknown {
-    type: 'unknown',
+    type: "unknown",
     url: string,
 }
 
 export interface PageCrate {
-    type: 'crate',
+    type: "crate",
     crateName: string,
     crateVersion: string,
     pathSegments: string[],
 }
 
 export function parseUrl(url: string): Page {
-    if (url.startsWith('https://docs.rs/')) {
-        const urlPath = url.substring('https://docs.rs/'.length);
+    if (url.startsWith("https://docs.rs/")) {
+        const urlPath = url.substring("https://docs.rs/".length);
         const [
             crateName,
             crateVersionOrUndefined,
             ...pathSegments
-        ] = urlPath.split('/');
+        ] = urlPath.split("/");
 
         if (crateName)
             return {
-                type: 'crate',
+                type: "crate",
                 crateName,
-                crateVersion: crateVersionOrUndefined ?? 'latest',
+                crateVersion: crateVersionOrUndefined ?? "latest",
                 pathSegments,
             };
     }
 
-    return { type: 'unknown', url };
+    return { type: "unknown", url };
 }
 
 export function buildUrl(page: ReadonlyDeep<Page>): string {
     switch (page.type) {
-        case 'unknown':
+        case "unknown":
             return page.url;
-        case 'crate':
-            return `https://docs.rs/${page.crateName}/${page.crateVersion}/${page.pathSegments.join('/')}`;
+        case "crate":
+            return `https://docs.rs/${page.crateName}/${page.crateVersion}/${page.pathSegments.join("/")}`;
     }
 }
 
 export type Item =
     Expandable & (
-        | { type: 'crate', data: ItemCrate });
+        | { type: "crate", data: ItemCrate });
 
 export interface ItemCrate {
     /** Name of the crate. */
@@ -71,7 +71,7 @@ export interface ItemCrate {
     /**
      * List of pinned docs.rs pages.
      *
-     * Each entry is a relative path (e.g., 'glam/struct.Vec3.html').
+     * Each entry is a relative path (e.g., "glam/struct.Vec3.html").
      * The full URL can be constructed as:
      * `https://docs.rs/{crate_name}/{version}/{path}`.
      **/
@@ -114,7 +114,7 @@ export interface CrateCache {
 }
 
 export interface CrateVersion {
-    /** Version number (e.g., '0.10.1') */
+    /** Version number (e.g., "0.10.1") */
     num: string;
     /** Whether this version is yanked */
     yanked: boolean;

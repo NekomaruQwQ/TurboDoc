@@ -1,23 +1,23 @@
-import type { ReadonlyDeep } from 'type-fest';
+import type { ReadonlyDeep } from "type-fest";
 import type { ReactElement } from "react";
 
-import type { Item } from '@/data';
-import { useAppContext } from '@/context';
+import type { Item } from "@/data";
+import { useAppContext } from "@/context";
 
-import type ExplorerItemProps from '@/explorer/ExplorerItemProps';
-import CrateCard from '@/explorer/crate/CrateCard';
-import ExplorerGroupHeader from '@/explorer/ExplorerGroupHeader';
-import ExplorerCreateGroupComponent from '@/explorer/ExplorerCreateGroupComponent';
+import type ExplorerItemProps from "@/explorer/ExplorerItemProps";
+import CrateCard from "@/explorer/crate/CrateCard";
+import ExplorerGroupHeader from "@/explorer/ExplorerGroupHeader";
+import ExplorerCreateGroupComponent from "@/explorer/ExplorerCreateGroupComponent";
 
 export function Explorer() {
     const app = useAppContext();
     return (
-        <div className='px-2 w-full h-full'>
+        <div className="px-2 w-full h-full">
             <div
-                className='flex flex-col gap-4 py-2 w-full h-full rounded overflow-x-hidden overflow-y-scroll'
-                style={{ scrollbarWidth: 'none' }}>
+                className="flex flex-col gap-4 py-2 w-full h-full rounded overflow-x-hidden overflow-y-scroll"
+                style={{ scrollbarWidth: "none" }}>
                 <ExplorerUngrouped
-                    key=':ungrouped:'
+                    key=":ungrouped:"
                     items={app.workspace.ungrouped}
                     updateItems={updater => app.updateWorkspace(draft => updater(draft.ungrouped))} />
                 {app.workspace.groups.map((group, i) => (
@@ -79,7 +79,7 @@ function ExplorerUngrouped(props: ReadonlyDeep<{
     }
 
     function unreachable() {
-        throw new Error('Unreachable code executed');
+        throw new Error("Unreachable code executed");
     }
 
     return (
@@ -88,7 +88,7 @@ function ExplorerUngrouped(props: ReadonlyDeep<{
             items={props.items}
             updateItems={props.updateItems}>
             <ExplorerGroupHeader
-                groupName='Ungrouped'
+                groupName="Ungrouped"
                 isFrozen={true}
                 isFirst={true}
                 isLast={true}
@@ -164,18 +164,18 @@ function ExplorerGroupCommon(props: ReadonlyDeep<{
 }>) {
     function getKeyForItem(item: ReadonlyDeep<Item>): string {
         switch (item.type) {
-            case 'crate':
-                return ':crate:' + item.data.name;
+            case "crate":
+                return ":crate:" + item.data.name;
             default:
-                console.warn('Unknown item type for key generation:', item);
-                return ':unknown:';
+                console.warn("Unknown item type for key generation:", item);
+                return ":unknown:";
         }
     }
 
     return (
-        <div className='flex flex-col gap-1'>
+        <div className="flex flex-col gap-1">
             {props.children}
-            <div className='flex flex-col gap-2'>
+            <div className="flex flex-col gap-2">
                 {props.expanded && props.items.map((item, i) => (
                     <ExplorerItem
                         key={getKeyForItem(item)}
@@ -196,7 +196,7 @@ function ExplorerGroupCommon(props: ReadonlyDeep<{
 
 function ExplorerItem(props: ReadonlyDeep<ExplorerItemProps<Item>>) {
     switch (props.item.type) {
-        case 'crate':
+        case "crate":
             return (
                 <CrateCard
                     expanded={props.expanded}

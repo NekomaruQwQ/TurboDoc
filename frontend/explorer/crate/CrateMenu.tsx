@@ -1,15 +1,15 @@
-import type { ReadonlyDeep } from 'type-fest';
+import type { ReadonlyDeep } from "type-fest";
 
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
     faArrowUpRightFromSquare,
     faEllipsisVertical,
     faRightToBracket,
     faRotate,
     faTrash
-} from '@fortawesome/free-solid-svg-icons';
+} from "@fortawesome/free-solid-svg-icons";
 
-import { Button } from '@shadcn/components/ui/button';
+import { Button } from "@shadcn/components/ui/button";
 
 import {
     DropdownMenu,
@@ -20,10 +20,10 @@ import {
     DropdownMenuSubContent,
     DropdownMenuSubTrigger,
     DropdownMenuTrigger,
-} from '@shadcn/components/ui/dropdown-menu';
+} from "@shadcn/components/ui/dropdown-menu";
 
-import type { Item, ItemCrate } from '@/data';
-import { useAppContext } from '@/context';
+import type { Item, ItemCrate } from "@/data";
+import { useAppContext } from "@/context";
 
 interface CrateMenuProps {
     crate: ReadonlyDeep<ItemCrate>;
@@ -44,7 +44,7 @@ export default function CrateMenu(props: CrateMenuProps) {
      */
     function moveCrate(targetGroupIndex: number) {
         const newItem: Item = {
-            type: 'crate',
+            type: "crate",
             data: { name: crate.name, pinnedPages: [...crate.pinnedPages], currentVersion: crate.currentVersion },
             expanded: true,
         };
@@ -68,28 +68,28 @@ export default function CrateMenu(props: CrateMenuProps) {
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
-                <Button variant='ghost' size='icon' className='size-6 border rounded-sm hover:bg-input/50'>
-                    <FontAwesomeIcon icon={faEllipsisVertical} size='sm' />
+                <Button variant="ghost" size="icon" className="size-6 border rounded-sm hover:bg-input/50">
+                    <FontAwesomeIcon icon={faEllipsisVertical} size="sm" />
                 </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align='end'>
+            <DropdownMenuContent align="end">
                 <DropdownMenuItem>
-                    <CrateLink label='Crates.io' url={`https://crates.io/crates/${crate.name}`} />
+                    <CrateLink label="Crates.io" url={`https://crates.io/crates/${crate.name}`} />
                 </DropdownMenuItem>
                 {crateCache?.repository && (
                     <DropdownMenuItem>
-                        <CrateLink label='Repository' url={crateCache.repository} />
+                        <CrateLink label="Repository" url={crateCache.repository} />
                     </DropdownMenuItem>
                 )}
                 {crateCache?.homepage && (
                     <DropdownMenuItem>
-                        <CrateLink label='Homepage' url={crateCache.homepage} />
+                        <CrateLink label="Homepage" url={crateCache.homepage} />
                     </DropdownMenuItem>
                 )}
                 <DropdownMenuSeparator />
                 <DropdownMenuSub>
                     <DropdownMenuSubTrigger>
-                        <FontAwesomeIcon icon={faRightToBracket} size='sm' />
+                        <FontAwesomeIcon icon={faRightToBracket} size="sm" />
                         <span>Move to group</span>
                     </DropdownMenuSubTrigger>
                     <DropdownMenuSubContent>
@@ -107,12 +107,12 @@ export default function CrateMenu(props: CrateMenuProps) {
                     </DropdownMenuSubContent>
                 </DropdownMenuSub>
                 <DropdownMenuItem onClick={refreshMetadata}>
-                    <FontAwesomeIcon icon={faRotate} size='sm' />
+                    <FontAwesomeIcon icon={faRotate} size="sm" />
                     <span>Refresh metadata</span>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem variant='destructive' onClick={props.removeItem}>
-                    <FontAwesomeIcon icon={faTrash} size='sm' />
+                <DropdownMenuItem variant="destructive" onClick={props.removeItem}>
+                    <FontAwesomeIcon icon={faTrash} size="sm" />
                     <span>Remove crate</span>
                 </DropdownMenuItem>
             </DropdownMenuContent>
@@ -124,9 +124,9 @@ function CrateLink(props: { url: string; label: string }) {
     return (
         <span
             title={props.url}
-            className='hover:text-foreground flex flex-row items-center gap-1'
+            className="hover:text-foreground flex flex-row items-center gap-1"
             onClick={() => app.navigateTo(props.url)}>
-            <FontAwesomeIcon icon={faArrowUpRightFromSquare} size='sm' />
+            <FontAwesomeIcon icon={faArrowUpRightFromSquare} size="sm" />
             <span>{props.label}</span>
         </span>);
 }

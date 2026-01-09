@@ -1,10 +1,10 @@
-import type { PartialDeep } from 'type-fest';
+import type { PartialDeep } from "type-fest";
 
 /** Custom error for rate limiting. */
 export class RateLimitError extends Error {
     constructor(public retryAfterSeconds: number) {
         super(`Rate limited. Retry after ${retryAfterSeconds} seconds.`);
-        this.name = 'RateLimitError';
+        this.name = "RateLimitError";
     }
 }
 
@@ -12,7 +12,7 @@ export class RateLimitError extends Error {
 export class CrateNotFoundError extends Error {
     constructor(crateName: string) {
         super(`Crate not found: ${crateName}`);
-        this.name = 'CrateNotFoundError';
+        this.name = "CrateNotFoundError";
     }
 }
 
@@ -20,7 +20,7 @@ export class CrateNotFoundError extends Error {
 export class MalformedResponseError extends Error {
     constructor(message: string) {
         super(`Malformed response: ${message}`);
-        this.name = 'MalformedResponseError';
+        this.name = "MalformedResponseError";
     }
 }
 
@@ -73,7 +73,7 @@ export async function fetchCrateInfo(crateName: string): Promise<CrateInfo> {
         const response =
             await fetch(`https://crates.io/api/v1/crates/${crateName}`, {
                 headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0',
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0",
                 },
             });
 
@@ -82,8 +82,8 @@ export async function fetchCrateInfo(crateName: string): Promise<CrateInfo> {
         }
 
         if (response.status === 429) {
-            const retryAfter = response.headers.get('Retry-After');
-            throw new RateLimitError(parseInt(retryAfter || '60'));
+            const retryAfter = response.headers.get("Retry-After");
+            throw new RateLimitError(parseInt(retryAfter || "60"));
         }
 
         if (!response.ok) {
@@ -94,9 +94,9 @@ export async function fetchCrateInfo(crateName: string): Promise<CrateInfo> {
         return {
             crate: {
                 id: data.crate?.id
-                    || throwMissingField('crate.id'),
+                    || throwMissingField("crate.id"),
                 name: data.crate?.name
-                    || throwMissingField('crate.name'),
+                    || throwMissingField("crate.name"),
                 description: data.crate?.description,
                 homepage: data.crate?.homepage,
                 repository: data.crate?.repository,
@@ -104,9 +104,9 @@ export async function fetchCrateInfo(crateName: string): Promise<CrateInfo> {
             },
             versions:
                 data.versions?.map(version => ({
-                    num: version.num || throwMissingField('versions.num'),
+                    num: version.num || throwMissingField("versions.num"),
                     yanked: version.yanked ?? false,
-                })) || throwMissingField('versions'),
+                })) || throwMissingField("versions"),
         }
     });
 }
@@ -114,17 +114,17 @@ export async function fetchCrateInfo(crateName: string): Promise<CrateInfo> {
 /** Search for crates on crates.io */
 export async function searchCrates(query: string): Promise<{ name: string, description: string | null }[]> {
     return queueRequest(async () => {
-        console.log(`[crates.io] Searching with query '${query}'.`);
+        console.log(`[crates.io] Searching with query "${query}".`);
         const response = await fetch(
             `https://crates.io/api/v1/crates?q=${encodeURIComponent(query)}`, {
                 headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0',
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0",
                 },
             });
 
         if (response.status === 429) {
-            const retryAfter = response.headers.get('Retry-After');
-            throw new RateLimitError(parseInt(retryAfter || '60'));
+            const retryAfter = response.headers.get("Retry-After");
+            throw new RateLimitError(parseInt(retryAfter || "60"));
         }
 
         if (!response.ok) {

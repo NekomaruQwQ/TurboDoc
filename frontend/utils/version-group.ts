@@ -1,5 +1,5 @@
-import * as semver from 'semver';
-import type { CrateVersion } from '@/data';
+import * as semver from "semver";
+import type { CrateVersion } from "@/data";
 
 /**
  * Compute version groups for display based on semver compatibility.

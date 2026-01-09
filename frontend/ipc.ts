@@ -1,14 +1,14 @@
-import type { ReadonlyDeep } from 'type-fest';
+import type { ReadonlyDeep } from "type-fest";
 
-import { assert } from '@/prelude';
+import { assert } from "@/prelude";
 
-import { IPC_TIMEOUT_MS } from '@/constants';
+import { IPC_TIMEOUT_MS } from "@/constants";
 
 /**
  * IPC message representing an event occurring on the host side.
  */
 type IPCEvent =
-    | { type: 'navigated', url: string };
+    | { type: "navigated", url: string };
 
 /**
  * IPC message that requests an action to be performed on the host side,
@@ -17,10 +17,10 @@ type IPCEvent =
  * Each request expects a corresponding `IPCResponse` from the host.
  */
 type IPCRequest =
-    | { type: 'load-workspace' }
-    | { type: 'save-workspace', content: string }
-    | { type: 'load-cache' }
-    | { type: 'save-cache', content: string };
+    | { type: "load-workspace" }
+    | { type: "save-workspace", content: string }
+    | { type: "load-cache" }
+    | { type: "save-cache", content: string };
 
 /**
  * IPC message representing a response from the host to a previously
@@ -29,18 +29,18 @@ type IPCRequest =
 type IPCResponse =
     { success: false, message: string, type: IPCResponseType } |
     { success: true } & (
-        | IPCResponseVariant<'workspace-loaded'>
-        | IPCResponseVariant<'workspace-saved'>
-        | IPCResponseVariant<'cache-loaded'>
-        | IPCResponseVariant<'cache-saved'>);
+        | IPCResponseVariant<"workspace-loaded">
+        | IPCResponseVariant<"workspace-saved">
+        | IPCResponseVariant<"cache-loaded">
+        | IPCResponseVariant<"cache-saved">);
 type IPCResponseType = keyof IPCResponseVariants;
 type IPCResponseVariant<T extends IPCResponseType> =
     { type: T } & IPCResponseVariants[T];
 type IPCResponseVariants = {
-    'workspace-loaded': { content: string };
-    'workspace-saved': {};
-    'cache-loaded': { content: string };
-    'cache-saved': {};
+    "workspace-loaded": { content: string };
+    "workspace-saved": {};
+    "cache-loaded": { content: string };
+    "cache-saved": {};
 }
 
 /** Handler function for a specific IPCEvent type */
@@ -51,16 +51,16 @@ type IPCResponseHandler =
     (response: ReadonlyDeep<IPCResponse>) => void;
 
 const eventHandlerMap:
-    Partial<Record<IPCEvent['type'], Set<IPCEventHandler>>> = {};
+    Partial<Record<IPCEvent["type"], Set<IPCEventHandler>>> = {};
 const responseHandlerMap:
-    Partial<Record<IPCResponse['type'], IPCResponseHandler>> = {};
+    Partial<Record<IPCResponse["type"], IPCResponseHandler>> = {};
 
-window.chrome.webview.addEventListener('message', (event: any) => {
+window.chrome.webview.addEventListener("message", (event: any) => {
     // Here we assume that the host always send well-formed messages and omit any type
     // checking here for simplicity.
     const message = event.data as IPCEvent | IPCResponse;
 
-    console.log('[->] ', message);
+    console.log("[->] ", message);
 
     const eventHandlerMapCasted =
         (eventHandlerMap as Partial<Record<string, Set<IPCEventHandler>>>);
@@ -87,7 +87,7 @@ window.chrome.webview.addEventListener('message', (event: any) => {
  * Register a handler for a specific `IPCEvent`, returning a function that
  * removes the handler when called.
  */
-export function on<T extends IPCEvent>(type: T['type'], handler: (event: T) => void): () => void {
+export function on<T extends IPCEvent>(type: T["type"], handler: (event: T) => void): () => void {
     if (eventHandlerMap[type] === undefined) {
         eventHandlerMap[type] = new Set();
     }
@@ -114,7 +114,7 @@ export function getResponseAsync<T extends IPCResponseType>(
     return new Promise((resolve, reject) => {
         assert(
             responseHandlerMap[type] === undefined,
-            `Multiple waiters for IPC response type '${type}'`);
+            `Multiple waiters for IPC response type "${type}"`);
 
         // Set up timeout to prevent infinite hangs
         const timeout = setTimeout(() => {
@@ -140,12 +140,12 @@ export function getResponseAsync<T extends IPCResponseType>(
  * Send a message to the host via WebView2 IPC.
  */
 function postMessage(message: ReadonlyDeep<IPCRequest>): void {
-    console.log('[<-] ', message);
+    console.log("[<-] ", message);
     window.chrome.webview.postMessage(JSON.stringify(message));
 }
 
 /**
- * Request to load workspace from the host. Throws an error if the file doesn't
+ * Request to load workspace from the host. Throws an error if the file doesn"t
  * exist or any other error occurs.
  *
  * This function does not perform any validation on the loaded workspace object,
@@ -153,8 +153,8 @@ function postMessage(message: ReadonlyDeep<IPCRequest>): void {
  */
 export async function loadWorkspace(): Promise<unknown> {
     try {
-        postMessage({ type: 'load-workspace' });
-        const response = await getResponseAsync('workspace-loaded');
+        postMessage({ type: "load-workspace" });
+        const response = await getResponseAsync("workspace-loaded");
         return JSON.parse(response.content);
     } catch (err) {
         throw new Error(`Failed to load workspace: ${err}`);
@@ -166,8 +166,8 @@ export async function loadWorkspace(): Promise<unknown> {
  */
 export async function saveWorkspace(workspace: unknown): Promise<void> {
     try {
-        postMessage({ type: 'save-workspace', content: JSON.stringify(workspace) });
-        await getResponseAsync('workspace-saved');
+        postMessage({ type: "save-workspace", content: JSON.stringify(workspace) });
+        await getResponseAsync("workspace-saved");
     } catch (err) {
         throw new Error(`Failed to save workspace: ${err}`);
     }
@@ -184,11 +184,11 @@ export async function saveWorkspace(workspace: unknown): Promise<void> {
  */
 export async function loadCache(): Promise<unknown> {
     try {
-        postMessage({ type: 'load-cache' });
-        const result = await getResponseAsync('cache-loaded');
+        postMessage({ type: "load-cache" });
+        const result = await getResponseAsync("cache-loaded");
         return JSON.parse(result.content);
     } catch (err) {
-        console.error('Failed to load cache:', err);
+        console.error("Failed to load cache:", err);
     }
 
     return null;
@@ -201,8 +201,8 @@ export async function loadCache(): Promise<unknown> {
  */
 export async function saveCache(cache: ReadonlyDeep<unknown>): Promise<void> {
     try {
-        postMessage({type: 'save-cache', content: JSON.stringify(cache) });
-        await getResponseAsync('cache-saved');
+        postMessage({type: "save-cache", content: JSON.stringify(cache) });
+        await getResponseAsync("cache-saved");
     } catch (err) {
         console.error(`Failed to save cache: ${err}`);
     }

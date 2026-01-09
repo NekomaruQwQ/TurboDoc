@@ -1,15 +1,15 @@
-import type { ReadonlyDeep } from 'type-fest';
+import type { ReadonlyDeep } from "type-fest";
 
-import { createContext, useContext, useEffect, useRef } from 'react';
-import { useImmer } from 'use-immer';
+import { createContext, useContext, useEffect, useRef } from "react";
+import { useImmer } from "use-immer";
 
-import type { Workspace, Cache, CrateCache } from '@/data';
-import { parseUrl, buildUrl } from '@/data';
-import * as IPC from '@/ipc';
+import type { Workspace, Cache, CrateCache } from "@/data";
+import { parseUrl, buildUrl } from "@/data";
+import * as IPC from "@/ipc";
 
-import { CACHE_EXPIRY_MS } from '@/constants';
-import * as CratesAPI from '@/services/crates-api';
-import { computeVersionGroups } from '@/utils/version-group';
+import { CACHE_EXPIRY_MS } from "@/constants";
+import * as CratesAPI from "@/services/crates-api";
+import { computeVersionGroups } from "@/utils/version-group";
 
 export interface AppState {
     workspace: Workspace,
@@ -25,7 +25,7 @@ export async function loadAppState(): Promise<AppState> {
         await IPC.loadCache() as Record<string, unknown> ?? {};
     workspace.groups ??= [];
     workspace.ungrouped ??= [];
-    workspace.currentPage ??= { type: 'unknown', url: 'https://docs.rs/' };
+    workspace.currentPage ??= { type: "unknown", url: "https://docs.rs/" };
     cache.crates ??= {};
     return {
         workspace: workspace as any as Workspace,
@@ -58,8 +58,8 @@ export class AppContext {
                     groups: [],
                     ungrouped: [],
                     currentPage: {
-                        type: 'unknown',
-                        url: 'https://docs.rs/',
+                        type: "unknown",
+                        url: "https://docs.rs/",
                     },
                 },
                 cache: { crates: {} },
@@ -88,11 +88,11 @@ export class AppContext {
                 .catch(err => console.error(err));
         }, [this.state]);
 
-        // Listen to the 'navigated' IPCEvent.
+        // Listen to the "navigated" IPCEvent.
         useEffect(() => {
-            IPC.on('navigated', event => {
+            IPC.on("navigated", event => {
                 // Ignore false navigations to "https://docs.rs/-/storage-change-detection.html".
-                if (event.url == 'https://docs.rs/-/storage-change-detection.html')
+                if (event.url == "https://docs.rs/-/storage-change-detection.html")
                     return;
 
                 const page = parseUrl(event.url);
@@ -114,17 +114,17 @@ export class AppContext {
         if (iframeWindow)
             iframeWindow.location.replace(url);
         else
-            console.warn('Navigation failed: iframe not loaded yet.');
+            console.warn("Navigation failed: iframe not loaded yet.");
     }
 
     public updateWorkspace(updater: (draft: Workspace) => void): void {
         this.updateState(state => { updater(state.workspace); });
-        console.log('Workspace updated.');
+        console.log("Workspace updated.");
     }
 
     private updateCache(updater: (draft: Cache) => void): void {
         this.updateState(state => { updater(state.cache); });
-        console.log('Cache updated.');
+        console.log("Cache updated.");
     }
 
     /** Invalidates cached metadata for a crate, forcing a refetch on next access. */

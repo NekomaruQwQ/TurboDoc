@@ -1,7 +1,7 @@
-import type { KeyboardEvent } from 'react';
-import { useState } from 'react';
+import type { KeyboardEvent } from "react";
+import { useState } from "react";
 
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
     faAnglesDown,
     faAnglesUp,
@@ -11,10 +11,10 @@ import {
     faEllipsisVertical,
     faPencil,
     faTrash,
-} from '@fortawesome/free-solid-svg-icons';
+} from "@fortawesome/free-solid-svg-icons";
 
-import { Button } from '@shadcn/components/ui/button';
-import { Input } from '@shadcn/components/ui/input';
+import { Button } from "@shadcn/components/ui/button";
+import { Input } from "@shadcn/components/ui/input";
 
 import {
     Dialog,
@@ -23,7 +23,7 @@ import {
     DialogFooter,
     DialogHeader,
     DialogTitle,
-} from '@shadcn/components/ui/dialog';
+} from "@shadcn/components/ui/dialog";
 
 import {
     DropdownMenu,
@@ -31,7 +31,7 @@ import {
     DropdownMenuItem,
     DropdownMenuSeparator,
     DropdownMenuTrigger,
-} from '@shadcn/components/ui/dropdown-menu';
+} from "@shadcn/components/ui/dropdown-menu";
 
 interface ExplorerGroupHeaderProps {
     /** Name of the group. */
@@ -94,9 +94,9 @@ export default function ExplorerGroupHeader(props: ExplorerGroupHeaderProps) {
     }
 
     function onRenameKeyDown(e: KeyboardEvent) {
-        if (e.key === 'Enter') {
+        if (e.key === "Enter") {
             confirmRename();
-        } else if (e.key === 'Escape') {
+        } else if (e.key === "Escape") {
             cancelRename();
         }
     }
@@ -109,56 +109,56 @@ export default function ExplorerGroupHeader(props: ExplorerGroupHeaderProps) {
     // Inline rename input mode
     if (isRenaming) {
         return (
-            <div className='flex flex-row items-center gap-1'>
+            <div className="flex flex-row items-center gap-1">
                 <Input
                     value={editedName}
                     onChange={e => setEditedName(e.target.value)}
                     onKeyDown={onRenameKeyDown}
                     onBlur={confirmRename}
                     autoFocus
-                    className='h-6 rounded text-sm font-semibold' />
+                    className="h-6 rounded text-sm font-semibold" />
                 <Button
-                    variant='secondary'
-                    size='icon'
-                    className='size-6 rounded'
+                    variant="secondary"
+                    size="icon"
+                    className="size-6 rounded"
                     onClick={confirmRename}>
-                    <FontAwesomeIcon icon={faCheck} size='sm' />
+                    <FontAwesomeIcon icon={faCheck} size="sm" />
                 </Button>
             </div>);
     }
 
     return (
-        <div className='group/header flex flex-row h-6 items-center px-0.5 gap-0.5 text-muted-foreground'>
+        <div className="group/header flex flex-row h-6 items-center px-0.5 gap-0.5 text-muted-foreground">
             {/* Group name */}
-            <p className='flex-1 text-sm font-semibold uppercase'>{props.groupName}</p>
+            <p className="flex-1 text-sm font-semibold uppercase">{props.groupName}</p>
             {/* Rename button*/}
             {!props.isFrozen && (
                 <Button
-                    variant='ghost'
-                    size='icon'
-                    className='h-5 w-5 rounded invisible group-hover/header:visible'
-                    title='Rename group'
+                    variant="ghost"
+                    size="icon"
+                    className="h-5 w-5 rounded invisible group-hover/header:visible"
+                    title="Rename group"
                     onClick={beginRename}>
-                    <FontAwesomeIcon icon={faPencil} size='sm' />
+                    <FontAwesomeIcon icon={faPencil} size="sm" />
                 </Button>)
             }
             {/* Group Menu */}
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                     <Button
-                        variant='ghost'
-                        size='icon'
-                        className='h-5 w-5 rounded'>
-                        <FontAwesomeIcon icon={faEllipsisVertical} size='sm' />
+                        variant="ghost"
+                        size="icon"
+                        className="h-5 w-5 rounded">
+                        <FontAwesomeIcon icon={faEllipsisVertical} size="sm" />
                     </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align='end'>
+                <DropdownMenuContent align="end">
                     <DropdownMenuItem onClick={props.expandAll}>
-                        <FontAwesomeIcon icon={faAnglesDown} size='sm' />
+                        <FontAwesomeIcon icon={faAnglesDown} size="sm" />
                         <span>Expand all</span>
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={props.collapseAll}>
-                        <FontAwesomeIcon icon={faAnglesUp} size='sm' />
+                        <FontAwesomeIcon icon={faAnglesUp} size="sm" />
                         <span>Collapse all</span>
                     </DropdownMenuItem>
                     {!props.isFrozen && <>
@@ -166,20 +166,20 @@ export default function ExplorerGroupHeader(props: ExplorerGroupHeaderProps) {
                         <DropdownMenuItem
                             disabled={props.isFirst}
                             onClick={props.moveUp}>
-                            <FontAwesomeIcon icon={faArrowUp} size='sm' />
+                            <FontAwesomeIcon icon={faArrowUp} size="sm" />
                             <span>Move up</span>
                         </DropdownMenuItem>
                         <DropdownMenuItem
                             disabled={props.isLast}
                             onClick={props.moveDown}>
-                            <FontAwesomeIcon icon={faArrowDown} size='sm' />
+                            <FontAwesomeIcon icon={faArrowDown} size="sm" />
                             <span>Move down</span>
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
-                            variant='destructive'
+                            variant="destructive"
                             onClick={() => setShowRemoveDialog(true)}>
-                            <FontAwesomeIcon icon={faTrash} size='sm' />
+                            <FontAwesomeIcon icon={faTrash} size="sm" />
                             <span>Remove group</span>
                         </DropdownMenuItem>
                     </>}
@@ -197,8 +197,8 @@ export default function ExplorerGroupHeader(props: ExplorerGroupHeaderProps) {
                         </DialogDescription>
                     </DialogHeader>
                     <DialogFooter>
-                        <Button variant='outline' onClick={() => setShowRemoveDialog(false)}>Cancel</Button>
-                        <Button variant='destructive' onClick={confirmRemoveGroup}>Delete</Button>
+                        <Button variant="outline" onClick={() => setShowRemoveDialog(false)}>Cancel</Button>
+                        <Button variant="destructive" onClick={confirmRemoveGroup}>Delete</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

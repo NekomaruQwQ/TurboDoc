@@ -1,5 +1,5 @@
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
 
 /**
  * Combines class names using `clsx` and merges Tailwind CSS classes using `twMerge`.
@@ -20,7 +20,7 @@ export function assert(condition: boolean, message?: string): asserts condition 
         if (message) {
             throw new Error(`Assertion failed: ${message}`);
         } else {
-            throw new Error('Assertion failed');
+            throw new Error("Assertion failed");
         }
     }
 }

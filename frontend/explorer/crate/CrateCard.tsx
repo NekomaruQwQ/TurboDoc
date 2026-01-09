@@ -1,16 +1,16 @@
-import type { ReadonlyDeep } from 'type-fest';
+import type { ReadonlyDeep } from "type-fest";
 
-import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@shadcn/components/ui/collapsible';
-import { Separator } from '@shadcn/components/ui/separator';
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@shadcn/components/ui/collapsible";
+import { Separator } from "@shadcn/components/ui/separator";
 
-import type { ItemCrate } from '@/data';
-import { buildUrl } from '@/data';
-import { useAppContext } from '@/context';
+import type { ItemCrate } from "@/data";
+import { buildUrl } from "@/data";
+import { useAppContext } from "@/context";
 
-import type ExplorerItemProps from '@/explorer/ExplorerItemProps';
-import CrateMenu from '@/explorer/crate/CrateMenu';
-import CratePageList from '@/explorer/crate/CratePageList';
-import CrateVersionSelector from '@/explorer/crate/CrateVersionSelector';
+import type ExplorerItemProps from "@/explorer/ExplorerItemProps";
+import CrateMenu from "@/explorer/crate/CrateMenu";
+import CratePageList from "@/explorer/crate/CratePageList";
+import CrateVersionSelector from "@/explorer/crate/CrateVersionSelector";
 
 /**
  * Displays a crate as a collapsible card.
@@ -25,7 +25,7 @@ export default function CrateCard(props: ReadonlyDeep<ExplorerItemProps<ItemCrat
     const currentPage = app.workspace.currentPage;
 
     // Auto-sync version: if viewing this crate with a different version, update to match
-    if (currentPage.type === 'crate' &&
+    if (currentPage.type === "crate" &&
         currentPage.crateName === crate.name &&
         currentPage.crateVersion !== crate.currentVersion) {
         props.updateItem(crate => crate.currentVersion = currentPage.crateVersion);
@@ -33,19 +33,19 @@ export default function CrateCard(props: ReadonlyDeep<ExplorerItemProps<ItemCrat
 
     return (
         <Collapsible
-            className='flex flex-col p-1 gap-1 rounded bg-accent border shadow-sm truncate'
+            className="flex flex-col p-1 gap-1 rounded bg-accent border shadow-sm truncate"
             open={props.expanded}
             onOpenChange={() => props.setExpanded(!props.expanded)}>
-            <div className='flex flex-row items-stretch gap-1'>
-                <CollapsibleTrigger asChild className='flex-1 px-1'>
-                    <p className='font-mono opacity-90 cursor-pointer'>{crate.name}</p>
+            <div className="flex flex-row items-stretch gap-1">
+                <CollapsibleTrigger asChild className="flex-1 px-1">
+                    <p className="font-mono opacity-90 cursor-pointer">{crate.name}</p>
                 </CollapsibleTrigger>
                 <CrateVersionSelector
                     crate={crate}
                     crateCache={crateCache}
                     setVersion={version => {
-                        // If viewing this crate's docs, navigate to the same page with new version
-                        if (currentPage.type === 'crate' &&
+                        // If viewing this crate"s docs, navigate to the same page with new version
+                        if (currentPage.type === "crate" &&
                             currentPage.crateName === crate.name &&
                             currentPage.crateVersion === crate.currentVersion) {
                             app.navigateTo(buildUrl({ ...currentPage, crateVersion: version }));
@@ -55,7 +55,7 @@ export default function CrateCard(props: ReadonlyDeep<ExplorerItemProps<ItemCrat
                     }}/>
                 <CrateMenu crate={crate} removeItem={props.removeItem} />
             </div>
-            <CollapsibleContent className='flex flex-col text-sm'>
+            <CollapsibleContent className="flex flex-col text-sm">
                 <Separator />
                 <CratePageList crate={crate} updateCrate={props.updateItem} />
             </CollapsibleContent>

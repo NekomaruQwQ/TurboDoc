@@ -1,7 +1,7 @@
-import type { ReadonlyDeep } from 'type-fest';
+import type { ReadonlyDeep } from "type-fest";
 
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faEllipsis } from '@fortawesome/free-solid-svg-icons';
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faEllipsis } from "@fortawesome/free-solid-svg-icons";
 
 import {
     Select,
@@ -10,9 +10,9 @@ import {
     SelectSeparator,
     SelectTrigger,
     SelectValue,
-} from '@shadcn/components/ui/select';
+} from "@shadcn/components/ui/select";
 
-import type { ItemCrate, CrateCache } from '@/data';
+import type { ItemCrate, CrateCache } from "@/data";
 
 /**
  * Builds the list of versions to display in the selector.
@@ -24,10 +24,10 @@ import type { ItemCrate, CrateCache } from '@/data';
  */
 function getDisplayVersions(
     currentVersion: string,
-    versionGroups: ReadonlyDeep<CrateCache['versionGroups']> | undefined,
+    versionGroups: ReadonlyDeep<CrateCache["versionGroups"]> | undefined,
 ): string[] {
-    const versions = ['latest'];
-    const seen = new Set(['latest']);
+    const versions = ["latest"];
+    const seen = new Set(["latest"]);
 
     // Add latest from each version group (max 5)
     for (const group of versionGroups?.slice(0, 5) ?? []) {
@@ -63,23 +63,23 @@ export default function CrateVersionSelector(props: {
     const versions = getDisplayVersions(crate.currentVersion, crateCache?.versionGroups);
     return (
         <Select value={crate.currentVersion} onValueChange={version => {
-            if (version == 'latest' || crateCache?.versions.find(({ num }) => num === version)) {
+            if (version == "latest" || crateCache?.versions.find(({ num }) => num === version)) {
                 props.setVersion(version);
             }
         }}>
-            <SelectTrigger size={'xs' as any} className='px-2 py-0 w-24 h-6 text-xs rounded-sm shadow-none hover:bg-accent/50'>
+            <SelectTrigger size={"xs" as any} className="px-2 py-0 w-24 h-6 text-xs rounded-sm shadow-none hover:bg-accent/50">
                 <SelectValue />
             </SelectTrigger>
             <SelectContent>
                 {versions.map(version => (
-                    <SelectItem key={version} value={version} className='text-xs h-6'>
+                    <SelectItem key={version} value={version} className="text-xs h-6">
                         {version}
                     </SelectItem>
                 ))}
-                <SelectSeparator className='m-0.5' />
+                <SelectSeparator className="m-0.5" />
                 {/* Placeholder for future full version list popup */}
-                <SelectItem value='...' disabled className='h-6 text-xs'>
-                    <FontAwesomeIcon icon={faEllipsis} size='sm' className='mr-1 inline' />
+                <SelectItem value="..." disabled className="h-6 text-xs">
+                    <FontAwesomeIcon icon={faEllipsis} size="sm" className="mr-1 inline" />
                     <span>More versions</span>
                 </SelectItem>
             </SelectContent>
