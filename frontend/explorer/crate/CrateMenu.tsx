@@ -45,7 +45,9 @@ export default function CrateMenu(props: CrateMenuProps) {
     function moveCrate(targetGroupIndex: number) {
         const newItem: Item = {
             type: "crate",
-            data: { name: crate.name, pinnedPages: [...crate.pinnedPages], currentVersion: crate.currentVersion },
+            name: crate.name,
+            pinnedPages: [...crate.pinnedPages],
+            currentVersion: crate.currentVersion,
             expanded: true,
         };
 

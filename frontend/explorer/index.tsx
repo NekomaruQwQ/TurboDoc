@@ -97,7 +97,8 @@ function ExplorerUngrouped(props: ReadonlyDeep<{
                 moveUp={unreachable}
                 moveDown={unreachable}
                 renameGroup={unreachable}
-                removeGroup={unreachable} />
+                removeGroup={unreachable}
+                importItems={items => props.updateItems(draft => draft.push(...items))} />
         </ExplorerGroupCommon>);
 }
 
@@ -152,7 +153,8 @@ function ExplorerGroup(props: ReadonlyDeep<{
                 moveUp={props.moveUp}
                 moveDown={props.moveDown}
                 renameGroup={props.setName}
-                removeGroup={removeGroup} />
+                removeGroup={removeGroup}
+                importItems={items => props.updateItems(draft => draft.push(...items))} />
         </ExplorerGroupCommon>);
 }
 
@@ -165,7 +167,7 @@ function ExplorerGroupCommon(props: ReadonlyDeep<{
     function getKeyForItem(item: ReadonlyDeep<Item>): string {
         switch (item.type) {
             case "crate":
-                return ":crate:" + item.data.name;
+                return ":crate:" + item.name;
             default:
                 console.warn("Unknown item type for key generation:", item);
                 return ":unknown:";
@@ -201,9 +203,9 @@ function ExplorerItem(props: ReadonlyDeep<ExplorerItemProps<Item>>) {
                 <CrateCard
                     expanded={props.expanded}
                     setExpanded={props.setExpanded}
-                    item={props.item.data}
-                    updateItem={updater => props.updateItem(draft => updater(draft.data))}
-                    removeItem={() => props.removeItem()} />);
+                    item={props.item}
+                    updateItem={props.updateItem}
+                    removeItem={props.removeItem} />);
         default:
             return null;
     }

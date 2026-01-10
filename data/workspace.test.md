@@ -14,11 +14,13 @@ The test workspace contains **3 named groups** and **3 ungrouped crates**, demon
 
 ```typescript
 interface ItemCrate {
+    type: "crate";                   // Discriminant for tagged union
     name: string;
     pinnedPages: string[];           // Array of path strings
-    currentPage: string | null;      // Path string or null
     currentVersion: string;
 }
+
+type Item = Expandable & (ItemCrate | ...); // Tagged union for future extensibility
 ```
 
 **Key design decisions:**
@@ -26,8 +28,8 @@ interface ItemCrate {
 1. **Simple page representation**: Pages are just path strings (e.g., `"tokio/struct.Runtime.html"`)
 2. **Derived preview state**: A page is a "preview page" if `currentPage` is NOT in `pinnedPages`
 3. **Derived pinned+active state**: A page is "pinned and active" if `currentPage` IS in `pinnedPages`
-4. **Group items**: Wrapped as `{ type: "crate", data: ItemCrate }` for future extensibility
-5. **Ungrouped items**: Same `Item[]` wrapper structure as group items
+4. **Flat item structure**: `ItemCrate` includes `type: "crate"` discriminant directly (no wrapper)
+5. **Ungrouped items**: Same `Item[]` structure as group items
 
 ---
 
@@ -156,8 +158,8 @@ interface ItemCrate {
 - ✅ Nested collapsing (collapsed group + collapsed crate)
 
 ### Group Structure
-- ✅ Items wrapped as `{ type: "crate", data: {...} }` for future extensibility
-- ✅ Ungrouped uses same `Item[]` wrapper structure
+- ✅ Items use flat structure with `type: "crate"` discriminant
+- ✅ Ungrouped uses same `Item[]` structure as groups
 
 ---
 
@@ -187,7 +189,7 @@ When using this test workspace, verify:
 **Structure:**
 - [ ] All 3 named groups render correctly
 - [ ] "Not Yet Grouped" section displays 3 ungrouped crates
-- [ ] Group items are properly unwrapped from `{ type, data }` structure
+- [ ] Group items render with flat structure (type + data fields at same level)
 
 **UI States:**
 - [ ] Expanded/collapsed states match expectations

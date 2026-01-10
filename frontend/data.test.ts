@@ -22,7 +22,7 @@ describe("parseUrl", () => {
         });
     });
 
-    test("parses docs.rs URL with "latest" version", () => {
+    test("parses docs.rs URL with 'latest' version", () => {
         const result = parseUrl("https://docs.rs/serde/latest/serde/index.html");
         expect(result).toEqual({
             type: "crate",
@@ -128,7 +128,7 @@ describe("buildUrl", () => {
         expect(buildUrl(page)).toBe("https://docs.rs/glam/0.28.0/glam/struct.Vec3.html");
     });
 
-    test("builds URL for PageCrate with "latest" version", () => {
+    test("builds URL for PageCrate with 'latest' version", () => {
         const page: PageCrate = {
             type: "crate",
             crateName: "serde",

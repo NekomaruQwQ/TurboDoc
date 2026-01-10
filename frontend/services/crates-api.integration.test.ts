@@ -51,7 +51,7 @@ describe("CratesAPI integration tests", () => {
         }).toThrow(CrateNotFoundError);
     });
 
-    test("search returns results for "serde"", async () => {
+    test("search returns results for 'serde'", async () => {
         const results = await searchCrates("serde");
 
         expect(results).toBeDefined();
@@ -63,7 +63,7 @@ describe("CratesAPI integration tests", () => {
         expect(serdeResult?.description).toBeTruthy();
     });
 
-    test("search returns results for "async"", async () => {
+    test("search returns results for 'async'", async () => {
         const results = await searchCrates("async");
 
         expect(results).toBeDefined();

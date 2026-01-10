@@ -7,25 +7,19 @@
         {
           "type": "crate",
           "expanded": true,
-          "data": {
-            "name": "tokio",
-            "currentVersion": "1.42.0",
-            "pinnedPages": [
-              "tokio/struct.Runtime.html",
-              "tokio/task/index.html"
-            ],
-            "currentPage": "tokio/sync/struct.Mutex.html"
-          }
+          "name": "tokio",
+          "currentVersion": "latest",
+          "pinnedPages": [
+            "tokio/struct.Runtime.html",
+            "tokio/task/index.html"
+          ]
         },
         {
           "type": "crate",
           "expanded": false,
-          "data": {
-            "name": "async-std",
-            "currentVersion": "1.13.0",
-            "pinnedPages": [],
-            "currentPage": null
-          }
+          "name": "async-std",
+          "currentVersion": "latest",
+          "pinnedPages": []
         }
       ]
     },
@@ -36,27 +30,21 @@
         {
           "type": "crate",
           "expanded": true,
-          "data": {
-            "name": "serde",
-            "currentVersion": "1.0.215",
-            "pinnedPages": [
-              "serde/trait.Serialize.html",
-              "serde/trait.Deserialize.html"
-            ],
-            "currentPage": "serde/trait.Deserialize.html"
-          }
+          "name": "serde",
+          "currentVersion": "latest",
+          "pinnedPages": [
+            "serde/trait.Serialize.html",
+            "serde/trait.Deserialize.html"
+          ]
         },
         {
           "type": "crate",
           "expanded": true,
-          "data": {
-            "name": "serde_json",
-            "currentVersion": "1.0.132",
-            "pinnedPages": [
-              "serde_json/fn.from_str.html"
-            ],
-            "currentPage": null
-          }
+          "name": "serde_json",
+          "currentVersion": "latest",
+          "pinnedPages": [
+            "serde_json/fn.from_str.html"
+          ]
         }
       ]
     },
@@ -67,15 +55,12 @@
         {
           "type": "crate",
           "expanded": false,
-          "data": {
-            "name": "glam",
-            "currentVersion": "0.29.2",
-            "pinnedPages": [
-              "glam/struct.Vec3.html",
-              "glam/struct.Mat4.html"
-            ],
-            "currentPage": null
-          }
+          "name": "glam",
+          "currentVersion": "latest",
+          "pinnedPages": [
+            "glam/struct.Vec3.html",
+            "glam/struct.Mat4.html"
+          ]
         }
       ]
     }
@@ -84,34 +69,25 @@
     {
       "type": "crate",
       "expanded": true,
-      "data": {
-        "name": "anyhow",
-        "currentVersion": "1.0.93",
-        "pinnedPages": [],
-        "currentPage": "anyhow/struct.Error.html"
-      }
+      "name": "anyhow",
+      "currentVersion": "latest",
+      "pinnedPages": []
     },
     {
       "type": "crate",
       "expanded": false,
-      "data": {
-        "name": "thiserror",
-        "currentVersion": "1.0.69",
-        "pinnedPages": [],
-        "currentPage": null
-      }
+      "name": "thiserror",
+      "currentVersion": "latest",
+      "pinnedPages": []
     },
     {
       "type": "crate",
       "expanded": true,
-      "data": {
-        "name": "regex",
-        "currentVersion": "1.11.1",
-        "pinnedPages": [
-          "regex/struct.Regex.html"
-        ],
-        "currentPage": "regex/struct.Captures.html"
-      }
+      "name": "regex",
+      "currentVersion": "latest",
+      "pinnedPages": [
+        "regex/struct.Regex.html"
+      ]
     }
   ]
 }

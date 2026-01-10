@@ -1,7 +1,5 @@
 import type { ReadonlyDeep } from "type-fest";
 
-export interface Expandable { expanded: boolean }
-
 export interface Workspace {
     /** Named groups of crates */
     groups: Group[];
@@ -11,8 +9,11 @@ export interface Workspace {
     currentPage: Page;
 }
 
-export type Group =
-    Expandable & { name: string, items: Item[] }
+export type Group = {
+    name: string;
+    items: Item[];
+    expanded: boolean;
+}
 
 export type Page =
     | PageUnknown
@@ -61,12 +62,16 @@ export function buildUrl(page: ReadonlyDeep<Page>): string {
 }
 
 export type Item =
-    Expandable & (
-        | { type: "crate", data: ItemCrate });
+    | ItemCrate;
 
 export interface ItemCrate {
+    type: "crate";
+
     /** Name of the crate. */
     name: string;
+
+    /** Whether the crate item is expanded */
+    expanded: boolean;
 
     /**
      * List of pinned docs.rs pages.
