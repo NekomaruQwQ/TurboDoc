@@ -1,0 +1,20 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "tsc: check",
+            "type": "process",
+            "command": "tsc",
+            "args": ["--noEmit"],
+            "problemMatcher": "$tsc",
+        },
+        {
+            "label": "tsc: watch",
+            "type": "process",
+            "command": "tsc",
+            "args": ["--noEmit", "--watch",],
+            "isBackground": true,
+            "problemMatcher": "$tsc-watch"
+        },
+    ],
+}

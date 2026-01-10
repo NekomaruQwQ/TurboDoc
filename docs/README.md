@@ -76,7 +76,7 @@ TurboDoc is a documentation viewer for Rust crates with local caching and worksp
 - 🔲 Page title extraction from HTML
 - 🔲 Full-text search within cached docs
 - 🔲 Toast notifications for actions
-- 🔲 Export/import workspace
+- ✅ Import crates from URLs (partial - import implemented, export pending)
 
 #### Won't Have (Out of Scope)
 - ❌ Multiple documentation sources (only docs.rs for now)
@@ -951,11 +951,12 @@ See <frontend/context.ts>.
 **Menu Items:**
 1. Expand all items
 2. Collapse all items
-3. (separator)
-4. Move group up
-5. Move group down
-6. (separator)
-7. Remove group (destructive, with confirmation)
+3. Import (opens dialog to paste docs.rs URLs)
+4. (separator) - only for non-frozen groups
+5. Move group up
+6. Move group down
+7. (separator)
+8. Remove group (destructive, with confirmation)
 
 **Design Decisions:**
 
@@ -973,6 +974,18 @@ See <frontend/context.ts>.
 - **Decision**: Show confirmation only for groups with items
 - **Rationale**: Empty group deletion is safe; non-empty needs user confirmation
 - **Implementation**: Alert dialog triggered by menu item
+
+**4. Import Feature**
+- **Decision**: Add "Import" menu item available for ALL groups (including Ungrouped)
+- **Rationale**: Bulk-add crates with pinned pages from docs.rs URLs
+- **Implementation**:
+  - Dialog with textarea for pasting URLs (one per line)
+  - Uses `parseUrl()` to validate URLs - only accepts `docs.rs/<crate>/<version>/...` format
+  - Groups URLs by crate name, creates one `Item` per crate with all pages pinned
+  - Ignores version in URL, always uses "latest"
+  - Silently drops invalid/non-docs.rs URLs
+- **Placement**: After "Collapse all", before the separator (outside `!isFrozen` block)
+- **Trade-off**: No validation that URLs point to existing pages (acceptable for bulk import)
 
 ---
 
@@ -1141,6 +1154,7 @@ See <frontend/context.ts>.
 | Collapse All | `faAnglesUp` | Collapse all items in group |
 | Move Up | `faArrowUp` | Move group up |
 | Move Down | `faArrowDown` | Move group down |
+| Import | `faFileImport` | Import crates from URLs |
 | Move to Group | `faRightToBracket` | Move crate to another group |
 | Rename | `faPencil` | Rename group |
 | Add | `faPlus` | Add group button |
@@ -1281,6 +1295,11 @@ Brief timeline of significant changes (design decisions are documented in compon
   - `ExplorerGroupMenu`: Added "Expand all" / "Collapse all" menu items, removed toggle button from header
 - **2026-01**: Switched from Lucide React to Font Awesome icons
 - **2026-01**: Moved shadcn files to `3rdparty/shadcn/` directory
+- **2026-01**: Added Import feature to group menu
+  - Bulk-add crates from docs.rs URLs with pinned pages
+  - Available for all groups including Ungrouped
+  - Uses `parseUrl()` to validate and parse URLs
+  - Groups URLs by crate, ignores version (uses "latest")
 
 ---
 
