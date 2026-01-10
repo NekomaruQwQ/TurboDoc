@@ -9,9 +9,12 @@ import {
     faArrowUp,
     faCheck,
     faEllipsisVertical,
+    faFileImport,
     faPencil,
     faTrash,
 } from "@fortawesome/free-solid-svg-icons";
+
+import { parseUrl, type Item } from "@/data";
 
 import { Button } from "@shadcn/components/ui/button";
 import { Input } from "@shadcn/components/ui/input";
@@ -63,6 +66,9 @@ interface ExplorerGroupHeaderProps {
 
     /** Move the group down in the list. */
     moveDown(): void;
+
+    /** Import items parsed from URLs. Called with the items to add. */
+    importItems(items: Item[]): void;
 }
 
 
@@ -74,6 +80,8 @@ export default function ExplorerGroupHeader(props: ExplorerGroupHeaderProps) {
     const [isRenaming, setIsRenaming] = useState(false);
     const [editedName, setEditedName] = useState(props.groupName);
     const [showRemoveDialog, setShowRemoveDialog] = useState(false);
+    const [showImportDialog, setShowImportDialog] = useState(false);
+    const [importText, setImportText] = useState("");
 
     function beginRename() {
         setEditedName(props.groupName);
@@ -104,6 +112,44 @@ export default function ExplorerGroupHeader(props: ExplorerGroupHeaderProps) {
     function confirmRemoveGroup() {
         props.removeGroup();
         setShowRemoveDialog(false);
+    }
+
+    /** Parses URLs from textarea, groups by crate, and imports items. */
+    function handleImport() {
+        const lines = importText.split("\n").map(line => line.trim()).filter(Boolean);
+
+        // Parse URLs and group by crate name
+        const cratePages = new Map<string, string[]>();
+        for (const line of lines) {
+            const page = parseUrl(line);
+            if (page.type !== "crate") continue;
+
+            const paths = cratePages.get(page.crateName) ?? [];
+            const pathStr = page.pathSegments.join("/");
+            if (pathStr && !paths.includes(pathStr)) {
+                paths.push(pathStr);
+            }
+            cratePages.set(page.crateName, paths);
+        }
+
+        // Create Item objects and import
+        const items: Item[] = [];
+        for (const [crateName, pinnedPages] of cratePages) {
+            items.push({
+                type: "crate",
+                name: crateName,
+                currentVersion: "latest",
+                pinnedPages,
+                expanded: true,
+            });
+        }
+
+        if (items.length > 0) {
+            props.importItems(items);
+        }
+
+        setImportText("");
+        setShowImportDialog(false);
     }
 
     // Inline rename input mode
@@ -161,6 +207,11 @@ export default function ExplorerGroupHeader(props: ExplorerGroupHeaderProps) {
                         <FontAwesomeIcon icon={faAnglesUp} size="sm" />
                         <span>Collapse all</span>
                     </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => setShowImportDialog(true)}>
+                        <FontAwesomeIcon icon={faFileImport} size="sm" />
+                        <span>Import</span>
+                    </DropdownMenuItem>
                     {!props.isFrozen && <>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
@@ -199,6 +250,28 @@ export default function ExplorerGroupHeader(props: ExplorerGroupHeaderProps) {
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setShowRemoveDialog(false)}>Cancel</Button>
                         <Button variant="destructive" onClick={confirmRemoveGroup}>Delete</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Import Dialog */}
+            <Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Import from URLs</DialogTitle>
+                        <DialogDescription>
+                            Paste docs.rs URLs (one per line) to add crates and pages.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <textarea
+                        value={importText}
+                        onChange={e => setImportText(e.target.value)}
+                        placeholder="https://docs.rs/tokio/latest/tokio/..."
+                        rows={8}
+                        className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setShowImportDialog(false)}>Cancel</Button>
+                        <Button onClick={handleImport}>Import</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
