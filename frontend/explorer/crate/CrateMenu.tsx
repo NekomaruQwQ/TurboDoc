@@ -70,50 +70,53 @@ export default function CrateMenu(props: CrateMenuProps) {
     return (
         <DropdownMenu>
             <DropdownMenuTrigger>
-                <Button variant="ghost" size="icon" className="size-6 border rounded-sm hover:bg-input/50">
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-6 border rounded-sm hover:bg-input/50 cursor-pointer">
                     <FontAwesomeIcon icon={faEllipsisVertical} size="sm" />
                 </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-                <DropdownMenuItem>
+                <DropdownMenuItem className="cursor-pointer">
                     <CrateLink label="Crates.io" url={`https://crates.io/crates/${crate.name}`} />
                 </DropdownMenuItem>
                 {crateCache?.repository && (
-                    <DropdownMenuItem>
+                    <DropdownMenuItem className="cursor-pointer">
                         <CrateLink label="Repository" url={crateCache.repository} />
                     </DropdownMenuItem>
                 )}
                 {crateCache?.homepage && (
-                    <DropdownMenuItem>
+                    <DropdownMenuItem className="cursor-pointer">
                         <CrateLink label="Homepage" url={crateCache.homepage} />
                     </DropdownMenuItem>
                 )}
                 <DropdownMenuSeparator />
                 <DropdownMenuSub>
-                    <DropdownMenuSubTrigger>
+                    <DropdownMenuSubTrigger className="cursor-pointer">
                         <FontAwesomeIcon icon={faRightToBracket} size="sm" />
                         <span>Move to group</span>
                     </DropdownMenuSubTrigger>
                     <DropdownMenuSubContent>
-                        <DropdownMenuItem onClick={() => moveCrate(-1)}>
+                        <DropdownMenuItem onClick={() => moveCrate(-1)} className="cursor-pointer">
                             Ungrouped
                         </DropdownMenuItem>
                         {app.workspace.groups.map((group, index) => (
                             <DropdownMenuItem
-                                key={group.name}
+                                key={index}
                                 onClick={() => moveCrate(index)}
-                               >
+                                className="cursor-pointer">
                                 {group.name}
                             </DropdownMenuItem>
                         ))}
                     </DropdownMenuSubContent>
                 </DropdownMenuSub>
-                <DropdownMenuItem onClick={refreshMetadata}>
+                <DropdownMenuItem onClick={refreshMetadata} className="cursor-pointer">
                     <FontAwesomeIcon icon={faRotate} size="sm" />
                     <span>Refresh metadata</span>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem variant="destructive" onClick={props.removeItem}>
+                <DropdownMenuItem variant="destructive" onClick={props.removeItem} className="cursor-pointer">
                     <FontAwesomeIcon icon={faTrash} size="sm" />
                     <span>Remove crate</span>
                 </DropdownMenuItem>

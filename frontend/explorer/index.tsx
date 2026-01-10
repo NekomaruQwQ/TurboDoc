@@ -16,11 +16,11 @@ export function Explorer() {
             <div
                 className="flex flex-col gap-4 py-2 w-full h-full rounded overflow-x-hidden overflow-y-scroll"
                 style={{ scrollbarWidth: "none" }}>
+                <ExplorerCreateGroupComponent insertAt="top" />
                 <ExplorerUngrouped
                     key=":ungrouped:"
                     items={app.workspace.ungrouped}
                     updateItems={updater => app.updateWorkspace(draft => updater(draft.ungrouped))} />
-                <ExplorerCreateGroupComponent insertAt="top" />
                 {app.workspace.groups.map((group, i) => (
                     <ExplorerGroup
                         key={i}

@@ -33,11 +33,11 @@ export default function CrateCard(props: ReadonlyDeep<ExplorerItemProps<ItemCrat
 
     return (
         <Collapsible
-            className="flex flex-col p-1 gap-1 rounded bg-accent border shadow-sm truncate"
+            className="flex flex-col p-1 gap-1 rounded-md bg-accent border shadow-sm truncate"
             open={props.expanded}
             onOpenChange={() => props.setExpanded(!props.expanded)}>
             <div className="flex flex-row items-stretch gap-1">
-                <CollapsibleTrigger asChild className="flex-1 px-1">
+                <CollapsibleTrigger asChild className="flex-1 pl-1.5 pr-0.5 truncate">
                     <p className="font-mono opacity-90 cursor-pointer">{crate.name}</p>
                 </CollapsibleTrigger>
                 <CrateVersionSelector

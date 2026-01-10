@@ -67,12 +67,14 @@ export default function CrateVersionSelector(props: {
                 props.setVersion(version);
             }
         }}>
-            <SelectTrigger size={"xs" as any} className="px-2 py-0 w-24 h-6 text-xs rounded-sm shadow-none hover:bg-accent/50">
+            <SelectTrigger
+                size={"xs" as any}
+                className="pl-2 pr-1 py-0 w-20 h-6 text-xs rounded-sm shadow-none cursor-pointer">
                 <SelectValue />
             </SelectTrigger>
             <SelectContent>
                 {versions.map(version => (
-                    <SelectItem key={version} value={version} className="text-xs h-6">
+                    <SelectItem key={version} value={version} className="text-xs h-6 cursor-pointer">
                         {version}
                     </SelectItem>
                 ))}
