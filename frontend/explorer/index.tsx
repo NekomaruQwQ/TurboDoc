@@ -20,6 +20,7 @@ export function Explorer() {
                     key=":ungrouped:"
                     items={app.workspace.ungrouped}
                     updateItems={updater => app.updateWorkspace(draft => updater(draft.ungrouped))} />
+                <ExplorerCreateGroupComponent insertAt="top" />
                 {app.workspace.groups.map((group, i) => (
                     <ExplorerGroup
                         key={i}
@@ -57,7 +58,7 @@ export function Explorer() {
                             app.updateWorkspace(draft => { draft.groups.splice(i, 1); });
                         }} />
                 ))}
-                <ExplorerCreateGroupComponent />
+                <ExplorerCreateGroupComponent insertAt="bottom" />
             </div>
         </div>);
 }

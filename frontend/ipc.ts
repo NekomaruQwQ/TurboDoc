@@ -112,6 +112,7 @@ export function getResponseAsync<T extends IPCResponseType>(
     timeoutMs = IPC_TIMEOUT_MS):
     Promise<ReadonlyDeep<IPCResponseVariants[T]>> {
     return new Promise((resolve, reject) => {
+        console.log(`Waiting for IPC response of "${type}"...`);
         assert(
             responseHandlerMap[type] === undefined,
             `Multiple waiters for IPC response type "${type}"`);

@@ -15,7 +15,9 @@ import { useAppContext } from "@/context";
  * - Enter or click check → creates group and resets
  * - Escape or blur → cancels and resets
  */
-export default function ExplorerCreateGroupComponent() {
+export default function ExplorerCreateGroupComponent(props: {
+    insertAt: "top" | "bottom";
+}) {
     const app = useAppContext();
     const [inputMode, setInputMode] = useState(false);
     const [inputText, setInputText] = useState("");
@@ -24,11 +26,22 @@ export default function ExplorerCreateGroupComponent() {
         const inputTrimmed = inputText.trim();
         if (inputTrimmed) {
             app.updateWorkspace(draft => {
-                draft.groups.push({
-                    name: inputTrimmed,
-                    items: [],
-                    expanded: true,
-                });
+                switch (props.insertAt) {
+                    case "top":
+                        draft.groups.unshift({
+                            name: inputTrimmed,
+                            items: [],
+                            expanded: true,
+                        });
+                        break;
+                    case "bottom":
+                        draft.groups.push({
+                            name: inputTrimmed,
+                            items: [],
+                            expanded: true,
+                        });
+                        break;
+                }
             });
         }
         setInputText("");

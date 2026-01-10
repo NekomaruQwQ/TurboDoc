@@ -27,10 +27,18 @@ async function loadAppState(): Promise<AppState> {
     workspace.ungrouped ??= [];
     workspace.currentPage ??= { type: "unknown", url: "https://docs.rs/" };
     cache.crates ??= {};
-    return {
+
+    const state = {
         workspace: workspace as any as Workspace,
         cache: cache as any as Cache,
-    }
+    } satisfies AppState;
+
+    const itemComparer =
+        (a: ReadonlyDeep<{ name: string }>, b: ReadonlyDeep<{ name: string }>) =>
+            a.name.localeCompare(b.name);
+    state.workspace.groups.forEach(group => group.items.sort(itemComparer));
+    state.workspace.ungrouped.sort(itemComparer);
+    return state;
 }
 
 function useAppContext(): AppContext | null {
@@ -79,7 +87,7 @@ export function App() {
     return app && (
         <AppContextProvider value={app}>
             <div className="w-full h-full flex flex-col">
-                <div>header</div>
+                <div>-</div>
                 <ResizablePanelGroup direction="horizontal">
                     <ResizablePanel defaultSize={20}>
                         <Explorer />

@@ -46,9 +46,9 @@ export default function CrateMenu(props: CrateMenuProps) {
         const newItem: Item = {
             type: "crate",
             name: crate.name,
+            expanded: crate.expanded,
             pinnedPages: [...crate.pinnedPages],
             currentVersion: crate.currentVersion,
-            expanded: true,
         };
 
         app.updateWorkspace(draft => {
@@ -69,7 +69,7 @@ export default function CrateMenu(props: CrateMenuProps) {
 
     return (
         <DropdownMenu>
-            <DropdownMenuTrigger asChild>
+            <DropdownMenuTrigger>
                 <Button variant="ghost" size="icon" className="size-6 border rounded-sm hover:bg-input/50">
                     <FontAwesomeIcon icon={faEllipsisVertical} size="sm" />
                 </Button>

@@ -190,7 +190,7 @@ export default function ExplorerGroupHeader(props: ExplorerGroupHeaderProps) {
             }
             {/* Group Menu */}
             <DropdownMenu>
-                <DropdownMenuTrigger asChild>
+                <DropdownMenuTrigger>
                     <Button
                         variant="ghost"
                         size="icon"
