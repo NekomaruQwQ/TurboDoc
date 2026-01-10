@@ -32,9 +32,16 @@ mod consts {
     pub const CACHE_EXPIRY: Duration = Duration::from_hours(24);
 
     pub const FRONTEND_URL: &str = "http://localhost:9680/";
-    pub const KNOWN_URL: PrefixCollection<'static> = PrefixCollection(Cow::Borrowed(&[
-        "https://docs.rs",
-    ]));
+
+    pub const KNOWN_URL: PrefixCollection<'static> =
+        PrefixCollection(Cow::Borrowed(&[
+            "https://docs.rs",
+        ]));
+
+    pub const IGNORED_URL: PrefixCollection<'static> =
+        PrefixCollection(Cow::Borrowed(&[
+            "https://docs.rs/-/",
+        ]));
 }
 
 mod collections {

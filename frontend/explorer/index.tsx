@@ -22,7 +22,7 @@ export function Explorer() {
                     updateItems={updater => app.updateWorkspace(draft => updater(draft.ungrouped))} />
                 {app.workspace.groups.map((group, i) => (
                     <ExplorerGroup
-                        key={group.name}
+                        key={i}
                         name={group.name}
                         items={group.items}
                         expanded={group.expanded}
@@ -164,23 +164,13 @@ function ExplorerGroupCommon(props: ReadonlyDeep<{
     items: Item[];
     updateItems(updater: (items: Item[]) => void): void;
 }>) {
-    function getKeyForItem(item: ReadonlyDeep<Item>): string {
-        switch (item.type) {
-            case "crate":
-                return ":crate:" + item.name;
-            default:
-                console.warn("Unknown item type for key generation:", item);
-                return ":unknown:";
-        }
-    }
-
     return (
         <div className="flex flex-col gap-1">
             {props.children}
             <div className="flex flex-col gap-2">
                 {props.expanded && props.items.map((item, i) => (
                     <ExplorerItem
-                        key={getKeyForItem(item)}
+                        key={i}
                         item={item}
                         expanded={item.expanded}
                         setExpanded={expanded => {

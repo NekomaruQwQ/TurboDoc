@@ -1,36 +1,17 @@
 import type { ReadonlyDeep } from "type-fest";
 
-import { createContext, useContext, useEffect, useRef } from "react";
-import { useImmer } from "use-immer";
+import { createContext, useContext } from "react";
 
 import type { Workspace, Cache, CrateCache } from "@/data";
 import { parseUrl, buildUrl } from "@/data";
-import * as IPC from "@/ipc";
 
 import { CACHE_EXPIRY_MS } from "@/constants";
-import * as CratesAPI from "@/services/crates-api";
 import { computeVersionGroups } from "@/utils/version-group";
+import * as CratesAPI from "@/services/crates-api";
 
 export interface AppState {
     workspace: Workspace,
     cache: Cache,
-}
-
-export async function loadAppState(): Promise<AppState> {
-    // Here we just assume that the loaded data is valid.
-    // Validation is deferred to later stages.
-    const workspace =
-        await IPC.loadWorkspace() as Record<string, unknown> ?? {};
-    const cache =
-        await IPC.loadCache() as Record<string, unknown> ?? {};
-    workspace.groups ??= [];
-    workspace.ungrouped ??= [];
-    workspace.currentPage ??= { type: "unknown", url: "https://docs.rs/" };
-    cache.crates ??= {};
-    return {
-        workspace: workspace as any as Workspace,
-        cache: cache as any as Cache,
-    }
 }
 
 export class AppContext {
@@ -48,65 +29,31 @@ export class AppContext {
         return this.state.cache;
     }
 
-    public constructor() {
-        this.viewerRef =
-            useRef<HTMLIFrameElement | null>(null);
+    public constructor(args: {
+        viewerRef: React.RefObject<HTMLIFrameElement | null>,
+        state: ReadonlyDeep<AppState>,
+        updateState: (updater: (draft: AppState) => void) => void,
+    }) {
+        this.viewerRef = args.viewerRef;
+        this.state = args.state;
+        this.updateState = args.updateState;
+    }
 
-        [this.state, this.updateState] =
-            useImmer<AppState>({
-                workspace: {
-                    groups: [],
-                    ungrouped: [],
-                    currentPage: {
-                        type: "unknown",
-                        url: "https://docs.rs/",
-                    },
-                },
-                cache: { crates: {} },
-            });
+    public onNavigated(url: string): void {
+        // Ignore false navigation to "https://docs.rs/-/storage-change-detection.html".
+        if (url == "https://docs.rs/-/storage-change-detectioappn.html")
+            return;
 
-        // Load the workspace and cache from disk on first render.
-        useEffect(() => {
-            loadAppState()
-                .then(appState => this.updateState(_ => appState))
-                .catch(err => console.error(err));
-        }, []);
+        const page = parseUrl(url);
+        const pageUrl = buildUrl(page);
+        if (pageUrl !== url) {
+            // URL normalization: redirect to the normalized URL.
+            console.log(`Redirecting from ${url} to ${buildUrl(page)}`);
+            this.navigateTo(pageUrl);
+            return;
+        }
 
-        // If it is the first render, we skip saving to avoid overwriting existing data
-        // before it is loaded.
-        // If not, we save the workspace and cache on every state change.
-        const isFirstRender = useRef(true);
-        useEffect(() => {
-            if (isFirstRender.current) {
-                isFirstRender.current = false;
-                return;
-            }
-
-            IPC.saveWorkspace(this.state.workspace)
-                .catch(err => console.error(err));
-            IPC.saveCache(this.state.cache)
-                .catch(err => console.error(err));
-        }, [this.state]);
-
-        // Listen to the "navigated" IPCEvent.
-        useEffect(() => {
-            IPC.on("navigated", event => {
-                // Ignore false navigations to "https://docs.rs/-/storage-change-detection.html".
-                if (event.url == "https://docs.rs/-/storage-change-detection.html")
-                    return;
-
-                const page = parseUrl(event.url);
-                const pageUrl = buildUrl(page);
-                if (pageUrl !== event.url) {
-                    // URL normalization: redirect to the normalized URL.
-                    console.log(`Redirecting from ${event.url} to ${buildUrl(page)}`);
-                    this.navigateTo(pageUrl);
-                    return;
-                }
-
-                this.updateWorkspace(workspace => workspace.currentPage = page)
-            })
-        }, []);
+        this.updateWorkspace(workspace => workspace.currentPage = page)
     }
 
     public navigateTo(url: string): void {

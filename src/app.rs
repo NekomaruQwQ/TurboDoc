@@ -189,7 +189,7 @@ mod handler {
             log::info!(" -> external link, navigation cancelled");
             cancel_navigation();
             open_external_link(window, url);
-        } else {
+        } else if !IGNORED_URL.contains(url) {
             // Notify frontend of navigation
             let message = serde_json::json!({
                 "type": "navigated",
@@ -197,6 +197,8 @@ mod handler {
             }).to_string();
             let _ = webview.post_message_as_json(&message)
                 .inspect_err(|err| log::error!("failed to send navigated: {err}"));
+        } else {
+            log::info!(" -> ignored link, navigation cancelled");
         }
     }
 
@@ -375,7 +377,7 @@ mod ipc {
     }
 
     /// Load file content as [`String`].
-    /// 
+    ///
     /// Returns `Ok(None)` if file doesn't exist (not an error).
     /// Returns `Err` on other IO errors.
     fn load_file(path: &Path) -> anyhow::Result<Option<String>> {
