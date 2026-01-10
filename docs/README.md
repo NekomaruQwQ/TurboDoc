@@ -111,7 +111,7 @@ TurboDoc is a documentation viewer for Rust crates with local caching and worksp
 - **State Management**: Immer for immutable updates
 - **UI Components**: Radix UI primitives + shadcn/ui
 - **Styling**: Tailwind CSS with OKLCH color space
-- **Icons**: Lucide React
+- **Icons**: Font Awesome (switched from Lucide React for better icon variety)
 - **Backend**: Tauri (Rust) with WebView2
 - **IPC**: Custom message passing with singleton pattern and timeout handling
 
@@ -163,6 +163,50 @@ CrateCard
 - **VersionCombobox**: Radix Select showing version groups (max 5), latest version marked
 - **CrateMenu**: Radix DropdownMenu with move/remove/refresh options
 - **PageList**: Collapsible list with home page, preview page (italic), and pinned pages
+
+### Visual Reference
+
+**Target UI Layout:**
+```
+┌─────────────────────────────────┐
+│ [Search crate and page...    ] │  ← Search bar
+├─────────────────────────────────┤
+│ Not Yet Grouped                 │  ← Ungrouped section (if any)
+│  ┌─────────────────────────┐   │
+│  │ serde      [v] [...]    │   │  ← Crate card (collapsed)
+│  └─────────────────────────┘   │
+├─────────────────────────────────┤
+│ ▼ My Project Dependencies      │  ← Named group (expanded)
+│  ┌─────────────────────────┐   │
+│  │ tokio                   │   │
+│  │ [crates.io] [repo]      │   │
+│  │ [1.42.0 (latest) ▼]    │   │
+│  │                         │   │
+│  │ 🏠 Home                 │   │
+│  │ _struct.Runtime_ 📌    │   │  ← Preview page (italic)
+│  │ tokio::task 📌⊗        │   │  ← Pinned page
+│  │ tokio::sync 📌⊗        │   │
+│  └─────────────────────────┘   │
+│  ┌─────────────────────────┐   │
+│  │ serde (collapsed)       │   │
+│  └─────────────────────────┘   │
+├─────────────────────────────────┤
+│ [+ Add Group]                   │
+└─────────────────────────────────┘
+```
+
+**Crate Card Design:**
+- **Header section:**
+  - Crate name (clickable, bold)
+  - External links (crates.io, repository, homepage) as small icon buttons
+  - Version selector dropdown (right-aligned)
+  - "..." menu for actions (move, remove, refresh)
+- **Body section (expandable):**
+  - Home link with house icon (always visible)
+  - Documentation pages list
+  - Preview page shown in italic with pin button
+  - Pinned pages shown normally with unpin button
+  - Active page highlighted with accent background
 
 ---
 
@@ -224,20 +268,25 @@ CrateCard
 - Comfortable 16px padding for panels
 - Consistent 4px gaps between UI elements
 
-### Icons (Lucide React)
-- Search: `Search`
-- External link: `ExternalLink`
-- Home: `Home`
-- Pin: `Pin`
-- Unpin: `PinOff`
-- Menu: `MoreVertical`
-- Collapse: `ChevronDown` / `ChevronRight`
-- Add: `Plus`
-- Trash: `Trash2`
+### Icons (Font Awesome)
+- Search: `faMagnifyingGlass`
+- External link: `faArrowUpRightFromSquare`
+- Home: `faHouse`
+- Pin: `faThumbtack`
+- Menu: `faEllipsisVertical`
+- Collapse: `faChevronDown` / `faChevronRight`
+- Add: `faPlus`
+- Trash: `faTrash`
+- Expand All: `faAnglesDown`
+- Collapse All: `faAnglesUp`
+- Move Up/Down: `faChevronUp` / `faChevronDown`
+- Rename: `faPencil`
+- Confirm: `faCheck`
+- Package: `faBox`
 
 ---
 
-## Completed Implementation (Phases 1-4)
+## Completed Implementation (Phases 1-5)
 
 ### Phase 1: Data Model
 
@@ -419,17 +468,7 @@ CrateCard
 - `IPCRequest` - Requests to host (load/save workspace/cache)
 - `IPCResponse` - Responses from host (discriminated union by success)
 
-**Type-Safe Response Variants:**
-```typescript
-type IPCResponseVariants = {
-    'workspace-loaded': { content: string };
-    'workspace-saved': {};
-    'cache-loaded': { content: string };
-    'cache-saved': {};
-}
-```
-- `getResponseAsync<T>()` returns properly typed `IPCResponseVariants[T]`
-- Compile-time checking of response shapes per message type
+**Type-Safe Response Variants:** `IPCResponseVariants` map enables compile-time checking of response shapes per message type. `getResponseAsync<T>()` returns properly typed responses.
 
 #### IPC Class API
 
@@ -601,6 +640,517 @@ See <frontend/context.ts>.
 
 ---
 
+### Phase 5: UI Components
+
+**Status:** ✅ Core Complete (SearchBar and SearchResults remaining)
+
+**Files:**
+- `frontend/explorer/index.tsx` - Explorer, ExplorerUngrouped, ExplorerGroup, ExplorerItemList
+- `frontend/explorer/ExplorerItemProps.ts` - Generic props interface for item components
+- `frontend/explorer/ExplorerGroupHeader.tsx` - Group header with rename and menu
+- `frontend/explorer/ExplorerGroupMenu.tsx` - Group menu (expand/collapse all, move, remove)
+- `frontend/explorer/components/misc.tsx` - Shared components (ExplorerGroupHeaderCommon, ExplorerGroupActions, CreateGroupComponent)
+- `frontend/explorer/crate/CrateCard.tsx` - Collapsible crate card with header
+- `frontend/explorer/crate/CratePageList.tsx` - Page list with symbol parsing + CratePageItem
+- `frontend/explorer/crate/CrateVersionSelector.tsx` - Version selector dropdown
+- `frontend/explorer/crate/CrateMenu.tsx` - Crate actions menu (links, move, refresh, remove)
+
+#### Explorer Component (`frontend/explorer/index.tsx`)
+
+**Status:** ✅ Implemented
+
+**Purpose:** Main container for sidebar
+
+**Props:** None (uses AppContext)
+
+**Search Implementation:**
+- Uses `searchCrates(query)` from `@/services/crates-api`
+- API endpoint: `https://crates.io/api/v1/crates?q={query}`
+- Returns: `{ name: string, description: string | null }[]`
+- Rate limited: 1-second delay between requests (handled by API module)
+- Debounced: 300ms delay before triggering search
+
+#### Explorer Architecture
+
+**Callback-Based Data Flow:**
+- Updates flow through typed callbacks (`updateItems`, `updateItem`, `setExpanded`, `removeItem`) instead of components calling `appContext` directly
+- **Rationale**: Decouples components from global state, enables reuse and testing
+- **Trade-off**: More boilerplate passing callbacks, but better separation of concerns
+
+**`ExplorerItemProps<T>` Interface:** Generic props for item components with standard CRUD callbacks (`updateItem`, `setExpanded`, `removeItem`). See `ExplorerItemProps.ts`.
+
+**Component Hierarchy:**
+- `Explorer` → `ExplorerUngrouped`/`ExplorerGroup` → `ExplorerItemList` → `ExplorerItem` → `CrateCard`
+- **ExplorerItem**: Renders `Item` tagged union - switches on `item.type` to render appropriate component
+
+**Tagged Union Downcasting:**
+- `ExplorerItem` uses `as any` cast when forwarding `updateItem` callback from `Item` to `ItemCrate`
+- **Rationale**: Pragmatic tradeoff since type safety is enforced by the switch statement
+- **Trade-off**: Cast is safe because switch guarantees correct type, but loses compile-time checking
+
+---
+
+#### SearchBar Component (`frontend/explorer/search-bar.tsx`)
+
+**Status:** ⬜ Not yet implemented
+
+**Purpose:** Search input field
+
+**Features:**
+- Debounced search (300ms)
+- Clear button (appears when value is not empty)
+- Loading spinner (when isSearching)
+- Escape key clears input
+- Enter key triggers search
+
+**Icons:** `faMagnifyingGlass`, `faXmark` (Font Awesome)
+
+---
+
+#### SearchResults Component (`frontend/explorer/search-results.tsx`)
+
+**Status:** ⬜ Not yet implemented
+
+**Purpose:** Dropdown showing search results
+
+**Features:**
+- Scrollable list (max height)
+- Hover states
+- Click adds crate to ungrouped
+- Empty state ("No results found")
+
+**Actions to Implement:**
+- `appContext.addCrate(crateName: string)` - Add crate to ungrouped
+
+**Design Decision: Include Descriptions**
+- **Decision**: Search returns `{ name: string, description: string | null }[]`
+- **Rationale**: Users need context when choosing from search results
+- **Implementation**: Display description below crate name in search dropdown
+- **Null handling**: Gracefully handle crates without descriptions (don't render description line)
+- **Confirmed**: API implementation in `crates-api.ts` returns this structure
+
+---
+
+#### Design Decisions
+
+**1. Inline vs Extracted Components**
+- **Decision**: Small, tightly-coupled components stay inline in `index.tsx`; reusable components extracted to separate files
+- **Inline**: `ExplorerUngrouped`, `ExplorerGroup`, `ExplorerItemList`, `ExplorerItem`
+- **Extracted**: `ExplorerGroupHeader`, `ExplorerGroupMenu`, `CreateGroupComponent`
+- **Rationale**: Reduces file count for simple components, extracts when reuse or complexity warrants
+
+**2. Group Header Architecture**
+- **Decision**: `ExplorerGroupHeaderCommon` provides shared layout; `ExplorerGroupActions` as typed slot for action buttons
+- **Rationale**: Avoids duplication between ungrouped section and named groups
+- **Implementation**: Children-based slot pattern using `ReactElement` type
+
+**3. Rename State Management**
+- **Decision**: Rename state (`isRenaming`, `renameValue`) lives in `ExplorerGroupHeader`, not parent
+- **Rationale**: Encapsulation - parent doesn't need to know about rename UI state
+- **Trade-off**: Slightly more complex header component, but cleaner parent
+
+**4. Create Group Pattern**
+- **Decision**: `CreateGroupComponent` transforms from button to inline input
+- **Rationale**: No modal needed for simple text input; matches rename UX
+- **Implementation**: Local state for `isCreating` and `newGroupName`
+
+---
+
+#### CrateCard Component (`frontend/explorer/crate/CrateCard.tsx`)
+
+**Status:** ✅ Implemented
+
+**Purpose:** Card displaying crate info and pages
+
+**Props:** Uses `ExplorerItemProps<ItemCrate>` from ExplorerItemProps.ts
+
+**Implementation notes:**
+- `crateCache` fetched synchronously via `getCrateCache()` (triggers async refetch in background)
+- External links use `app.navigateTo()` which triggers iframe navigation - Rust host intercepts and opens non-docs.rs URLs in system browser
+- Uses `currentPage.type === 'crate'` checks instead of string `.startsWith()` for URL matching
+
+**Version change behavior:**
+- If currently viewing this crate's docs, navigates to new version URL
+- Otherwise, just updates `crate.currentVersion`
+
+**Auto-version sync:**
+- Detects when `currentPage` URL has different version than `crate.currentVersion`
+- Automatically updates to match (handles "latest" and specific versions)
+
+**Features:**
+- Collapsible page list (Radix Collapsible, no shadcn Card wrapper for simpler styling)
+- Clickable crate name (toggles collapse)
+- Version selector with navigation support
+- "..." menu (external links, move, refresh, remove)
+- Auto-syncs version from current page URL
+
+**Design Decisions:**
+
+**1. No Card Wrapper**
+- **Decision**: Use Radix Collapsible directly without shadcn Card component
+- **Rationale**: Simpler styling, less nesting, card-like appearance achieved with Tailwind
+- **Trade-off**: Less semantic markup, but cleaner DOM
+
+**2. Version Auto-Sync**
+- **Decision**: Detect when `currentPage` URL has different version than `crate.currentVersion`, auto-update to match
+- **Rationale**: User navigating via iframe links should see correct version in selector
+- **Implementation**: Handles both "latest" and specific version strings
+
+**3. External Links in Menu**
+- **Decision**: Move external links (Repository, Homepage) from CrateCard header to CrateMenu
+- **Rationale**: Reduces header clutter, groups all crate actions in one place
+- **Trade-off**: Extra click to access links, but cleaner UI
+
+**4. Version Change Navigation**
+- **Decision**: If currently viewing this crate's docs, navigate to new version URL; otherwise just update `crate.currentVersion`
+- **Rationale**: Changing version while viewing should navigate; changing while viewing another crate should not
+- **Implementation**: Uses `currentPage.type === 'crate'` checks instead of string `.startsWith()`
+
+---
+
+#### CrateVersionSelector Component (`frontend/explorer/crate/CrateVersionSelector.tsx`)
+
+**Status:** ✅ Implemented
+
+**Purpose:** Version selector dropdown
+
+**Features:**
+- Uses shadcn Select (Radix UI)
+- Shows "latest" as first option (stores literal string)
+- Shows first non-yanked version from each of the 5 most recent version groups
+- Shows current version if not in the list above
+- Validates version exists before calling `setVersion`
+- "..." placeholder item for future full version list popup
+
+**Design Decisions:**
+
+**1. "latest" as Literal String**
+- **Decision**: Store literal string "latest" instead of resolved version number
+- **Rationale**: Preserves user intent, automatically updates when new version released
+- **Trade-off**: Requires resolving "latest" to actual version for URL building
+
+**2. Current Version Always Shown**
+- **Decision**: If current version not in top 5 groups, append it to list
+- **Rationale**: User should always see and be able to return to their selected version
+- **Trade-off**: List can exceed 5 items in edge cases
+
+---
+
+#### CrateMenu Component (`frontend/explorer/crate/CrateMenu.tsx`)
+
+**Status:** ✅ Implemented
+
+**Purpose:** Actions menu for crate (also hosts external links)
+
+**Implementation notes:**
+- External links: Uses `CrateLink` helper (moved from CrateCard), opens via `app.navigateTo()`
+- Move: Creates new Item, adds to target group, then calls `removeItem()` to remove from source
+- Refresh: Uses `app.refreshCrateCache(name)` which deletes cache entry
+- Remove: Uses `removeItem` callback from `ExplorerItemProps`
+- Added `refreshCrateCache(name)` method to AppContext
+
+**Icons:** `faEllipsisVertical`, `faFolderOpen`, `faArrowsRotate`, `faTrash`, `faArrowUpRightFromSquare` (Font Awesome)
+
+**Menu Items:**
+1. Repository link (if available)
+2. Homepage link (if available)
+3. (separator)
+4. Move to group → submenu with Ungrouped + named groups
+5. Refresh metadata
+6. (separator)
+7. Remove crate (destructive)
+
+**Design Decisions:**
+
+**1. Move Implementation**
+- **Decision**: Create new Item, add to target group, then call `removeItem()` to remove from source
+- **Rationale**: Avoids complex cross-group state management; atomic from user perspective
+- **Trade-off**: Brief moment where item exists in both locations (imperceptible)
+
+**2. Refresh Cache**
+- **Decision**: `app.refreshCrateCache(name)` deletes cache entry, triggering refetch on next access
+- **Rationale**: Simple invalidation pattern; lazy refetch avoids unnecessary API calls
+- **Implementation**: Added `refreshCrateCache(name)` method to AppContext
+
+**3. External Links via navigateTo**
+- **Decision**: External links use `app.navigateTo()` which sets iframe src
+- **Rationale**: Rust host intercepts navigation and opens non-docs.rs URLs in system browser
+- **Trade-off**: Relies on host interception; fallback would open in iframe (acceptable)
+
+---
+
+#### CratePageList Component (`frontend/explorer/crate/CratePageList.tsx`)
+
+**Status:** ✅ Implemented
+
+**Purpose:** List of documentation pages with symbol parsing and color coding
+
+**CratePageItem (inline component):**
+- Handles individual page rendering with hover state
+- Pin icon: outline for preview (shown on hover), filled for pinned
+- Compares `pathSegments.join('/')` for active page detection
+
+**Icons:** `faHouse`, `faThumbtack` (Font Awesome)
+
+**Features:**
+- Home page (always present)
+- Preview page (italic, with outline pin icon on hover)
+- Pinned pages (with filled pin icon)
+- Active page highlighted
+- Click navigates to page
+- Symbol parsing with One Dark color coding
+
+**Symbol Parsing:**
+- **`CrateSymbol` interface**: `{ module: string[], symbol: string, type: SymbolType }`
+- **`SymbolType`**: `'module' | 'struct' | 'enum' | 'fn' | 'trait' | 'macro' | 'type' | 'constant' | 'unknown'`
+- **`parseSymbol(path)`**: Converts docs.rs paths to structured symbol info:
+  - `glam/f32/struct.Vec2.html` → `{ module: ["glam", "f32"], symbol: "Vec2", type: "struct" }`
+  - `tokio/runtime/` → `{ module: ["tokio"], symbol: "runtime", type: "module" }`
+
+**One Dark Color Coding** (CSS variables in `global.css`):
+- Yellow (`--color-yellow`): struct, enum, type
+- Cyan (`--color-cyan`): trait
+- Blue (`--color-blue`): fn
+- Orange (`--color-orange`): macro, constant
+- Default: module, unknown
+
+**Design Decisions:**
+
+**1. Symbol Parsing from URL**
+- **Decision**: Parse symbol type from docs.rs URL path patterns
+- **Rationale**: docs.rs uses consistent URL patterns (e.g., `struct.Name.html`, `fn.name.html`)
+- **Implementation**: Regex matching on path segments
+- **Trade-off**: Relies on docs.rs URL conventions; may break if they change (unlikely)
+
+**2. Module Path Display**
+- **Decision**: Show module path in default color, symbol name colored by type
+- **Rationale**: Visual hierarchy - module provides context, symbol is the focus
+- **Implementation**: `module.join("::")` + `::` + colored symbol name
+
+**3. CratePageItem Hover State**
+- **Decision**: Use Tailwind `group/page` pattern for hover state instead of `useState`
+- **Rationale**: CSS-only hover is more performant; no state management needed
+- **Trade-off**: Slightly more complex Tailwind classes
+
+**4. Pin Icon Variants**
+- **Decision**: Outline pin icon for preview pages (shown on hover), filled for pinned pages
+- **Rationale**: Visual distinction between temporary (preview) and permanent (pinned) pages
+- **Implementation**: Conditional icon rendering based on `isPinned` prop
+
+**5. Active Page Detection**
+- **Decision**: Compare `pathSegments.join('/')` for active page detection
+- **Rationale**: Normalized path comparison avoids URL encoding issues
+- **Trade-off**: Assumes path segments are already normalized (they are, from `parseUrl`)
+
+---
+
+#### ExplorerGroupMenu Component
+
+**Purpose:** Dropdown menu for group actions
+
+**Menu Items:**
+1. Expand all items
+2. Collapse all items
+3. (separator)
+4. Move group up
+5. Move group down
+6. (separator)
+7. Remove group (destructive, with confirmation)
+
+**Design Decisions:**
+
+**1. Expand/Collapse All**
+- **Decision**: Menu items instead of header toggle button
+- **Rationale**: Reduces header clutter; expand/collapse all is less frequent action
+- **Trade-off**: Requires opening menu; acceptable for infrequent operation
+
+**2. Move Up/Down**
+- **Decision**: Separate menu items for move up and move down
+- **Rationale**: Clear, explicit actions; no drag-and-drop complexity
+- **Trade-off**: More clicks than drag-and-drop (future enhancement)
+
+**3. Remove Confirmation**
+- **Decision**: Show confirmation only for groups with items
+- **Rationale**: Empty group deletion is safe; non-empty needs user confirmation
+- **Implementation**: Alert dialog triggered by menu item
+
+---
+
+#### Implementation Summary
+
+- **Callback-Based Data Flow**: Updates via typed callbacks, decoupled from global state
+- **ExplorerItemProps<T>**: Generic interface for item components with CRUD callbacks
+- **Tagged Union Handling**: `ExplorerItem` switches on `item.type` with pragmatic cast
+- **Inline Components**: Small components in `index.tsx`; complex ones extracted
+- **Group Header Slots**: `ExplorerGroupHeaderCommon` with `ExplorerGroupActions` slot pattern
+- **Rename State Encapsulation**: Rename UI state lives in `ExplorerGroupHeader`
+- **Create Group Inline**: Button transforms to input, no modal
+- **CrateCard Collapsible**: Radix Collapsible without Card wrapper
+- **Version Auto-Sync**: Detects version mismatch from current page URL
+- **External Links in Menu**: Moved from header to reduce clutter
+- **Symbol Parsing**: Parse docs.rs URL patterns for type information
+- **One Dark Colors**: CSS variables for consistent syntax highlighting
+- **Hover with group/page**: CSS-only hover state using Tailwind groups
+
+---
+
+### Phase 6: Integration & Polish
+
+**After all components are complete:**
+
+1. **Wire up IPC navigation events**
+   - Implement 'navigated' event handler in AppContext
+   - Auto-detect navigation in iframe
+   - Update current page (preview page logic)
+   - Auto-add crate if not in workspace
+
+2. **Test cross-crate navigation**
+   - Follow links between crates
+   - Verify auto-add works
+   - Check version handling
+
+3. **Test workspace persistence**
+   - Add/remove crates
+   - Pin/unpin pages
+   - Rename/delete groups
+   - Verify saves across app restarts
+
+4. **Polish loading/error states**
+   - Add loading skeletons
+   - Error boundaries
+   - Toast notifications (optional)
+   - Accessibility (ARIA labels)
+
+---
+
+## Visual Design Reference
+
+### Detailed Component Styling
+
+#### Explorer Panel
+- **Background**: `hsl(var(--background))`
+- **Border**: Subtle right border divider
+- **Padding**: 16px
+- **Width**: Max 400px, min 200px (resizable)
+
+#### Search Bar
+- **Layout**: Full width with icon (magnifying glass on left)
+- **Styling**: Rounded corners
+- **Focus state**: Ring/outline using `hsl(var(--ring))`
+- **Icon**: `faMagnifyingGlass` (left side, 16px)
+- **Clear button**: `faXmark` (right side, appears when value is not empty)
+- **Loading spinner**: Right side, replaces clear button when searching
+
+#### Group
+- **Ungrouped section**:
+  - Lighter background: `hsl(var(--muted))`
+  - Label: "Not Yet Grouped" in muted foreground color
+  - No border, subtle distinction from regular groups
+- **Regular groups**:
+  - Card-like appearance
+  - Background: `hsl(var(--card))`
+  - Border: `hsl(var(--border))`
+  - Rounded corners: `rounded-md`
+- **Group header**:
+  - Hover effect: `bg-accent` on hover
+  - Smooth transitions for all state changes
+- **Expand/collapse animation**:
+  - Smooth height transition
+  - Chevron rotation: 90deg when expanded
+
+#### Crate Card
+- **Card component**: Use shadcn/ui Card
+- **Padding**: Compact (12px / `p-3`)
+- **Layout**: Flex row for header items
+- **Spacing**: 8px gaps between header items
+- **Header items**:
+  - Crate icon: 16px (`faBox`)
+  - External link icons: 12px (`faArrowUpRightFromSquare`)
+  - Version dropdown: Compact, right-aligned
+  - Menu button: Subtle, appears on hover (`faEllipsisVertical`)
+
+#### Version Combobox
+- **Width**: Fixed width (128px / `w-32`)
+- **Latest indicator**: Green dot or "(latest)" label
+- **Older versions**: Gray/dim text color
+- **Pre-release**: Yellow/orange indicator
+- **Yanked**: Red warning indicator
+
+#### Page List
+- **Indentation**: 24px from left (ml-6)
+- **Item spacing**: 4px vertical gap
+- **Home page**:
+  - Icon: `faHouse` (12px)
+  - Always visible first item
+- **Preview page**:
+  - Text: Italic (`italic` class)
+  - Pin icon: `faThumbtack` (12px)
+  - Color: Normal foreground
+- **Pinned pages**:
+  - Text: Normal (not italic)
+  - Unpin icon: `faThumbtack` (12px)
+  - Color: Normal foreground
+- **Hover state**:
+  - Background: `hsl(var(--accent))`
+  - Transition: Smooth (150ms)
+- **Active page**:
+  - Background: `hsl(var(--accent))` with higher opacity
+  - Font weight: Medium or semibold
+
+### Color Palette (from global.css)
+
+- **Background**: `hsl(var(--background))`
+- **Foreground**: `hsl(var(--foreground))`
+- **Card**: `hsl(var(--card))`
+- **Card Foreground**: `hsl(var(--card-foreground))`
+- **Muted**: `hsl(var(--muted))`
+- **Muted Foreground**: `hsl(var(--muted-foreground))`
+- **Accent**: `hsl(var(--accent))`
+- **Accent Foreground**: `hsl(var(--accent-foreground))`
+- **Destructive**: `hsl(var(--destructive))`
+- **Border**: `hsl(var(--border))`
+- **Ring**: `hsl(var(--ring))`
+
+### Spacing System
+
+- **Information density**: Compact 8px grid
+- **Panel padding**: Comfortable 16px
+- **UI element gaps**: Consistent 4px
+- **Card padding**: 12px (`p-3`)
+- **List item padding**: 4px vertical, 8px horizontal
+
+### Typography Hierarchy
+
+- **Monospace font**: Consistent with code (from global.css)
+- **Group names**: Larger, semibold
+- **Crate names**: Medium, bold
+- **Page links**: Normal weight
+- **Preview pages**: Italic for emphasis
+- **Muted text**: Reduced opacity or muted color
+
+### Icon Reference (Font Awesome)
+
+| Component | Icon | Usage |
+|-----------|------|-------|
+| Search | `faMagnifyingGlass` | Search bar (left) |
+| Clear | `faXmark` | Search bar (right, conditional) |
+| External Link | `faArrowUpRightFromSquare` | Crate external links |
+| Pin | `faThumbtack` | Pin/unpin button for pages |
+| Menu | `faEllipsisVertical` | Crate/group actions menu |
+| Expand All | `faAnglesDown` | Expand all items in group |
+| Collapse All | `faAnglesUp` | Collapse all items in group |
+| Move Up | `faArrowUp` | Move group up |
+| Move Down | `faArrowDown` | Move group down |
+| Move to Group | `faRightToBracket` | Move crate to another group |
+| Rename | `faPencil` | Rename group |
+| Add | `faPlus` | Add group button |
+| Confirm | `faCheck` | Confirm rename/add |
+| Refresh | `faRotate` | Refresh crate metadata |
+| Delete | `faTrash` | Delete group/crate |
+| More Versions | `faEllipsis` | Version selector placeholder |
+
+---
+
 ## File Structure
 
 ```
@@ -616,13 +1166,13 @@ TurboDoc/
 │   │   └── crates-api.ts          ✅ Crates.io API client
 │   ├── utils/
 │   │   └── version-group.ts       ✅ Version grouping logic
+│   ├── 3rdparty/
+│   │   └── shadcn/                ✅ shadcn/ui components (Select, DropdownMenu, Collapsible, etc.)
 │   └── explorer/
-│       ├── index.tsx              ✅ Explorer, ExplorerUngrouped, ExplorerGroup, ExplorerItemList
-│       ├── ExplorerItemProps.ts            ✅ ExplorerItemProps<T> interface
-│       ├── ExplorerGroupHeader.tsx ✅ Group header with rename and menu
-│       ├── ExplorerGroupMenu.tsx  ✅ Group menu (expand/collapse all, move, remove)
-│       ├── components/
-│       │   └── misc.tsx           ✅ ExplorerGroupHeaderCommon, ExplorerGroupActions, CreateGroupComponent
+│       ├── index.tsx              ✅ Explorer, ExplorerUngrouped, ExplorerGroup, ExplorerGroupCommon
+│       ├── ExplorerItemProps.ts   ✅ ExplorerItemProps<T> interface
+│       ├── ExplorerGroupHeader.tsx ✅ Group header with rename and inline menu
+│       ├── ExplorerCreateGroupComponent.tsx  ✅ Add group button/input
 │       └── crate/
 │           ├── CrateCard.tsx      ✅ Collapsible crate card with header
 │           ├── CratePageList.tsx  ✅ Page list with symbol parsing + CratePageItem
@@ -631,8 +1181,7 @@ TurboDoc/
 ├── src/
 │   └── app.rs                     ✅ Backend IPC handlers
 └── docs/
-    ├── README.md                  📄 This file
-    └── Plan-Frontend.md           📋 Remaining work (Phase 5+)
+    └── README.md                  📄 This file
 ```
 
 ---
@@ -689,15 +1238,17 @@ All initial questions have been answered through implementation. No outstanding 
 - ✅ AppContext class with dual state management
 - ✅ Workspace and cache persistence across app restarts
 
-### Phase 5+ (In Progress)
-- ⬜ Users can search and add crates to workspace
+### Phase 5 (Mostly Complete)
+- ⬜ Users can search and add crates to workspace (SearchBar/SearchResults remaining)
 - ✅ Crates display with metadata, version selection, and external links
-- ⬜ Users can organize crates into named groups
+- ✅ Users can organize crates into named groups (add, rename, delete, move up/down)
 - ✅ Navigation in iframe updates explorer state automatically (IPC 'navigated' event)
 - ✅ Users can pin/unpin documentation pages
 - ✅ Preview page system works like VS Code tabs
-- ⬜ UI is responsive and matches design mockup
-- ⬜ All interactions are smooth with proper loading/error states
+- ✅ Symbol parsing with One Dark color coding
+- ✅ Expand/collapse all items in groups
+- ✅ Move crates between groups via menu
+- ⬜ UI polish and loading/error states
 
 ### Overall Success Metrics
 - Navigation feels instant (<100ms perceived latency)
@@ -707,12 +1258,29 @@ All initial questions have been answered through implementation. No outstanding 
 
 ---
 
-## Next Steps
+## Change History
 
-See [Plan-Frontend.md](./Plan-Frontend.md) for remaining work:
-- Phase 5: UI Components (Explorer, SearchBar, GroupList, CrateCard, etc.)
-- Phase 6: Styling and UX Polish
-- Phase 7: Integration & Testing
+Brief timeline of significant changes (design decisions are documented in component specs above):
+
+- **2026-01**: Merged Plan-Frontend.md content into README.md (component specs, visual design reference, Phase 6)
+- **2026-01**: Updated icon references from Lucide React to Font Awesome
+- **2026-01**: Initial Phase 5 implementation - Explorer architecture with callback-based data flow
+- **2026-01**: `currentPage` moved from per-crate to global `Workspace` level
+- **2026-01**: Refactored crate components into `crate/` subdirectory
+- **2026-01**: Added symbol parsing with One Dark color coding
+- **2026-01**: `workspace.currentPage` changed from URL string to `Page` tagged union
+- **2026-01**: Group editing features - add/rename/delete groups, move up/down, expand/collapse all
+  - `ExplorerGroupMenu.tsx`: Dropdown menu for group actions (move up/down, remove with confirmation)
+  - `CreateGroupComponent`: Inline input for creating new groups
+  - `ExplorerGroupActions`: Children-based slot pattern for header actions (`ReactElement` typed)
+  - `CratePageItem`: Simplified hover state using Tailwind `group/page` pattern (removed `useState`)
+- **2026-01**: Refactored explorer group components
+  - Extracted `ExplorerGroupHeader.tsx`: Manages rename state, renders header with menu
+  - Created `components/misc.tsx`: Shared components (`ExplorerGroupHeaderCommon`, `ExplorerGroupActions`, `CreateGroupComponent`)
+  - Added `ExplorerItemList`: Shared item list renderer for groups
+  - `ExplorerGroupMenu`: Added "Expand all" / "Collapse all" menu items, removed toggle button from header
+- **2026-01**: Switched from Lucide React to Font Awesome icons
+- **2026-01**: Moved shadcn files to `3rdparty/shadcn/` directory
 
 ---
 
