@@ -25,9 +25,9 @@ mod consts {
     use crate::collections::PrefixCollection;
 
     pub static DATA_DIR: LazyLock<PathBuf> =
-        LazyLock::new(|| nkcore::executable_dir().join("data"));
+        LazyLock::new(|| nkcore::env::executable_dir().join("data"));
     pub static CACHE_DIR: LazyLock<PathBuf> =
-        LazyLock::new(|| nkcore::executable_dir().join("cache"));
+        LazyLock::new(|| nkcore::env::executable_dir().join("cache"));
 
     pub const CACHE_EXPIRY: Duration = Duration::from_hours(24);
 
