@@ -12,9 +12,9 @@ import ExplorerCreateGroupComponent from "@/explorer/ExplorerCreateGroupComponen
 export function Explorer() {
     const app = useAppContext();
     return (
-        <div className="px-2 w-full h-full">
+        <div className="w-full h-full px-2">
             <div
-                className="flex flex-col gap-4 py-2 w-full h-full rounded overflow-x-hidden overflow-y-scroll"
+                className="flex flex-col w-full h-full gap-4 py-1 rounded overflow-y-scroll"
                 style={{ scrollbarWidth: "none" }}>
                 <ExplorerCreateGroupComponent insertAt="top" />
                 <ExplorerUngrouped

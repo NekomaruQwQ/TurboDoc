@@ -97,7 +97,7 @@ export function App() {
                         <iframe
                             ref={app.viewerRef}
                             src={buildUrl(app.workspace.currentPage)}
-                            className="w-full h-full rounded-tl-lg"/>
+                            className="w-full h-full rounded-tl-xl"/>
                     </ResizablePanel>
                 </ResizablePanelGroup>
             </div>

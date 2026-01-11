@@ -75,7 +75,7 @@ export default function ExplorerCreateGroupComponent(props: {
             <Button
                 variant="secondary"
                 size={"custom" as any}
-                className={`border w-7 h-7 cursor-pointer ${props.className}`}
+                className={`border size-8 cursor-pointer ${props.className}`}
                 onMouseDown={props.onMouseDown}
                 onClick={props.onClick}>
                 {props.children}
@@ -92,18 +92,18 @@ export default function ExplorerCreateGroupComponent(props: {
                     onChange={e => setInputText(e.target.value)}
                     onKeyDown={onKeyDown}
                     onBlur={onCancel}
-                    className="h-7 text-sm"/>
+                    className="h-8"/>
                 {/* Use onMouseDown to prevent onBlur fired before onClick */}
-                <ActionButton className="w-7" onMouseDown={e => {
+                <ActionButton className="size-8" onMouseDown={e => {
                     e.preventDefault();
                     onOK();
                 }}>
-                    <FontAwesomeIcon icon={faCheck} size="sm"/>
+                    <FontAwesomeIcon icon={faCheck}/>
                 </ActionButton>
             </> : <>
                 {/* Use onClick to avoid (what?) */}
                 <ActionButton className="w-full" onClick={() => setInputMode(true)}>
-                    <FontAwesomeIcon icon={faPlus} size="sm"/>
+                    <FontAwesomeIcon icon={faPlus}/>
                     <span>Add Group</span>
                 </ActionButton>
             </>}

@@ -69,19 +69,21 @@ export default function CrateVersionSelector(props: {
         }}>
             <SelectTrigger
                 size={"xs" as any}
-                className="pl-2 pr-1 py-0 w-20 h-6 text-xs rounded-sm shadow-none cursor-pointer">
+                className={
+                    "pl-2 pr-1 py-0 w-24 h-6 rounded-sm shadow-none " +
+                    "text-xs text-foreground/60 cursor-pointer "}>
                 <SelectValue />
             </SelectTrigger>
             <SelectContent>
                 {versions.map(version => (
-                    <SelectItem key={version} value={version} className="text-xs h-6 cursor-pointer">
+                    <SelectItem key={version} value={version} className="text-sm h-7 cursor-pointer">
                         {version}
                     </SelectItem>
                 ))}
                 <SelectSeparator className="m-0.5" />
                 {/* Placeholder for future full version list popup */}
-                <SelectItem value="..." disabled className="h-6 text-xs">
-                    <FontAwesomeIcon icon={faEllipsis} size="sm" className="mr-1 inline" />
+                <SelectItem value="..." disabled className="h-7 px-2 text-sm">
+                    <FontAwesomeIcon icon={faEllipsis} className="mr-1 inline" />
                     <span>More versions</span>
                 </SelectItem>
             </SelectContent>

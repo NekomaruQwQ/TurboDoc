@@ -36,9 +36,9 @@ export default function CrateCard(props: ReadonlyDeep<ExplorerItemProps<ItemCrat
             className="flex flex-col p-1 gap-1 rounded-md bg-accent border shadow-sm truncate"
             open={props.expanded}
             onOpenChange={() => props.setExpanded(!props.expanded)}>
-            <div className="flex flex-row items-stretch gap-1">
-                <CollapsibleTrigger asChild className="flex-1 pl-1.5 pr-0.5 truncate">
-                    <p className="font-mono opacity-90 cursor-pointer">{crate.name}</p>
+            <div className="flex flex-row gap-1">
+                <CollapsibleTrigger asChild className="flex-1 pl-1.5 truncate">
+                    <p className="font-mono cursor-pointer">{crate.name}</p>
                 </CollapsibleTrigger>
                 <CrateVersionSelector
                     crate={crate}
@@ -55,8 +55,9 @@ export default function CrateCard(props: ReadonlyDeep<ExplorerItemProps<ItemCrat
                     }}/>
                 <CrateMenu crate={crate} removeItem={props.removeItem} />
             </div>
-            <CollapsibleContent className="flex flex-col text-sm">
+            <CollapsibleContent className="flex flex-col">
                 <Separator />
+                <div className="h-1" />
                 <CratePageList crate={crate} updateCrate={props.updateItem} />
             </CollapsibleContent>
         </Collapsible>);

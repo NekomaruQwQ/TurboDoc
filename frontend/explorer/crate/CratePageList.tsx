@@ -51,14 +51,13 @@ export default function CratePageList(props: {
     const crate = props.crate;
     const pages = createPageList(crate);
     return (
-        <div className="flex flex-col">
-            {
-                pages.map(page => (
-                    <CratePageItem
-                        key={page.path}
-                        page={page}
-                        baseUrl={`https://docs.rs/${crate.name}/${crate.currentVersion}/`}
-                        updateCrate={props.updateCrate} />))
+        <div className="flex flex-col gap-0.5">
+            {pages.map(page => (
+                <CratePageItem
+                    key={page.path}
+                    page={page}
+                    baseUrl={`https://docs.rs/${crate.name}/${crate.currentVersion}/`}
+                    updateCrate={props.updateCrate} />))
             }
         </div>);
 }
@@ -206,13 +205,13 @@ function CratePageItem(props: {
     return (
         <div
             className={cn(
-                "group/page flex items-center rounded w-full px-1 py-px my-px cursor-pointer border",
+                "group/page flex items-center rounded-sm w-full px-1 cursor-pointer border",
                 page.active
                     ? "bg-input shadow-sm"
                     : "border-transparent hover:bg-input/50",
                 page.italic && "italic")}
             onClick={() => app.navigateTo(`${props.baseUrl}${page.path}`)}>
-            <span className="flex-1 truncate font-mono font-light">
+            <span className="flex-1 px-0.5 truncate font-mono font-light">
                 {symbol.symbolType === "unknown"
                     ? <span className="text-(--color-red)">{symbol.path}</span>
                     : <span>

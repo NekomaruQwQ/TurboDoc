@@ -155,37 +155,37 @@ export default function ExplorerGroupHeader(props: ExplorerGroupHeaderProps) {
     // Inline rename input mode
     if (isRenaming) {
         return (
-            <div className="flex flex-row items-center gap-1">
+            <div className="flex flex-row items-center h-8 py-0.5">
                 <Input
                     value={editedName}
                     onChange={e => setEditedName(e.target.value)}
                     onKeyDown={onRenameKeyDown}
                     onBlur={confirmRename}
                     autoFocus
-                    className="h-6 rounded text-sm font-semibold" />
+                    className="h-7 mx-1 rounded-md font-semibold" />
                 <Button
                     variant="secondary"
                     size="icon"
-                    className="size-6 rounded"
+                    className="size-7 rounded-md"
                     onClick={confirmRename}>
-                    <FontAwesomeIcon icon={faCheck} size="sm" />
+                    <FontAwesomeIcon icon={faCheck} />
                 </Button>
             </div>);
     }
 
     return (
-        <div className="group/header flex flex-row h-6 items-center px-0.5 gap-0.5 text-muted-foreground">
+        <div className="group/header flex flex-row h-8 py-0.5 items-center gap-0.5 text-muted-foreground">
             {/* Group name */}
-            <p className="flex-1 text-sm font-semibold uppercase">{props.groupName}</p>
+            <p className="flex-1 text-lg pl-1 font-semibold">{props.groupName}</p>
             {/* Rename button*/}
             {!props.isFrozen && (
                 <Button
                     variant="ghost"
                     size="icon"
-                    className="h-5 w-5 rounded invisible group-hover/header:visible"
+                    className="size-7 rounded-md invisible group-hover/header:visible"
                     title="Rename group"
                     onClick={beginRename}>
-                    <FontAwesomeIcon icon={faPencil} size="sm" />
+                    <FontAwesomeIcon icon={faPencil} />
                 </Button>)
             }
             {/* Group Menu */}
@@ -194,22 +194,22 @@ export default function ExplorerGroupHeader(props: ExplorerGroupHeaderProps) {
                     <Button
                         variant="ghost"
                         size="icon"
-                        className="h-5 w-5 rounded">
-                        <FontAwesomeIcon icon={faEllipsisVertical} size="sm" />
+                        className="size-7 rounded-md">
+                        <FontAwesomeIcon icon={faEllipsisVertical} />
                     </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                     <DropdownMenuItem onClick={props.expandAll}>
-                        <FontAwesomeIcon icon={faAnglesDown} size="sm" />
+                        <FontAwesomeIcon icon={faAnglesDown} />
                         <span>Expand all</span>
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={props.collapseAll}>
-                        <FontAwesomeIcon icon={faAnglesUp} size="sm" />
+                        <FontAwesomeIcon icon={faAnglesUp} />
                         <span>Collapse all</span>
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={() => setShowImportDialog(true)}>
-                        <FontAwesomeIcon icon={faFileImport} size="sm" />
+                        <FontAwesomeIcon icon={faFileImport} />
                         <span>Import</span>
                     </DropdownMenuItem>
                     {!props.isFrozen && <>
@@ -217,20 +217,20 @@ export default function ExplorerGroupHeader(props: ExplorerGroupHeaderProps) {
                         <DropdownMenuItem
                             disabled={props.isFirst}
                             onClick={props.moveUp}>
-                            <FontAwesomeIcon icon={faArrowUp} size="sm" />
+                            <FontAwesomeIcon icon={faArrowUp} />
                             <span>Move up</span>
                         </DropdownMenuItem>
                         <DropdownMenuItem
                             disabled={props.isLast}
                             onClick={props.moveDown}>
-                            <FontAwesomeIcon icon={faArrowDown} size="sm" />
+                            <FontAwesomeIcon icon={faArrowDown} />
                             <span>Move down</span>
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
                             variant="destructive"
                             onClick={() => setShowRemoveDialog(true)}>
-                            <FontAwesomeIcon icon={faTrash} size="sm" />
+                            <FontAwesomeIcon icon={faTrash} />
                             <span>Remove group</span>
                         </DropdownMenuItem>
                     </>}
@@ -248,8 +248,16 @@ export default function ExplorerGroupHeader(props: ExplorerGroupHeaderProps) {
                         </DialogDescription>
                     </DialogHeader>
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => setShowRemoveDialog(false)}>Cancel</Button>
-                        <Button variant="destructive" onClick={confirmRemoveGroup}>Delete</Button>
+                        <Button
+                            variant="outline"
+                            onClick={() => setShowRemoveDialog(false)}>
+                            Cancel
+                        </Button>
+                        <Button
+                            variant="destructive"
+                            onClick={confirmRemoveGroup}>
+                            Delete
+                        </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
@@ -268,7 +276,7 @@ export default function ExplorerGroupHeader(props: ExplorerGroupHeaderProps) {
                         onChange={e => setImportText(e.target.value)}
                         placeholder="https://docs.rs/tokio/latest/tokio/..."
                         rows={8}
-                        className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+                        className="w-full rounded-lg border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setShowImportDialog(false)}>Cancel</Button>
                         <Button onClick={handleImport}>Import</Button>
