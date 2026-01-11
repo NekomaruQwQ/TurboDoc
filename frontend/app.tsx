@@ -24,7 +24,6 @@ async function loadAppState(): Promise<AppState> {
     const cache =
         await IPC.loadCache() as Record<string, unknown> ?? {};
     workspace.groups ??= [];
-    workspace.ungrouped ??= [];
     workspace.currentPage ??= { type: "unknown", url: "https://docs.rs/" };
     cache.crates ??= {};
 

@@ -3,8 +3,6 @@ import type { ReadonlyDeep } from "type-fest";
 export interface Workspace {
     /** Named groups of crates */
     groups: Group[];
-    /** Ungrouped items (displayed at top, simpler than a full Group) */
-    ungrouped: Item[];
     /** Currently active documentation page */
     currentPage: Page;
 }

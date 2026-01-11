@@ -36,10 +36,6 @@ export default function CrateMenu(props: {
     const crate = props.crate;
     const crateCache = app.getCrateCache(crate.name);
 
-    /**
-     * Moves the crate to a different group.
-     * @param targetGroupIndex -1 for ungrouped, 0+ for named groups
-     */
     function moveCrate(targetGroupIndex: number) {
         const newItem: Item = {
             type: "crate",
@@ -50,11 +46,7 @@ export default function CrateMenu(props: {
         };
 
         app.updateWorkspace(draft => {
-            if (targetGroupIndex === -1) {
-                draft.ungrouped.push(newItem);
-            } else {
-                draft.groups[targetGroupIndex]!.items.push(newItem);
-            }
+            draft.groups[targetGroupIndex]!.items.push(newItem);
         });
 
         // Remove from current location after adding to new location
@@ -86,7 +78,6 @@ export default function CrateMenu(props: {
                         <span>Move to group</span>
                     </DropdownMenuSubTrigger>
                     <DropdownMenuSubContent>
-                        <CrateMenuItem text="Ungrouped" action={() => moveCrate(-1)} />
                         {app.workspace.groups.map((group, index) => (
                             <CrateMenuItem
                                 key={index}
@@ -127,7 +118,7 @@ function CrateMenuItem(props: {
         </DropdownMenuItem>);
 }
 
-function CrateMenuLink({text, url}: { text: string, url: string | null }) {
+function CrateMenuLink({ text, url }: { text: string, url: string | null }) {
     const app = useAppContext();
     return url && (
         <CrateMenuItem

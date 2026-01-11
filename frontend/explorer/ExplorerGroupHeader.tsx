@@ -16,7 +16,8 @@ import {
     faTrash,
 } from "@fortawesome/free-solid-svg-icons";
 
-import { parseUrl, type Item } from "@/data";
+import type { Item } from "@/data";
+import { parseUrl } from "@/data";
 
 import { Button } from "@shadcn/components/ui/button";
 import { Input } from "@shadcn/components/ui/input";
@@ -60,7 +61,7 @@ interface ExplorerGroupHeaderProps {
     /** Renames the group to the new name. */
     renameGroup(newName: string): void;
 
-    /** Removes the group from the workspace. Should move items to ungrouped and remove the group. */
+    /** Removes the group from the workspace. */
     removeGroup(): void;
 
     /** Expand all items in the group. */
@@ -259,7 +260,7 @@ export default function ExplorerGroupHeader(props: ExplorerGroupHeaderProps) {
                         <DialogTitle>Delete group?</DialogTitle>
                         <DialogDescription>
                             This will remove the group "{props.groupName}".
-                            Crates in this group will be moved to Ungrouped.
+                            Crates in this group will be lost forever.
                         </DialogDescription>
                     </DialogHeader>
                     <DialogFooter>

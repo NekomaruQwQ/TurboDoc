@@ -38,11 +38,10 @@ export class AppContext {
         this.viewerRef = args.viewerRef;
 
         this.state = produce(args.state, state => {
-            // Ensure items in each group and ungrouped are sorted by name.
+            // Ensure items in each group are sorted by name.
             const itemComparer =
                 (a: ReadonlyDeep<{ name: string }>, b: ReadonlyDeep<{ name: string }>) =>
                     a.name.localeCompare(b.name);
-            state.workspace.ungrouped.sort(itemComparer);
             state.workspace.groups.forEach(group => {
                 group.items.sort(itemComparer);
             });
