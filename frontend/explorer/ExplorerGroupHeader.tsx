@@ -7,6 +7,8 @@ import {
     faAnglesUp,
     faArrowDown,
     faArrowUp,
+    faChevronDown,
+    faChevronRight,
     faCheck,
     faEllipsisVertical,
     faFileImport,
@@ -39,6 +41,12 @@ import {
 interface ExplorerGroupHeaderProps {
     /** Name of the group. */
     groupName: string;
+
+    /** Whether the group is expanded. */
+    groupExpanded: boolean;
+
+    /** Sets the expanded state of the group. */
+    setGroupExpanded(expanded: boolean): void;
 
     /** Whether the group is frozen (cannot be renamed, moved and deleted). */
     isFrozen?: boolean;
@@ -176,7 +184,14 @@ export default function ExplorerGroupHeader(props: ExplorerGroupHeaderProps) {
     return (
         <div className="group/header flex flex-row h-8 py-0.5 items-center gap-0.5 text-muted-foreground">
             {/* Group name */}
-            <p className="flex-1 text-lg pl-1 font-semibold">{props.groupName}</p>
+            <p
+                className="flex flex-row flex-1 gap-2 items-center text-lg pl-1 font-semibold cursor-pointer truncate"
+                onClick={() => props.setGroupExpanded(!props.groupExpanded)} >
+                <FontAwesomeIcon
+                    icon={props.groupExpanded ? faChevronDown : faChevronRight}
+                    size="sm" />
+                <span className="flex-1 truncate">{props.groupName}</span>
+            </p>
             {/* Rename button*/}
             {!props.isFrozen && (
                 <Button

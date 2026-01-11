@@ -28,21 +28,17 @@ async function loadAppState(): Promise<AppState> {
     workspace.currentPage ??= { type: "unknown", url: "https://docs.rs/" };
     cache.crates ??= {};
 
-    const state = {
+    return {
         workspace: workspace as any as Workspace,
         cache: cache as any as Cache,
     } satisfies AppState;
-
-    const itemComparer =
-        (a: ReadonlyDeep<{ name: string }>, b: ReadonlyDeep<{ name: string }>) =>
-            a.name.localeCompare(b.name);
-    state.workspace.groups.forEach(group => group.items.sort(itemComparer));
-    state.workspace.ungrouped.sort(itemComparer);
-    return state;
 }
 
 function useAppContext(): AppContext | null {
     const viewerRef = useRef<HTMLIFrameElement | null>(null);
+    const lastWorkspaceRef = useRef<string>("");
+    const lastCacheRef = useRef<string>("");
+
     const [state, updateState] = useImmer<AppState | null>(null);
 
     const app =
@@ -57,17 +53,25 @@ function useAppContext(): AppContext | null {
     // Load the workspace and cache from disk on first render.
     useEffect(() => {
         loadAppState()
-            .then(appState => updateState(_ => appState))
+            .then(state => {
+                lastWorkspaceRef.current =
+                    JSON.stringify(state.workspace);
+                lastCacheRef.current =
+                    JSON.stringify(state.cache);
+                updateState(_ => state);
+            })
             .catch(err => console.error(err));
     }, []);
 
     // Save the workspace and cache on every state change.
     useEffect(() => {
         if (state) {
-            IPC.saveWorkspace(state.workspace)
-                .catch(err => console.error(err));
-            IPC.saveCache(state.cache)
-                .catch(err => console.error(err));
+            if (lastWorkspaceRef.current !== JSON.stringify(state.workspace))
+                IPC.saveWorkspace(state.workspace)
+                    .catch(err => console.error(err));
+            if (lastCacheRef.current !== JSON.stringify(state.cache))
+                IPC.saveCache(state.cache)
+                    .catch(err => console.error(err));
         }
     }, [state]);
 

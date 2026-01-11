@@ -1,4 +1,5 @@
 import type { ReadonlyDeep } from "type-fest";
+import { produce } from "immer";
 
 import { createContext, useContext } from "react";
 
@@ -35,7 +36,18 @@ export class AppContext {
         updateState: (updater: (draft: AppState) => void) => void,
     }) {
         this.viewerRef = args.viewerRef;
-        this.state = args.state;
+
+        this.state = produce(args.state, state => {
+            // Ensure items in each group and ungrouped are sorted by name.
+            const itemComparer =
+                (a: ReadonlyDeep<{ name: string }>, b: ReadonlyDeep<{ name: string }>) =>
+                    a.name.localeCompare(b.name);
+            state.workspace.ungrouped.sort(itemComparer);
+            state.workspace.groups.forEach(group => {
+                group.items.sort(itemComparer);
+            });
+        });
+
         this.updateState = args.updateState;
     }
 

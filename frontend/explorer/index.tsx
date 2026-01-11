@@ -36,7 +36,10 @@ export function Explorer() {
                             app.updateWorkspace(draft => { draft.groups[i]!.expanded = expanded; });
                         }}
                         updateItems={updater => {
-                            app.updateWorkspace(draft => updater(draft.groups[i]!.items));
+                            app.updateWorkspace(draft => {
+                                updater(draft.groups[i]!.items);
+                                draft.groups[i]!.items.sort((a, b) => a.name.localeCompare(b.name));
+                            });
                         }}
                         moveUp={() => {
                             if (i === 0) return;
@@ -90,6 +93,8 @@ function ExplorerUngrouped(props: ReadonlyDeep<{
             updateItems={props.updateItems}>
             <ExplorerGroupHeader
                 groupName="Ungrouped"
+                groupExpanded={true}
+                setGroupExpanded={() => {}}
                 isFrozen={true}
                 isFirst={true}
                 isLast={true}
@@ -141,11 +146,13 @@ function ExplorerGroup(props: ReadonlyDeep<{
 
     return (
         <ExplorerGroupCommon
-            expanded={true}
+            expanded={props.expanded}
             items={props.items}
             updateItems={props.updateItems}>
             <ExplorerGroupHeader
                 groupName={props.name}
+                groupExpanded={props.expanded}
+                setGroupExpanded={props.setExpanded}
                 isFrozen={false}
                 isFirst={props.groupIndex === 0}
                 isLast={props.groupIndex === props.groupCount - 1}
