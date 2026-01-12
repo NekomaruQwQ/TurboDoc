@@ -23,7 +23,7 @@ import {
 } from "@shadcn/components/ui/dropdown-menu";
 
 import type { Item, ItemCrate } from "@/data";
-import { useAppContext } from "@/context";
+import { useAppContext } from "@/core/context";
 
 /**
  * Dropdown menu for crate actions: move to group, refresh metadata, remove.

@@ -1,14 +1,14 @@
 import type { ReadonlyDeep } from "type-fest";
 
 import type { Item } from "@/data";
-import { useAppContext } from "@/context";
+import { useAppContext } from "@/core/context";
 
 import type ExplorerItemProps from "@/explorer/ExplorerItemProps";
 import CrateCard from "@/explorer/crate/CrateCard";
 import ExplorerGroupHeader from "@/explorer/ExplorerGroupHeader";
 import ExplorerCreateGroupComponent from "@/explorer/ExplorerCreateGroupComponent";
 
-export function Explorer() {
+export default function Explorer() {
     const app = useAppContext();
     return (
         <div className="w-full h-full px-2">

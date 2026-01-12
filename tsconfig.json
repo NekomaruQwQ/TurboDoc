@@ -1,12 +1,9 @@
 {
-    "exclude": [
-        "node_modules",
-        "target",
-    ],
+    "include": ["src"],
     "compilerOptions": {
         "baseUrl": ".",
         "paths": {
-            "@/*": ["frontend/*"],
+            "@/*": ["src/*"],
             "@shadcn/*": ["3rdparty/shadcn/*"],
         },
 

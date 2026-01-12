@@ -3,9 +3,21 @@ import type { ReadonlyDeep } from "type-fest";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@shadcn/components/ui/collapsible";
 import { Separator } from "@shadcn/components/ui/separator";
 
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectSeparator,
+    SelectTrigger,
+    SelectValue,
+} from "@shadcn/components/ui/select";
+
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faEllipsis } from "@fortawesome/free-solid-svg-icons";
+
 import type { ItemCrate } from "@/data";
 import { buildUrl } from "@/data";
-import { useAppContext } from "@/context";
+import { useAppContext } from "@/core/context";
 
 import type ExplorerItemProps from "@/explorer/ExplorerItemProps";
 import CrateMenu from "@/explorer/crate/CrateMenu";
@@ -61,4 +73,36 @@ export default function CrateCard(props: ReadonlyDeep<ExplorerItemProps<ItemCrat
                 <CratePageList crate={crate} updateCrate={props.updateItem} />
             </CollapsibleContent>
         </Collapsible>);
+}
+
+import type { ItemVersionSelectorProps } from "@/core/data";
+
+function ExplorerItemVersionSelector(props: ItemVersionSelectorProps) {
+    return (
+        <Select value={props.current} onValueChange={props.select}>
+            <SelectTrigger
+                size={"xs" as any}
+                className={
+                    "pl-2 pr-1 py-0 w-24 h-6 rounded-sm shadow-none " +
+                    "text-xs text-foreground/60 cursor-pointer "}>
+                <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+                {props.recommended.map(
+                    version => (
+                        <SelectItem
+                            key={version}
+                            value={version}
+                            className="text-sm h-7 cursor-pointer">
+                            {version}
+                        </SelectItem>
+                    ))}
+                <SelectSeparator className="m-0.5" />
+                {/* Placeholder for future full version list popup */}
+                <SelectItem value="..." disabled className="h-7 px-2 text-sm">
+                    <FontAwesomeIcon icon={faEllipsis} className="mr-1 inline" />
+                    <span>More versions</span>
+                </SelectItem>
+            </SelectContent>
+        </Select>);
 }

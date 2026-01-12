@@ -1,8 +1,21 @@
+// Type declarations for Microsoft WebView2 JavaScript API
+declare global {
+    interface Window {
+        chrome: {
+            webview: {
+                postMessage(message: string): void;
+                addEventListener(type: "message", listener: (event: MessageEvent<string>) => void): void;
+                removeEventListener(type: "message", listener: (event: MessageEvent<string>) => void): void;
+            };
+        };
+    }
+}
+
 import type { ReadonlyDeep } from "type-fest";
 
-import { assert } from "@/prelude";
+import { assert } from "@/core/prelude";
 
-import { IPC_TIMEOUT_MS } from "@/constants";
+const IPC_TIMEOUT_MS = 5000;
 
 /**
  * IPC message representing an event occurring on the host side.
