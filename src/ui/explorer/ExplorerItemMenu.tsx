@@ -22,39 +22,24 @@ import {
     DropdownMenuTrigger,
 } from "@shadcn/components/ui/dropdown-menu";
 
-import type { Item, ItemCrate } from "@/data";
-import { useAppContext } from "@/core/context";
+import type { Item, ItemLink, ItemAction } from "@/core/data";
+import Icon from "@/ui/common/Icon";
+
+import { useAppContext, useCurrentUrl, useProviderData } from "@/core/context";
 
 /**
  * Dropdown menu for crate actions: move to group, refresh metadata, remove.
  */
-export default function CrateMenu(props: {
-    crate: ReadonlyDeep<ItemCrate>;
-    removeItem: () => void;
+export default function ExplorerItemMenu({ item, ...props }: {
+    item: Item,
 }) {
     const app = useAppContext();
-    const crate = props.crate;
-    const crateCache = app.getCrateCache(crate.name);
+    const [providerData, updateProviderData] = useProviderData();
 
-    function moveCrate(targetGroupIndex: number) {
-        const newItem: Item = {
-            type: "crate",
-            name: crate.name,
-            expanded: crate.expanded,
-            pinnedPages: [...crate.pinnedPages],
-            currentVersion: crate.currentVersion,
-        };
-
-        app.updateWorkspace(draft => {
-            draft.groups[targetGroupIndex]!.items.push(newItem);
-        });
-
-        // Remove from current location after adding to new location
-        props.removeItem();
-    }
-
-    function refreshMetadata() {
-        app.refreshCrateCache(crate.name);
+    function moveItem(
+        itemName: string,
+        sourceGroupName: string,
+        targetGroupName: string) {
     }
 
     return (
@@ -68,61 +53,65 @@ export default function CrateMenu(props: {
                 </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent>
-                <CrateMenuLink text="Crates.io" url={`https://crates.io/crates/${crate.name}`} />
-                <CrateMenuLink text="Repository" url={crateCache?.repository ?? null} />
-                <CrateMenuLink text="Homepage" url={crateCache?.homepage ?? null} />
-                <DropdownMenuSeparator />
                 <DropdownMenuSub>
                     <DropdownMenuSubTrigger className="cursor-pointer">
                         <FontAwesomeIcon icon={faRightToBracket} size="sm" />
                         <span>Move to group</span>
                     </DropdownMenuSubTrigger>
                     <DropdownMenuSubContent>
-                        {app.workspace.groups.map((group, index) => (
-                            <CrateMenuItem
-                                key={index}
-                                text={group.name}
-                                action={() => moveCrate(index)} />
+                        {providerData.groups.map((group, index) => (
+                            <ExplorerItemMenuAction
+                                action={{
+                                    name: group.name,
+                                    icon: {
+                                        type: "fontawesome",
+                                        name: faRightToBracket,
+                                    },
+                                    invoke: () => {
+                                        moveItem(
+                                            item.name,
+                                            group.name,
+                                            group.name);
+                                    },
+                                }} />
                         ))}
                     </DropdownMenuSubContent>
                 </DropdownMenuSub>
                 <DropdownMenuSeparator />
-                <CrateMenuItem
-                    icon={faRotate}
-                    text="Refresh metadata"
-                    action={refreshMetadata} />
+                {item.links.map((link, index) => (
+                    <ExplorerItemMenuLink key={index} link={link} />
+                ))}
                 <DropdownMenuSeparator />
-                <CrateMenuItem
-                    icon={faTrash}
-                    text="Remove crate"
-                    variant="destructive"
-                    action={props.removeItem} />
+                {item.actions.map((action, index) => (
+                    <ExplorerItemMenuAction key={index} action={action} />
+                ))}
             </DropdownMenuContent>
         </DropdownMenu>);
 }
 
-function CrateMenuItem(props: {
-    text: string;
-    icon?: IconProp;
-    variant?: "default" | "destructive";
-    action: () => void;
-}) {
+function ExplorerItemMenuLink({ link }: { link: ItemLink }) {
+    const [_, setCurrentUrl] = useCurrentUrl();
+    const defaultLinkIcon = {
+        type: "fontawesome",
+        name: faArrowUpRightFromSquare,
+    } as const;
     return (
         <DropdownMenuItem
-            title={props.text}
-            variant={props.variant}
             className="cursor-pointer"
-            onClick={props.action}>
-            {props.icon && <FontAwesomeIcon icon={props.icon} size="sm" />}
-            <span>{props.text}</span>
+            onClick={() => setCurrentUrl(link.url)}>
+            <Icon icon={link.icon ?? defaultLinkIcon} size="sm" />
+            <span>{link.name}</span>
         </DropdownMenuItem>);
 }
 
-function CrateMenuLink({ text, url }: { text: string, url: string | null }) {
-    const app = useAppContext();
-    return url && (
-        <CrateMenuItem
-            text={text}
-            icon={faArrowUpRightFromSquare}
-            action={() => app.navigateTo(url)} />);
+
+function ExplorerItemMenuAction({ action }: { action: ItemAction }) {
+    return (
+        <DropdownMenuItem
+            variant={action.destructive ? "destructive" : undefined}
+            className="cursor-pointer"
+            onClick={action.invoke}>
+            <Icon icon={action.icon} size="sm" />
+            <span>{action.name}</span>
+        </DropdownMenuItem>);
 }

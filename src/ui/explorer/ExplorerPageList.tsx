@@ -1,38 +1,26 @@
-import type { ReadonlyDeep } from "type-fest";
-
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faThumbtack } from "@fortawesome/free-solid-svg-icons";
 
-import { cn } from "@/index";
+import type { IdentType, Page, PageName } from "@/core/data";
+import { cn } from "@/core/prelude";
+import { ArrayExt } from "@/core/prelude";
+import { useCurrentUrl } from "@/core/context";
 
-import { useAppContext } from "@/core/context";
-
-type SymbolType =
-    | "constant"
-    | "enum"
-    | "fn"
-    | "macro"
-    | "module"
-    | "struct"
-    | "trait"
-    | "type"
-    | "unknown";
-
-type CrateSymbol =
-    | { symbolType: "unknown", path: string }
-    | { symbolType: "module", modulePath: string[] }
-    | {
-        modulePath: string[], // Full module path, e.g., ["glam", "f32"]
-        symbolName: string, // Symbol name (e.g., "Vec2")
-        symbolType: Exclude<SymbolType, "unknown" | "module">,
-    };
-
-interface CratePageInfo {
-    path: string;
-    symbol: CrateSymbol;
-    active: boolean;
-    pinned: boolean;
-    italic: boolean;
+function getIdentColor(type: IdentType): string | undefined {
+    switch (type) {
+        case "type":
+            return "text-[var(--color-yellow)]";
+        case "interface":
+            return "text-[var(--color-cyan)]";
+        case "function":
+            return "text-[var(--color-blue)]";
+        case "macro":
+        case "constant":
+            return "text-[var(--color-orange)]";
+        case "namespace":
+        case "unknown":
+            return undefined;
+    }
 }
 
 /**
@@ -43,76 +31,89 @@ interface CratePageInfo {
  * 2. Pinned pages (with unpin icon)
  * 3. Preview page (italic, with pin icon) if currentPage is not pinned
  */
-export default function CratePageList(props: {
-    crate: ReadonlyDeep<ItemCrate>;
-    updateCrate(updater: (crate: ItemCrate) => void): void;
+export default function ExplorerPageList(props: {
+    pages: readonly Page[],
 }) {
-    const crate = props.crate;
-    const pages = createPageList(crate);
+    const pages = ArrayExt.sortByKey(props.pages, page => page.sortKey);
     return (
         <div className="flex flex-col gap-0.5">
-            {pages.map(page => (
-                <CratePageItem
-                    key={page.path}
-                    page={page}
-                    baseUrl={`https://docs.rs/${crate.name}/${crate.currentVersion}/`}
-                    updateCrate={props.updateCrate} />))
-            }
+            {pages.map(page => <ExplorerPage page={page} />)}
         </div>);
 }
 
-function CratePageItem(props: {
-    page: ReadonlyDeep<CratePageInfo>;
-    baseUrl: string;
-    updateCrate(updater: (crate: ItemCrate) => void): void;
+function ExplorerPage({ page }: {
+    page: Page,
 }) {
-    const app = useAppContext();
-    const page = props.page;
-    const symbol = page.symbol;
-
-    function pin() {
-        props.updateCrate(crate => {
-            crate.pinnedPages.push(page.path);
-        });
-    }
-
-    function unpin() {
-        props.updateCrate(crate => {
-            crate.pinnedPages = crate.pinnedPages.filter(p => p !== page.path);
-        });
-    }
-
+    const [currentUrl, setCurrentUrl] = useCurrentUrl();
+    const active = page.url === currentUrl;
+    const pinned = page.pinned === true;
+    const italic = page.pinned === false;
     return (
         <div
             className={cn(
                 "group/page flex items-center rounded-sm w-full px-1 cursor-pointer border",
-                page.active
+                active
                     ? "bg-input shadow-sm"
                     : "border-transparent hover:bg-input/50",
-                page.italic && "italic")}
-            onClick={() => app.navigateTo(`${props.baseUrl}${page.path}`)}>
+                italic && "italic")}
+            onClick={() => setCurrentUrl(page.url)}>
             <span className="flex-1 px-0.5 truncate font-mono font-light">
-                {symbol.symbolType === "unknown"
-                    ? <span className="text-(--color-red)">{symbol.path}</span>
-                    : <span>
-                        {/* Module path */}
-                        <span>{symbol.modulePath.join("::")}</span>
-                        {/* Symbol name */}
-                        {symbol.symbolType !== "module" && <>
-                            <span>::</span>
-                            <span className={getSymbolColor(symbol.symbolType)}>{symbol.symbolName}</span>
-                        </>}
-                    </span>}
+                <ExplorerPageName value={page.name} />
             </span>
-            {page.italic && (
-                <span
-                    className="invisible group-hover/page:visible"
-                    onClick={event => { pin(); event.stopPropagation(); }}>
-                    <FontAwesomeIcon icon={faThumbtack} size="xs" className="text-foreground/50"/>
-                </span>)}
-            {page.pinned && (
-                <span onClick={event => { unpin(); event.stopPropagation(); }}>
-                    <FontAwesomeIcon icon={faThumbtack} size="xs" />
-                </span>)}
+            <ExplorerPagePinningButton
+                pinned={pinned}
+                italic={italic}
+                setPinned={value => {
+                    if (page.pinned !== null) {
+                        page.pinned = value;
+                    } else {
+                        console.warn("Trying to pin/unpin a page with pinning disabled.");
+                    }
+                }}/>
         </div>);
+}
+
+function ExplorerPageName({ value }: { value: PageName }) {
+    switch (value.type) {
+        case "text":
+            return <>{value.text}</>;
+        case "symbol":
+            return value.path.map((ident, index) => <>
+                {index > 0 && <span>{value.separator}</span>}
+                <span className={getIdentColor(ident.type)}>{ident.name}</span>
+            </>);
+    }
+}
+
+function ExplorerPagePinningButton(props: {
+    pinned: boolean,
+    italic: boolean,
+    setPinned(pinned: boolean): void,
+}) {
+    return <>
+        {props.pinned &&
+            <span
+                onClick={event => {
+                    props.setPinned(false);
+                    event.stopPropagation();
+                }}>
+                <FontAwesomeIcon
+                    icon={faThumbtack}
+                    size="xs" />
+            </span>
+        }
+        {props.italic &&
+            <span
+                className="invisible group-hover/page:visible"
+                onClick={event => {
+                    props.setPinned(true);
+                    event.stopPropagation();
+                }}>
+                <FontAwesomeIcon
+                    icon={faThumbtack}
+                    size="xs"
+                    className="text-foreground/50"/>
+            </span>
+        }
+    </>
 }

@@ -194,7 +194,7 @@ export default function ExplorerGroupHeader(props: ExplorerGroupHeaderProps) {
                 <span className="flex-1 truncate">{props.groupName}</span>
             </p>
             {/* Rename button*/}
-            {!props.isFrozen && (
+            {!props.isFrozen &&
                 <Button
                     variant="ghost"
                     size="icon"
@@ -202,7 +202,7 @@ export default function ExplorerGroupHeader(props: ExplorerGroupHeaderProps) {
                     title="Rename group"
                     onClick={beginRename}>
                     <FontAwesomeIcon icon={faPencil} />
-                </Button>)
+                </Button>
             }
             {/* Group Menu */}
             <DropdownMenu>

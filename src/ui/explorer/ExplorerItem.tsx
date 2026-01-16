@@ -75,9 +75,9 @@ export default function CrateCard(props: ReadonlyDeep<ExplorerItemProps<ItemCrat
         </Collapsible>);
 }
 
-import type { ItemVersionSelectorProps } from "@/core/data";
+import type { ItemVersions } from "@/core/data";
 
-function ExplorerItemVersionSelector(props: ItemVersionSelectorProps) {
+function ExplorerItemVersionSelector(props: ItemVersions) {
     return (
         <Select value={props.current} onValueChange={props.select}>
             <SelectTrigger

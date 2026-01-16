@@ -1,7 +1,15 @@
 import type { ReadonlyDeep } from "type-fest";
 import { createContext, useContext } from "react";
 
-import type { Workspace, Cache } from "@/core/data";
+import type { State } from "@/core/prelude";
+import { assertSome } from "@/core/prelude";
+
+import type {
+    Workspace,
+    Cache,
+    ProviderInfo,
+    ProviderData,
+} from "@/core/data";
 
 export class AppContext {
     /** Reference to the viewer iframe for programmatic navigation */
@@ -35,6 +43,35 @@ export class AppContext {
 }
 
 const appContext = createContext<AppContext>(undefined!);
-
 export const AppContextProvider = appContext.Provider;
 export const useAppContext = () => useContext(appContext);
+
+const providerInfo = createContext<ProviderInfo>(undefined!);
+export const ProviderInfoProvider = providerInfo.Provider;
+export const useProviderInfo = () => useContext(providerInfo);
+
+export function useCurrentUrl(): State<string> {
+    const ctx = useAppContext();
+    return [
+        ctx.workspace.app.currentUrl,
+        (url: string) => {
+            ctx.updateWorkspace(draft => {
+                draft.app.currentUrl = url;
+            })
+        }
+    ]
+};
+
+export function useProviderData(): State<ProviderData> {
+    const ctx = useAppContext();
+    const provider = useProviderInfo();
+    const message = `Unexpected provider id: ${provider.id}`;
+    return [
+        assertSome(ctx.workspace.providers[provider.id], message),
+        (updater: (draft: ProviderData) => void) => {
+            ctx.updateWorkspace(draft => {
+                updater(assertSome(draft.providers[provider.id], message));
+            });
+        }
+    ]
+}

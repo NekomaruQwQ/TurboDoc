@@ -1,5 +1,3 @@
-import type { ReadonlyDeep } from "type-fest";
-
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faEllipsis } from "@fortawesome/free-solid-svg-icons";
 
@@ -12,61 +10,25 @@ import {
     SelectValue,
 } from "@shadcn/components/ui/select";
 
-import type { ItemCrate, CrateCache } from "@/data";
+import type { ItemVersions } from "@/core/data";
 
 /**
- * Builds the list of versions to display in the selector.
- *
- * Order:
- * 1. "latest" (special)
- * 2. Latest version from each of the 5 most recent version groups
- * 3. Current version if not already in the list
- */
-function getDisplayVersions(
-    currentVersion: string,
-    versionGroups: ReadonlyDeep<CrateCache["versionGroups"]> | undefined,
-): string[] {
-    const versions = ["latest"];
-    const seen = new Set(["latest"]);
-
-    // Add latest from each version group (max 5)
-    for (const group of versionGroups?.slice(0, 5) ?? []) {
-        const latestInGroup = group.versions[0] ?? null;
-        if (latestInGroup &&
-            !seen.has(latestInGroup.num) &&
-            !latestInGroup.yanked) {
-            versions.push(latestInGroup.num);
-            seen.add(latestInGroup.num);
-        }
-    }
-
-    // Add current version if not already included
-    if (!seen.has(currentVersion)) {
-        versions.push(currentVersion);
-    }
-
-    return versions;
-}
-
-/**
- * Dropdown selector for crate documentation version.
+ * Dropdown component for selecting the current version of a documentation item.
  *
  * Shows "latest" plus the 5 most recent major.minor versions,
  * with a placeholder "..." item for future full version list.
  */
-export default function CrateVersionSelector(props: {
-    crate: ReadonlyDeep<ItemCrate>;
-    crateCache: ReadonlyDeep<CrateCache> | undefined;
-    setVersion(version: string): void;
-}) {
-    const { crate, crateCache } = props;
-    const versions = getDisplayVersions(crate.currentVersion, crateCache?.versionGroups);
+export default function ExplorerVersionSelector({ versions }: { versions: ItemVersions }) {
     return (
-        <Select value={crate.currentVersion} onValueChange={version => {
-            if (version == "latest" || crateCache?.versions.find(({ num }) => num === version)) {
-                props.setVersion(version);
-            }
-        }}>
+        <Select
+            value={versions.current}
+            onValueChange={version => {
+                if (versions.all.flat().includes(version)) {
+                    versions.select(version);
+                } else {
+                    console.warn("Trying to select a version not listed in `versionSelectorProps.all`");
+                }
+            }}>
             <SelectTrigger
                 size={"xs" as any}
                 className={
@@ -75,7 +37,7 @@ export default function CrateVersionSelector(props: {
                 <SelectValue />
             </SelectTrigger>
             <SelectContent>
-                {versions.map(version => (
+                {versions.recommended.map(version => (
                     <SelectItem key={version} value={version} className="text-sm h-7 cursor-pointer">
                         {version}
                     </SelectItem>

@@ -165,6 +165,40 @@ function renderVersionSelector(
 ) {
 
 }
+/**
+ * Builds the list of versions to display in the selector.
+ *
+ * Order:
+ * 1. "latest" (special)
+ * 2. Latest version from each of the 5 most recent version groups
+ * 3. Current version if not already in the list
+ */
+function getDisplayVersions(
+    currentVersion: string,
+    versionGroups: ReadonlyDeep<CrateCache["versionGroups"]> | undefined,
+): string[] {
+    const versions = ["latest"];
+    const seen = new Set(["latest"]);
+
+    // Add latest from each version group (max 5)
+    for (const group of versionGroups?.slice(0, 5) ?? []) {
+        const latestInGroup = group.versions[0] ?? null;
+        if (latestInGroup &&
+            !seen.has(latestInGroup.num) &&
+            !latestInGroup.yanked) {
+            versions.push(latestInGroup.num);
+            seen.add(latestInGroup.num);
+        }
+    }
+
+    // Add current version if not already included
+    if (!seen.has(currentVersion)) {
+        versions.push(currentVersion);
+    }
+
+    return versions;
+}
+
 
 function getCrateCache(crateName: string): ReadonlyDeep<CrateCache> | undefined {
 /// Cache expiry time (24 hours in milliseconds)
@@ -209,6 +243,128 @@ export const CACHE_EXPIRY_MS = 24 * 60 * 60 * 1000;
     return existing;
 }
 
+/**
+ * Dropdown menu for crate actions: move to group, refresh metadata, remove.
+ */
+export default function CrateMenu(props: {
+    crate: ReadonlyDeep<ItemCrate>;
+    removeItem: () => void;
+}) {
+    const app = useAppContext();
+    const crate = props.crate;
+    const crateCache = app.getCrateCache(crate.name);
+
+    function moveCrate(targetGroupIndex: number) {
+        const newItem: Item = {
+            type: "crate",
+            name: crate.name,
+            expanded: crate.expanded,
+            pinnedPages: [...crate.pinnedPages],
+            currentVersion: crate.currentVersion,
+        };
+
+        app.updateWorkspace(draft => {
+            draft.groups[targetGroupIndex]!.items.push(newItem);
+        });
+
+        // Remove from current location after adding to new location
+        props.removeItem();
+    }
+
+    function refreshMetadata() {
+        app.refreshCrateCache(crate.name);
+    }
+
+    return (
+        <DropdownMenu>
+            <DropdownMenuTrigger>
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-6 border rounded-sm hover:bg-input/50 cursor-pointer">
+                    <FontAwesomeIcon icon={faEllipsisVertical} size="sm" />
+                </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+                <CrateMenuLink text="Crates.io" url={`https://crates.io/crates/${crate.name}`} />
+                <CrateMenuLink text="Repository" url={crateCache?.repository ?? null} />
+                <CrateMenuLink text="Homepage" url={crateCache?.homepage ?? null} />
+                <DropdownMenuSeparator />
+                <DropdownMenuSub>
+                    <DropdownMenuSubTrigger className="cursor-pointer">
+                        <FontAwesomeIcon icon={faRightToBracket} size="sm" />
+                        <span>Move to group</span>
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                        {app.workspace.groups.map((group, index) => (
+                            <CrateMenuItem
+                                key={index}
+                                text={group.name}
+                                action={() => moveCrate(index)} />
+                        ))}
+                    </DropdownMenuSubContent>
+                </DropdownMenuSub>
+                <DropdownMenuSeparator />
+                <CrateMenuItem
+                    icon={faRotate}
+                    text="Refresh metadata"
+                    action={refreshMetadata} />
+                <DropdownMenuSeparator />
+                <CrateMenuItem
+                    icon={faTrash}
+                    text="Remove crate"
+                    variant="destructive"
+                    action={props.removeItem} />
+            </DropdownMenuContent>
+        </DropdownMenu>);
+}
+
+function parseSymbolType(prefix: string): SymbolType {
+    switch (prefix) {
+        case "constant": return "constant";
+        case "enum": return "enum";
+        case "fn": return "fn";
+        case "macro": return "macro";
+        case "struct": return "struct";
+        case "trait": return "trait";
+        case "type": return "type";
+        default: return "unknown";
+    }
+}
+
+/** Parses path segments into module path, symbol name, and type. */
+function parseSymbol(segments: ReadonlyDeep<string[]>): ReadonlyDeep<CrateSymbol> {
+    if (segments.length === 0) {
+        return { symbolType: "unknown", path: "" };
+    }
+
+    if (segments.length === 1) {
+        // Root module page (e.g., ["tokio"])
+        return { symbolType: "module", modulePath: [segments[0]!] };
+    }
+
+    const modulePath = segments.slice(0, -1);
+    const fileName = segments.at(-1)!;
+
+    // Module page with index.html (e.g., ["tokio", "runtime", "index.html"])
+    if (fileName === "index.html")
+        return { symbolType: "module", modulePath };
+
+    // Symbol: {prefix}.{name}.html (e.g., "struct.Vec3.html")
+    const dotParts =
+        fileName
+            .slice(0, -".html".length)
+            .split(".");
+    if (dotParts.length === 2) {
+        const [prefix, symbolName] = dotParts as [string, string];
+        const symbolType = parseSymbolType(prefix);
+        if (symbolType !== "unknown")
+            return { symbolType, modulePath, symbolName };
+    }
+
+    // Unknown - not a recognized pattern
+    return { symbolType: "unknown", path: segments.join("/") };
+}
 function importItem(provider: RustCrateProviderContext, input: string):
     | { readonly success: true }
     | { readonly success: false, readonly message: string } {

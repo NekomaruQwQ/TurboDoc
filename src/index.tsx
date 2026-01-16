@@ -6,11 +6,11 @@ ReactDOM
     .createRoot(document.getElementById("app")!)
     .render(React.createElement(() => {
         console.log("App rerendered.");
-        const app = useAppContext();
-        return app && (
-            <AppContextProvider value={app}>
+        const ctx = useAppContext();
+        return ctx &&
+            <AppContextProvider value={ctx}>
                 <App />
-            </AppContextProvider>);
+            </AppContextProvider>;
     }));
 
 import type { ReadonlyDeep } from "type-fest";

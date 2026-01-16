@@ -1,61 +1,24 @@
-import type { IconProp } from "@fortawesome/fontawesome-svg-core";
-export type Icon =
-    | { type: "fontawesome"; icon: IconProp }
+import type { IconProp as FontAwesomeIconProp } from "@fortawesome/fontawesome-svg-core";
+export type IconName =
+    | { type: "fontawesome"; name: FontAwesomeIconProp };
 
 import type { ReadonlyDeep } from "type-fest";
 
 /** The root data model for the application. */
 export interface Workspace {
-    app: {
-        /** Preset definitions. */
-        presets: Preset[],
+    app: AppData,
+    providers: Record<string, ProviderData>,
+}
 
-        /** Currently active preset name. */
-        currentPreset: string,
+interface AppData {
+    /** Preset definitions. */
+    presets: Preset[],
 
-        /** Currently viewed URL. HTTPS protocol assumed. */
-        currentUrl: string,
-    },
-    providers: Record<string,{
-        /** Provider-specific data storage. */
-        data: unknown,
+    /** Currently active preset name. */
+    currentPreset: string,
 
-        /**
-         * Definition of item groups under this provider. For providers that
-         * do not support grouping, this field is an empty array.
-         *
-         * The app manages item grouping for each provider and providers only
-         * need to provide a flat list of items in `Provider.render()`.
-         *
-         * Each group under a provider must have a unique name. Order of groups
-         * is managed by the app and defined here.
-         *
-         * Each group contains a list of item identifiers that belong to that
-         * group. An item can only belong to one group at a time.
-         *
-         * Items that are not listed in any group are considered ungrouped and
-         * will be displayed in a default "ungrouped" group at top of all other
-         * groups.
-         *
-         * Order of groups is defined by this array and is managed by the app.
-         * Order of items within each group as well as in the ungrouped group
-         * is determined by the `sortKey` field of each item. The order of the
-         * `items` array of each group is not preserved.
-         **/
-        groups: {
-            /** Name of the group */
-            name: string,
-
-            /** List of item IDs in this group */
-            items: string[],
-
-            /** Whether the group is expanded in the UI */
-            expanded: boolean,
-        }[],
-
-        /** List of item IDs that are expanded in the UI. */
-        expandedItems: string[],
-    }>,
+    /** Currently viewed URL. HTTPS protocol assumed. */
+    currentUrl: string,
 }
 
 /** The preset data model, also used as view model. */
@@ -67,12 +30,65 @@ export interface Preset {
     providers: string[],
 }
 
+export interface ProviderData {
+    /** Provider-specific data storage. */
+    data: unknown,
+
+    /**
+     * Definition of item groups under this provider. For providers that
+     * do not support grouping, this field is an empty array.
+     *
+     * The app manages item grouping for each provider and providers only
+     * need to provide a flat list of items in `Provider.render()`.
+     *
+     * Each group under a provider must have a unique name. Order of groups
+     * is managed by the app and defined here.
+     *
+     * Each group contains a list of item identifiers that belong to that
+     * group. An item can only belong to one group at a time.
+     *
+     * Items that are not listed in any group are considered ungrouped and
+     * will be displayed in a default "ungrouped" group at top of all other
+     * groups.
+     *
+     * Order of groups is defined by this array and is managed by the app.
+     * Order of items within each group as well as in the ungrouped group
+     * is determined by the `sortKey` field of each item. The order of the
+     * `items` array of each group is not preserved.
+     **/
+    groups: {
+        /** Name of the group */
+        name: string,
+
+        /** List of item IDs in this group */
+        items: string[],
+
+        /** Whether the group is expanded in the UI */
+        expanded: boolean,
+    }[],
+
+    /** List of item IDs that are expanded in the UI. */
+    expandedItems: string[],
+}
+
 export interface Cache {
     providers: Record<string, unknown>,
 }
 
 /** The uniform interface for documentation providers. */
-export interface Provider<T = unknown, TCache = unknown> {
+export interface Provider<T = unknown, TCache = unknown>
+    extends ProviderInfo {
+    /** Render a full view model from provider-specific data storage. */
+    render(provider: ProviderContext<T, TCache>): ProviderOutput,
+
+    /** Import an item from a user input string into the provider-specific data storage. */
+    importItem?(provider: ProviderContext<T, TCache>, input: string):
+        | { readonly success: true }
+        | { readonly success: false, readonly message: string },
+}
+
+/** Metadata about a provider. */
+export interface ProviderInfo {
     /** Unique identifier of the provider. */
     readonly id: string,
 
@@ -84,14 +100,6 @@ export interface Provider<T = unknown, TCache = unknown> {
 
     /** Whether to render item names in <code> tags (monospace font). */
     readonly renderItemNameAsCode: boolean,
-
-    /** Render a full view model from provider-specific data storage. */
-    render(provider: ProviderContext<T, TCache>): ProviderOutput,
-
-    /** Import an item from a user input string into the provider-specific data storage. */
-    importItem?(provider: ProviderContext<T, TCache>, input: string):
-        | { readonly success: true }
-        | { readonly success: false, readonly message: string },
 }
 
 export interface ProviderContext<T = unknown, TCache = unknown> {
@@ -132,6 +140,9 @@ export interface Item {
     /** List of documentation pages for this item. */
     pages: Page[],
 
+    /** List of external links for this item. */
+    links: ItemLink[],
+
     /** List of custom actions for this item. */
     actions: ItemAction[],
 
@@ -141,7 +152,20 @@ export interface Item {
      *
      * For other items, this field is null.
      **/
-    versionSelectorProps: ItemVersionSelectorProps | null,
+    versionSelectorProps: ItemVersions | null,
+}
+
+export interface ItemLink {
+    /** Display name for the action. */
+    name: string,
+
+    /** Target URL to open when the action is triggered. HTTPS protocol assumed. */
+    url: string,
+
+    /** Icon for the action.
+     *  If `undefined`, the default link icon (`faArrowUpRightFromSquare`) is used. */
+    icon?: IconName,
+
 }
 
 /** An action that can be performed on an item, usually shown in the item menu. */
@@ -150,20 +174,18 @@ export interface ItemAction {
     name: string,
 
     /** Icon for the action. */
-    icon: Icon,
+    icon: IconName,
+
+    /** Whether this action is destructive (e.g., delete).
+     *  Destructive actions are highlighted in red in the UI. */
+    destructive?: true,
 
     /** Callback when the action is triggered. */
     invoke(): void,
 }
 
 /** The view model of the version selector for a package item. */
-export interface ItemVersionSelectorProps {
-    /** Currently selected version string. */
-    current: string,
-
-    /** List of versions that are listed in the version selector combobox. */
-    recommended: string[],
-
+export interface ItemVersions {
     /**
      * List of all versions available, grouped by semver compatibility.
      *
@@ -174,6 +196,12 @@ export interface ItemVersionSelectorProps {
      * order (newest versions first).
      **/
     all: string[][],
+
+    /** Currently selected version string. */
+    current: string,
+
+    /** List of versions that are listed in the version selector combobox. */
+    recommended: string[],
 
     /** Callback to select a version as the current version. */
     select(version: string): void,
