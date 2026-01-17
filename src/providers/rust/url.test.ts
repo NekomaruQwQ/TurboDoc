@@ -1,15 +1,15 @@
 /** biome-ignore-all lint/style/noNonNullAssertion: test code */
 
 import { describe, expect, test } from "bun:test";
-import { parseUrl, buildUrl, type KnownUrl } from "./url";
+import { parseUrl, buildUrl, type CrateUrl } from "./url";
 
 describe("parseUrl", () => {
     test("parses valid docs.rs URL with page path", () => {
         const result = parseUrl("https://docs.rs/tokio/1.42.0/tokio/task/index.html");
         expect(result).toEqual({
             baseUrl: "https://docs.rs/",
-            crateName: "tokio",
-            crateVersion: "1.42.0",
+            name: "tokio",
+            version: "1.42.0",
             pathSegments: ["tokio", "task", "index.html"],
         });
     });
@@ -18,8 +18,8 @@ describe("parseUrl", () => {
         const result = parseUrl("https://docs.rs/glam/0.28.0/glam/struct.Vec3.html");
         expect(result).toEqual({
             baseUrl: "https://docs.rs/",
-            crateName: "glam",
-            crateVersion: "0.28.0",
+            name: "glam",
+            version: "0.28.0",
             pathSegments: ["glam", "struct.Vec3.html"],
         });
     });
@@ -28,8 +28,8 @@ describe("parseUrl", () => {
         const result = parseUrl("https://docs.rs/serde/latest/serde/index.html");
         expect(result).toEqual({
             baseUrl: "https://docs.rs/",
-            crateName: "serde",
-            crateVersion: "latest",
+            name: "serde",
+            version: "latest",
             pathSegments: ["serde", "index.html"],
         });
     });
@@ -38,8 +38,8 @@ describe("parseUrl", () => {
         const result = parseUrl("https://docs.rs/tokio/1.42.0/tokio/sync/mpsc/struct.Sender.html");
         expect(result).toEqual({
             baseUrl: "https://docs.rs/",
-            crateName: "tokio",
-            crateVersion: "1.42.0",
+            name: "tokio",
+            version: "1.42.0",
             pathSegments: ["tokio", "sync", "mpsc", "struct.Sender.html"],
         });
     });
@@ -48,8 +48,8 @@ describe("parseUrl", () => {
         const result = parseUrl("https://docs.rs/bevy/0.15.0-rc.1/bevy/index.html");
         expect(result).toEqual({
             baseUrl: "https://docs.rs/",
-            crateName: "bevy",
-            crateVersion: "0.15.0-rc.1",
+            name: "bevy",
+            version: "0.15.0-rc.1",
             pathSegments: ["bevy", "index.html"],
         });
     });
@@ -63,8 +63,8 @@ describe("parseUrl", () => {
         const result = parseUrl("https://docs.rs/tokio/1.42.0/");
         expect(result).toEqual({
             baseUrl: "https://docs.rs/",
-            crateName: "tokio",
-            crateVersion: "1.42.0",
+            name: "tokio",
+            version: "1.42.0",
             pathSegments: [""],
         });
     });
@@ -73,8 +73,8 @@ describe("parseUrl", () => {
         const result = parseUrl("https://docs.rs/tokio/1.42.0");
         expect(result).toEqual({
             baseUrl: "https://docs.rs/",
-            crateName: "tokio",
-            crateVersion: "1.42.0",
+            name: "tokio",
+            version: "1.42.0",
             pathSegments: [],
         });
     });
@@ -93,8 +93,8 @@ describe("parseUrl", () => {
         const result = parseUrl("https://docs.rs/tokio");
         expect(result).toEqual({
             baseUrl: "https://docs.rs/",
-            crateName: "tokio",
-            crateVersion: null,
+            name: "tokio",
+            version: null,
             pathSegments: [],
         });
     });
@@ -102,60 +102,60 @@ describe("parseUrl", () => {
 
 describe("buildUrl", () => {
     test("builds URL for PageCrate with page path", () => {
-        const page: KnownUrl = {
+        const page: CrateUrl = {
             baseUrl: "https://docs.rs/",
-            crateName: "tokio",
-            crateVersion: "1.42.0",
+            name: "tokio",
+            version: "1.42.0",
             pathSegments: ["tokio", "task", "index.html"],
         };
         expect(buildUrl(page)).toBe("https://docs.rs/tokio/1.42.0/tokio/task/index.html");
     });
 
     test("builds URL for PageCrate with struct page", () => {
-        const page: KnownUrl = {
+        const page: CrateUrl = {
             baseUrl: "https://docs.rs/",
-            crateName: "glam",
-            crateVersion: "0.28.0",
+            name: "glam",
+            version: "0.28.0",
             pathSegments: ["glam", "struct.Vec3.html"],
         };
         expect(buildUrl(page)).toBe("https://docs.rs/glam/0.28.0/glam/struct.Vec3.html");
     });
 
     test("builds URL for PageCrate with 'latest' version", () => {
-        const page: KnownUrl = {
+        const page: CrateUrl = {
             baseUrl: "https://docs.rs/",
-            crateName: "serde",
-            crateVersion: "latest",
+            name: "serde",
+            version: "latest",
             pathSegments: ["serde", "index.html"],
         };
         expect(buildUrl(page)).toBe("https://docs.rs/serde/latest/serde/index.html");
     });
 
     test("builds URL for PageCrate with pre-release version", () => {
-        const page: KnownUrl = {
+        const page: CrateUrl = {
             baseUrl: "https://docs.rs/",
-            crateName: "bevy",
-            crateVersion: "0.15.0-rc.1",
+            name: "bevy",
+            version: "0.15.0-rc.1",
             pathSegments: ["bevy", "index.html"],
         };
         expect(buildUrl(page)).toBe("https://docs.rs/bevy/0.15.0-rc.1/bevy/index.html");
     });
 
     test("builds URL for PageCrate with deeply nested page", () => {
-        const page: KnownUrl = {
+        const page: CrateUrl = {
             baseUrl: "https://docs.rs/",
-            crateName: "tokio",
-            crateVersion: "1.42.0",
+            name: "tokio",
+            version: "1.42.0",
             pathSegments: ["tokio", "sync", "mpsc", "struct.Sender.html"],
         };
         expect(buildUrl(page)).toBe("https://docs.rs/tokio/1.42.0/tokio/sync/mpsc/struct.Sender.html");
     });
 
     test("builds URL for PageCrate with empty pathSegments (crate root)", () => {
-        const page: KnownUrl = {
+        const page: CrateUrl = {
             baseUrl: "https://docs.rs/",
-            crateName: "glam",
-            crateVersion: "0.28.0",
+            name: "glam",
+            version: "0.28.0",
             pathSegments: [],
         };
         expect(buildUrl(page)).toBe("https://docs.rs/glam/0.28.0/");
@@ -173,10 +173,10 @@ describe("parseUrl and buildUrl roundtrip", () => {
     });
 
     test("roundtrip: build then parse returns same data", () => {
-        const page: KnownUrl = {
+        const page: CrateUrl = {
             baseUrl: "https://docs.rs/",
-            crateName: "serde",
-            crateVersion: "1.0.0",
+            name: "serde",
+            version: "1.0.0",
             pathSegments: ["serde", "de", "trait.Deserialize.html"],
         };
 

@@ -17,32 +17,32 @@ import type {
     IdentType,
 } from "@/core/data";
 
-import { parseUrl, buildUrl } from "./url";
+import { parseUrl, buildUrl, getBaseUrlForCrate } from "./url";
 import { getImportCratesAction } from "./import";
 
-const RustCrateProvider:
+const RustProvider:
     Provider<
-        RustCrateProviderData,
-        RustCrateProviderCache> = {
-    id: "rust.crate",
-    name: "Rust Crates",
+        RustProviderData,
+        RustProviderCache> = {
+    id: "rust",
+    name: "Rust",
     enableItemGrouping: true,
     renderItemNameAsCode: true,
     render,
 };
 
-export default RustCrateProvider;
+export default RustProvider;
 
-export type RustCrateProviderContext =
+export type RustProviderContext =
     ProviderContext<
-        RustCrateProviderData,
-        RustCrateProviderCache>;
+        RustProviderData,
+        RustProviderCache>;
 
-export interface RustCrateProviderData {
+export interface RustProviderData {
     crates: Record<string, CrateData>;
 }
 
-export interface RustCrateProviderCache {
+export interface RustProviderCache {
     crates: Record<string, CrateCache>;
 }
 
@@ -68,7 +68,7 @@ export interface CrateCache {
     /** Full version list fetched from crates.io API */
     versions: { num: string, yanked: boolean } [];
     /** Grouped versions for display */
-    versionGroups: { latest: string, versions: { num: string, yanked: boolean }[] }[];
+    versionGroups: { versions: { num: string, yanked: boolean }[] }[];
     /** Homepage URL */
     homepage: string | null;
     /** Repository URL */
@@ -77,49 +77,43 @@ export interface CrateCache {
     documentation: string | null;
 }
 
-function handleCurrentUrl(ctx: RustCrateProviderContext) {
+function handleCurrentUrl(ctx: RustProviderContext) {
     const currentUrl = parseUrl(ctx.currentUrl);
-    switch (currentUrl?.baseUrl) {
-        case "https://docs.rs/": {
-            const crateName = currentUrl.crateName;
-            const crate = ctx.data.crates[crateName];
-            if (crate) {
-                if (currentUrl.crateVersion) {
-                    // If version is specified in the URL, update the crate's
-                    // currentVersion accordingly.
-                    const newVersion = currentUrl.crateVersion;
-                    ctx.updateData(draft => {
-                        const crate = draft.crates[crateName];
-                        if (crate) {
-                            crate.currentVersion = newVersion;
-                        }
-                    });
-                } else {
-                    // If version is missing, redirect according to the current
-                    // version of that crate.
-                    ctx.setCurrentUrl(buildUrl({
-                        baseUrl: "https://docs.rs/",
-                        crateName,
-                        crateVersion: crate.currentVersion,
-                        pathSegments: currentUrl.pathSegments,
-                    }));
+    if (!currentUrl) return;
+
+    if (ctx.currentUrl !== buildUrl(currentUrl)) {
+        // Normalize currentUrl in context.
+        ctx.setCurrentUrl(buildUrl(currentUrl));
+        return;
+    }
+
+    const crateName = currentUrl.name;
+    const crate = ctx.data.crates[crateName];
+    if (crate) {
+        if (currentUrl.version !== crate.currentVersion) {
+            // If version is specified in the URL, update the crate's
+            // currentVersion accordingly.
+            const newVersion = currentUrl.version;
+            ctx.updateData(draft => {
+                const crate = draft.crates[crateName];
+                if (crate) {
+                    crate.currentVersion = newVersion;
                 }
-            } else {
-                // The crate of the current URL is not contained in `data.crates`.
-                ctx.updateData(draft => {
-                    draft.crates ??= {};
-                    draft.crates[crateName] = {
-                        currentVersion: currentUrl.crateVersion ?? "latest",
-                        pinnedPages: [],
-                    };
-                });
-            }
-            break;
+            });
         }
+    } else {
+        // The crate of the current URL is not contained in `data.crates`.
+        ctx.updateData(draft => {
+            draft.crates ??= {};
+            draft.crates[crateName] = {
+                currentVersion: currentUrl.version ?? "latest",
+                pinnedPages: [],
+            };
+        });
     }
 }
 
-function render(ctx: RustCrateProviderContext): ProviderOutput {
+function render(ctx: RustProviderContext): ProviderOutput {
     handleCurrentUrl(ctx);
 
     const items =
@@ -145,11 +139,30 @@ function render(ctx: RustCrateProviderContext): ProviderOutput {
 }
 
 function renderItem(
-    ctx: RustCrateProviderContext,
+    ctx: RustProviderContext,
     crateName: string,
     crateData: ReadonlyDeep<CrateData>,
     crateCache: ReadonlyDeep<CrateCache> | null,
 ): Item {
+    function setCurrentVersion(newVersion: string) {
+        const currentUrl = parseUrl(ctx.currentUrl);
+        if (currentUrl && currentUrl.name === crateName) {
+            ctx.setCurrentUrl(buildUrl({
+                baseUrl: getBaseUrlForCrate(crateName),
+                name: crateName,
+                version: newVersion,
+                pathSegments: currentUrl.pathSegments,
+            }));
+        } else {
+            ctx.updateData(draft => {
+                const crate = draft.crates[crateName];
+                if (crate) {
+                    crate.currentVersion = newVersion;
+                }
+            });
+        }
+    }
+
     return {
         id: crateName,
         name: crateName,
@@ -161,33 +174,23 @@ function renderItem(
                 ? getCrateLinks(crateName, crateCache)
                 : undefined,
         actions:
-            getCrateActions(ctx, crateName),
-        versions:
-            crateCache
-                ? getCrateVersions(
-                    crateData,
-                    crateCache,
-                    newVersion => {
-                        const currentUrl = parseUrl(ctx.currentUrl);
-                        if (currentUrl &&
-                            currentUrl.baseUrl === "https://docs.rs/" &&
-                            currentUrl.crateName === crateName) {
-                            ctx.setCurrentUrl(buildUrl({
-                                baseUrl: "https://docs.rs/",
-                                crateName,
-                                crateVersion: newVersion,
-                                pathSegments: currentUrl.pathSegments,
-                            }));
-                        } else {
-                            ctx.updateData(draft => {
-                                const crate = draft.crates[crateName];
-                                if (crate) {
-                                    crate.currentVersion = newVersion;
-                                }
-                            });
-                        }
-                    })
+            getBaseUrlForCrate(crateName) !== "https://doc.rust-lang.org/"
+                ? getCrateActions(ctx, crateName)
                 : undefined,
+        versions:
+            getBaseUrlForCrate(crateName) !== "https://doc.rust-lang.org/"
+                ? crateCache
+                    ? getCrateVersions(
+                        crateData,
+                        crateCache,
+                        setCurrentVersion)
+                    : undefined
+                : {
+                    current: crateData.currentVersion,
+                    recommended: ["stable", "nightly"],
+                    all: [["stable", "nightly"]],
+                    setCurrentVersion,
+                },
     };
 }
 
@@ -254,7 +257,7 @@ function getCrateLinks(
 }
 
 function getCrateActions(
-    ctx: RustCrateProviderContext,
+    ctx: RustProviderContext,
     crateName: string): ItemAction[] {
     return [
         {
@@ -269,7 +272,7 @@ function getCrateActions(
 }
 
 function getCratePages(
-    ctx: RustCrateProviderContext,
+    ctx: RustProviderContext,
     crateName: string,
     crateData: ReadonlyDeep<CrateData>): Page[] {
     function getPageNameFromPath(path: string): PageName {
@@ -294,18 +297,20 @@ function getCratePages(
             switch (prefix) {
                 case "constant":
                     return "constant";
-                case "enum":
-                    return "type";
                 case "fn":
                     return "function";
-                case "macro":
-                    return "macro";
-                case "struct":
-                    return "type";
                 case "trait":
                     return "interface";
+                case "struct":
                 case "type":
+                case "enum":
+                case "union":
+                case "primitive":
                     return "type";
+                case "attr":
+                case "macro":
+                case "derive":
+                    return "macro";
                 default:
                     return "unknown";
             }
@@ -348,28 +353,36 @@ function getCratePages(
         return { type: "text", text: "<error>" };
     }
 
+    /** Builds a URL for the given path within this crate. */
+    function buildPageUrl(pathSegments: string[]): string {
+        return buildUrl({
+            baseUrl: getBaseUrlForCrate(crateName),
+            name: crateName,
+            version: crateData.currentVersion,
+            pathSegments,
+        });
+    }
+
     const currentUrl = parseUrl(ctx.currentUrl);
 
+    // Root module path differs between docs.rs and doc.rust-lang.org:
+    // - docs.rs: path includes module name (e.g., "tokio/runtime/...")
+    // - doc.rust-lang.org: path excludes crate name (e.g., "vec/..." not "std/vec/...")
     const rootModuleName = crateName.replaceAll("-", "_");
     const rootModulePath = `${rootModuleName}/`;
 
-    // Check if currentPage belongs to this crate (same name and version)
+    // Check if currentPage belongs to this crate.
+    // For docs.rs: same name and version.
+    // For doc.rust-lang.org: same name (no version).
     const isThisCrate =
         currentUrl &&
-        currentUrl.baseUrl === "https://docs.rs/" &&
-        currentUrl.crateName === crateName &&
-        currentUrl.crateVersion === crateData.currentVersion;
+        currentUrl.name === crateName;
     const currentPath =
         isThisCrate ? currentUrl.pathSegments.join("/") : null;
 
     const pages: Page[] = [];
     for (const path of crateData.pinnedPages) {
-        const url = buildUrl({
-            baseUrl: "https://docs.rs/",
-            crateName,
-            crateVersion: crateData.currentVersion,
-            pathSegments: path.split("/"),
-        });
+        const url = buildPageUrl(path.split("/"));
         pages.push({
             name: getPageNameFromPath(path),
             sortKey: path,
@@ -387,15 +400,12 @@ function getCratePages(
         });
     }
 
+    // Root module page (always present, pinning disabled).
+    // For std crates, rootModulePath is empty, so we pass empty array to buildPageUrl.
     pages.push({
         name: { type: "text", text: rootModuleName },
         sortKey: rootModulePath,
-        url: buildUrl({
-            baseUrl: "https://docs.rs/",
-            crateName,
-            crateVersion: crateData.currentVersion,
-            pathSegments: [rootModulePath],
-        }),
+        url: buildPageUrl([rootModuleName]),
         pinned: null,
         setPinned: _ => {},
     });
@@ -432,9 +442,13 @@ import * as Utils from "@/utils/version-group";
 const CACHE_EXPIRY_MS = 24 * 60 * 60 * 1000;
 
 function getCrateCache(
-    ctx: RustCrateProviderContext,
+    ctx: RustProviderContext,
     crateName: string,
 ): ReadonlyDeep<CrateCache> | null {
+    // Standard library crates are not on crates.io - no cache needed.
+    if (getBaseUrlForCrate(crateName) === "https://doc.rust-lang.org/")
+        return null;
+
     async function refetch(
         crateName: string,
         callback: (crateCache: CrateCache) => void,

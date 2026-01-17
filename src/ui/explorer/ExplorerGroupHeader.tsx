@@ -269,7 +269,10 @@ function useDeleteDialog() {
                             onClick={() => setOpen(false)}>Cancel</Button>
                         <Button
                             variant="destructive"
-                            onClick={props.callback}>Delete</Button>
+                            onClick={() => {
+                                props.callback();
+                                setOpen(false);
+                            }}>Delete</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>),

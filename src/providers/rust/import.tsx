@@ -16,10 +16,10 @@ import {
 } from "@shadcn/components/ui/dialog";
 
 import type { ProviderAction } from "@/core/data";
-import { parseUrl } from "./url";
-import type { RustCrateProviderContext } from "./index";
+import { parseUrl, getBaseUrlForCrate } from "./url";
+import type { RustProviderContext } from "./index";
 
-export function getImportCratesAction(ctx: RustCrateProviderContext): ProviderAction {
+export function getImportCratesAction(ctx: RustProviderContext): ProviderAction {
     return {
         type: "node",
         render() {
@@ -49,11 +49,12 @@ export function getImportCratesAction(ctx: RustCrateProviderContext): ProviderAc
                     if (line.startsWith("https://")) {
                         const page = parseUrl(line);
                         switch (page?.baseUrl) {
-                            case "https://docs.rs/": {
+                            case "https://docs.rs/":
+                            case "https://doc.rust-lang.org/": {
                                 const path = page.pathSegments.join("/");
-                                if (!(importCrates[page.crateName]?.includes(path))) {
-                                    importCrates[page.crateName] ??= [];
-                                    importCrates[page.crateName]?.push(path);
+                                if (!(importCrates[page.name]?.includes(path))) {
+                                    importCrates[page.name] ??= [];
+                                    importCrates[page.name]?.push(path);
                                 }
                                 break;
                             }
@@ -73,8 +74,13 @@ export function getImportCratesAction(ctx: RustCrateProviderContext): ProviderAc
 
                 ctx.updateData(draft => {
                     for (const [crateName, newPages] of Object.entries(importCrates)) {
+                        // Use "stable" for std crates, "latest" for crates.io crates.
+                        const defaultVersion =
+                            getBaseUrlForCrate(crateName) === "https://doc.rust-lang.org/"
+                                ? "stable"
+                                : "latest";
                         draft.crates[crateName] ??= {
-                            currentVersion: "latest",
+                            currentVersion: defaultVersion,
                             pinnedPages: [],
                         };
 
@@ -99,14 +105,14 @@ export function getImportCratesAction(ctx: RustCrateProviderContext): ProviderAc
                     className="w-full h-8 cursor-pointer"
                     onClick={() => setShowDialog(true)}>
                     <FontAwesomeIcon icon={faPlus}/>
-                    <span>Import Crates</span>
+                    <span>Import</span>
                 </ActionButton>
                 <Dialog open={showDialog} onOpenChange={setShowDialog}>
                     <DialogContent>
                         <DialogHeader>
                             <DialogTitle>Import from URLs</DialogTitle>
                             <DialogDescription>
-                                Paste docs.rs URLs (one per line) to add crates and pages.
+                                Paste crate names or docs.rs or doc.rust-lang.org URLs (one per line) to add crates and pages.
                             </DialogDescription>
                         </DialogHeader>
                         <textarea

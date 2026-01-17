@@ -80,6 +80,8 @@ function ExplorerPageName({ value }: ReadonlyDeep<{ value: PageName }>) {
         case "text":
             return <>{value.text}</>;
         case "symbol":
+            // Keys omitted: path is static per render, elements are stateless inline
+            // spans, so React reconciliation works correctly without explicit keys.
             return value.path.map((ident, index) => <>
                 {index > 0 && <span>{value.separator}</span>}
                 <span className={getIdentColor(ident.type)}>{ident.name}</span>

@@ -88,15 +88,21 @@ function useAppContext(): AppContext | null {
     // Save the workspace and cache on every change.
     useEffect(() => {
         if (!workspace) return;
-        if (lastWorkspaceRef.current !== JSON.stringify(workspace))
+        const json = JSON.stringify(workspace);
+        if (lastWorkspaceRef.current !== json) {
+            lastWorkspaceRef.current = json;
             IPC.saveWorkspace(workspace)
                 .catch(err => console.error(err));
+        }
     }, [workspace]);
     useEffect(() => {
         if (!cache) return;
-        if (lastCacheRef.current !== JSON.stringify(cache))
+        const json = JSON.stringify(cache);
+        if (lastCacheRef.current !== json) {
+            lastCacheRef.current = json;
             IPC.saveCache(cache)
                 .catch(err => console.error(err));
+        }
     }, [cache]);
 
     // Listen to the "navigated" IPCEvent.

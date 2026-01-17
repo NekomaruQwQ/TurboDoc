@@ -1,10 +1,10 @@
 import type { Provider } from "@/core/data";
 import * as _ from "remeda";
 
-import RustCrateProvider from "@/providers/rust.crate";
+import RustProvider from "@/providers/rust";
 
 const providers: Provider[] = [
-    RustCrateProvider,
+    RustProvider,
 ];
 
 export default

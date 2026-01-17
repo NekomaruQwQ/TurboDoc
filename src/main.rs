@@ -36,6 +36,7 @@ mod consts {
     pub const KNOWN_URL: PrefixCollection<'static> =
         PrefixCollection(Cow::Borrowed(&[
             "https://docs.rs",
+            "https://doc.rust-lang.org",
         ]));
 
     pub const IGNORED_URL: PrefixCollection<'static> =

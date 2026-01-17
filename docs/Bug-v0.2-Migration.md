@@ -44,12 +44,12 @@ function removeGroup() {
 
 ### #2: State updates during render
 
-**File:** [rust.crate/index.tsx:121-122](../src/providers/rust.crate/index.tsx#L121-L122)
+**File:** [rust/index.tsx:116-117](../src/providers/rust/index.tsx#L116-L117)
 
 **Problem:** `handleCurrentUrl()` is called during `render()` and may trigger state updates.
 
 ```typescript
-function render(ctx: RustCrateProviderContext): ProviderOutput {
+function render(ctx: RustProviderContext): ProviderOutput {
     handleCurrentUrl(ctx);  // calls ctx.updateData() and ctx.setCurrentUrl()
     // ...
 }
@@ -114,9 +114,108 @@ export function useProviderData(): State<ProviderData> {
 
 ---
 
+### #4: "Delete Crate" action leaves orphaned group references
+
+**File:** [rust/index.tsx:264-269](../src/providers/rust/index.tsx#L264-L269)
+
+**Problem:** When a crate is deleted via the "Delete Crate" action, it only removes from `draft.crates`. If that crate was assigned to a group, the group will still contain a stale reference to the deleted crate ID.
+
+```typescript
+invoke: () => ctx.updateData(draft => {
+    delete draft.crates[crateName];
+    // Missing: remove from groups
+}),
+```
+
+**Impact:**
+- Groups contain stale item IDs that no longer exist
+- While the UI filters these out (items not in `providerOutput.items` won't render), the stale data remains in storage
+
+**Fix:** Also remove the crate from all groups:
+```typescript
+invoke: () => {
+    ctx.updateData(draft => {
+        delete draft.crates[crateName];
+    });
+    updateProviderData(draft => {
+        for (const group of Object.values(draft.groups)) {
+            group.items = group.items.filter(id => id !== crateName);
+        }
+    });
+},
+```
+
+---
+
+### #5: Redundant API fetches due to missing in-flight tracking
+
+**File:** [rust/index.tsx:476-484](../src/providers/rust/index.tsx#L476-L484)
+
+**Problem:** `getCrateCache` starts an async `refetch()` without tracking in-flight requests. If `render()` is called multiple times before the first fetch completes, multiple redundant API calls are made for the same crate.
+
+```typescript
+if (!existing || Date.now() - existing.lastFetched > CACHE_EXPIRY_MS) {
+    refetch(crateName, crateCache => { ... });  // No tracking!
+}
+return existing;
+```
+
+**Impact:**
+- Redundant network requests to crates.io API
+- Potential rate limiting issues
+- Wasted bandwidth and processing
+
+**Fix:** Track in-flight requests to prevent duplicates:
+```typescript
+const inFlightRequests = new Set<string>();
+
+function getCrateCache(...) {
+    if (!existing || Date.now() - existing.lastFetched > CACHE_EXPIRY_MS) {
+        if (!inFlightRequests.has(crateName)) {
+            inFlightRequests.add(crateName);
+            refetch(crateName, crateCache => {
+                inFlightRequests.delete(crateName);
+                // ... update cache
+            });
+        }
+    }
+    return existing;
+}
+```
+
+---
+
+### #7: `getPageNameFromPath` doesn't handle trailing slashes
+
+**File:** [rust/index.tsx:319-329](../src/providers/rust/index.tsx#L319-L329)
+
+**Problem:** When a path ends with `/` (e.g., `"std/vec/"`), `split("/")` produces `["std", "vec", ""]`. The empty string becomes the final segment in the symbol path.
+
+```typescript
+const segments = path.split("/");
+const fileName = segments.at(-1);  // fileName = ""
+
+if (!fileName || !fileName.endsWith(".html")) {
+    return createSymbol(segments, "namespace");  // segments includes ""!
+}
+```
+
+`createSymbol` then produces a path with an empty-name final segment, rendering as `std::vec::` (dangling `::` from the empty name).
+
+**Impact:**
+- User sees malformed symbol names like `tokio::runtime::` instead of `tokio::runtime`
+- Affects all module paths that end with `/`
+
+**Fix:** Filter empty segments or strip trailing slash before processing:
+```typescript
+const segments = path.split("/").filter(s => s !== "");
+```
+
+---
+
 ## Moderate Bugs
 
-### #4: IPC handler registered on every render
+### #6: IPC handler registered on every render
 
 **File:** [index.tsx:101-105](../src/index.tsx#L101-L105)
 
@@ -148,6 +247,80 @@ useEffect(() => {
 
 ---
 
+### #8: No `index.html` normalization in URL handling
+
+**File:** [rust/url.ts:83-87](../src/providers/rust/url.ts#L83-L87)
+
+**Problem:** `buildUrl` doesn't normalize `index.html` paths. URLs like `tokio/runtime/index.html` and `tokio/runtime/` point to the same content but are treated as different paths.
+
+```typescript
+let path = crate.pathSegments.join("/");
+if (!path.endsWith(".html") &&
+    !path.endsWith("/")) {
+    path = `${path}/`;
+}
+// No handling for index.html → directory equivalence
+```
+
+**Impact:**
+- Preview page detection may fail (path comparison mismatch)
+- Pinned page matching may fail (same page appears unpinned)
+- Duplicate entries possible in `pinnedPages`
+
+**Fix:** Normalize `index.html` to directory form:
+```typescript
+if (path.endsWith("/index.html")) {
+    path = path.slice(0, -"index.html".length);
+}
+```
+
+---
+
+## Minor Bugs
+
+### #9: Importing root module URLs adds dead entries to `pinnedPages`
+
+**File:** [rust/import.tsx:54-58](../src/providers/rust/import.tsx#L54-L58)
+
+**Problem:** When importing a root module URL (e.g., `https://docs.rs/tokio/latest/tokio/`), the path `"tokio/"` is added to `pinnedPages`. However, in `getCratePages`, the root module page always has `pinned: null` and is rendered separately—so the entry is never displayed.
+
+**Impact:**
+- Wasted storage in `pinnedPages`
+- No user-visible effect (the root page still appears, just not as "pinned")
+
+**Fix:** Skip root module paths during import:
+```typescript
+const rootPath = `${page.name.replaceAll("-", "_")}/`;
+if (path !== rootPath && !(importCrates[page.name]?.includes(path))) {
+    // ... add to pinnedPages
+}
+```
+
+---
+
+### #10: Misleading comment about path structure
+
+**File:** [rust/index.tsx:369-371](../src/providers/rust/index.tsx#L369-L371)
+
+**Problem:** Comment says doc.rust-lang.org paths exclude the crate name, but they actually include it.
+
+```typescript
+// Root module path differs between docs.rs and doc.rust-lang.org:
+// - docs.rs: path includes module name (e.g., "tokio/runtime/...")
+// - doc.rust-lang.org: path excludes crate name (e.g., "vec/..." not "std/vec/...")
+```
+
+The code is correct (`pathSegments` includes the crate name for both); only the comment is wrong.
+
+**Fix:** Update comment to reflect actual behavior:
+```typescript
+// Both docs.rs and doc.rust-lang.org paths include the crate/module name:
+// - docs.rs: "tokio/runtime/..."
+// - doc.rust-lang.org: "std/vec/..."
+```
+
+---
+
 ## Summary
 
 | ID | Severity | Status | Description |
@@ -155,4 +328,10 @@ useEffect(() => {
 | #1 | Critical | Open | `removeGroup()` leaves orphaned state |
 | #2 | Critical | Open | State updates during render |
 | #3 | Critical | Open | Provider not initialized → crash |
-| #4 | Moderate | Open | IPC handler registered on every render |
+| #4 | Critical | Open | "Delete Crate" leaves orphaned group references |
+| #5 | Critical | Open | Redundant API fetches due to missing in-flight tracking |
+| #6 | Moderate | Open | IPC handler registered on every render |
+| #7 | Critical | Open | `getPageNameFromPath` doesn't handle trailing slashes |
+| #8 | Moderate | Open | No `index.html` normalization in URL handling |
+| #9 | Minor    | Open | Importing root module URLs adds dead entries |
+| #10 | Minor   | Open | Misleading comment about path structure |
