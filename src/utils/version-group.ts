@@ -1,5 +1,9 @@
 import * as semver from "semver";
-import type { CrateVersion } from "@/data";
+
+interface VersionOrYanked {
+	num: string;
+	yanked: boolean;
+}
 
 /**
  * Compute version groups for display based on semver compatibility.
@@ -12,9 +16,9 @@ import type { CrateVersion } from "@/data";
  * @returns Array of version groups, each containing the latest version and all versions in that group
  */
 export function computeVersionGroups(
-	versions: CrateVersion[],
+	versions: VersionOrYanked[],
 	maxGroups: number = 5
-): { latest: string; versions: CrateVersion[] }[] {
+): { latest: string; versions: VersionOrYanked[] }[] {
 	const parsed = versions
 		.map(v => ({
 			...v,
@@ -30,7 +34,7 @@ export function computeVersionGroups(
 	}
 
 	// Group by major.minor
-	const groupMap = new Map<string, CrateVersion[]>();
+	const groupMap = new Map<string, VersionOrYanked[]>();
 
 	for (const v of parsed) {
 		const key = `${v.parsed!.major}.${v.parsed!.minor}`;
@@ -41,7 +45,7 @@ export function computeVersionGroups(
 	}
 
 	// Convert to array and take only maxGroups
-	const groups: { latest: string; versions: CrateVersion[] }[] = [];
+	const groups: { latest: string; versions: VersionOrYanked[] }[] = [];
 
 	for (const [_, versions] of Array.from(groupMap.entries())) {
 		if (groups.length >= maxGroups) break;

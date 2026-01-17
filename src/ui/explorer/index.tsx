@@ -61,13 +61,20 @@ function ExplorerProvider() {
     };
 
     const providerOutput = provider.render(providerContext);
+    const providerActionNodes =
+        providerOutput.actions?.map(action => {
+            if (action.type === "node") {
+                return action.render();
+            }
+        }) ?? [];
     return provider && (
         provider.enableItemGrouping ?
             <div className="flex flex-col gap-3">
+                {...providerActionNodes}
                 <ExplorerGroup
                     variant="ungrouped"
                     providerOutput={providerOutput} />
-                {_
+                {Object
                     .keys(providerData?.groups ?? {})
                     .map(groupName => (
                         <ExplorerGroup
@@ -79,7 +86,8 @@ function ExplorerProvider() {
                 <ExplorerCreateGroupComponent />
             </div> :
             <div className="flex flex-col gap-2">
-                {_
+                {...providerActionNodes}
+                {Object
                     .entries(providerOutput.items)
                     .map(([itemId, item]) => (
                         <ExplorerItem
@@ -99,10 +107,10 @@ function ExplorerGroup(props: ReadonlyDeep<{
         ? <div className="flex flex-col gap-1.5">
             <ExplorerGroupHeader variant="ungrouped"/>
             <div className="flex flex-col gap-2">
-                {_
+                {Object
                     .entries(props.providerOutput.items)
                     .filter(([itemId, __]) => (
-                        !_
+                        !Object
                             .entries(providerData.groups)
                             .some(([_, group]) => group.items.includes(itemId))))
                     .map(([itemId, item]) => (

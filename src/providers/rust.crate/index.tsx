@@ -1,37 +1,24 @@
 import type { ReadonlyDeep } from "type-fest";
 import * as _ from "remeda";
+import * as semver from "semver";
 
 import { faTrash } from "@fortawesome/free-solid-svg-icons";
-
-import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-} from "@shadcn/components/ui/dialog";
-
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuSeparator,
-    DropdownMenuTrigger,
-} from "@shadcn/components/ui/dropdown-menu";
 
 import type {
     Provider,
     ProviderContext,
     ProviderOutput,
     Item,
+    ItemLink,
     ItemAction,
+    ItemVersions,
     Page,
     PageName,
     IdentType,
 } from "@/core/data";
 
-import { type KnownUrl, parseUrl, buildUrl } from "./url";
+import { parseUrl, buildUrl } from "./url";
+import { getImportCratesAction } from "./import";
 
 const RustCrateProvider:
     Provider<
@@ -46,20 +33,20 @@ const RustCrateProvider:
 
 export default RustCrateProvider;
 
-type RustCrateProviderContext =
+export type RustCrateProviderContext =
     ProviderContext<
         RustCrateProviderData,
         RustCrateProviderCache>;
 
-interface RustCrateProviderData {
+export interface RustCrateProviderData {
     crates: Record<string, CrateData>;
 }
 
-interface RustCrateProviderCache {
+export interface RustCrateProviderCache {
     crates: Record<string, CrateCache>;
 }
 
-interface CrateData {
+export interface CrateData {
     /** Currently selected version */
     currentVersion: string;
 
@@ -73,7 +60,7 @@ interface CrateData {
     pinnedPages: string[];
 }
 
-interface CrateCache {
+export interface CrateCache {
     /** Timestamp when this cache entry was last updated */
     lastFetched: number;
     /** Name of the crate (for validation) */
@@ -97,9 +84,19 @@ function handleCurrentUrl(ctx: RustCrateProviderContext) {
             const crateName = currentUrl.crateName;
             const crate = ctx.data.crates[crateName];
             if (crate) {
-                // If version is missing, redirect according to the current version
-                // of that crate.
-                if (!currentUrl.crateVersion) {
+                if (currentUrl.crateVersion) {
+                    // If version is specified in the URL, update the crate's
+                    // currentVersion accordingly.
+                    const newVersion = currentUrl.crateVersion;
+                    ctx.updateData(draft => {
+                        const crate = draft.crates[crateName];
+                        if (crate) {
+                            crate.currentVersion = newVersion;
+                        }
+                    });
+                } else {
+                    // If version is missing, redirect according to the current
+                    // version of that crate.
                     ctx.setCurrentUrl(buildUrl({
                         baseUrl: "https://docs.rs/",
                         crateName,
@@ -125,22 +122,133 @@ function render(ctx: RustCrateProviderContext): ProviderOutput {
     handleCurrentUrl(ctx);
 
     const items =
-        _.pipe(
-            _.entries(ctx.data.crates),
-            _.mapToObj(([crateName, crateData]) => {
-                // const pages = renderPages(ctx, crateData);
-                return [crateName, {
-                    id: crateName,
-                    name: crateName,
-                    sortKey: crateName,
-                    pages: getCratePages(ctx, crateName, crateData),
-                    actions: getCrateActions(ctx, crateName),
-                }];
-            }));
+        _.mapToObj(_.entries(ctx.data.crates), pair => {
+            const [crateName, crateData] = pair;
+            const crateCache =
+                getCrateCache(ctx, crateName);
+            const crateItem =
+                renderItem(
+                    ctx,
+                    crateName,
+                    crateData,
+                    crateCache!);
+            return [crateName, crateItem];
+        });
 
     return {
         items,
+        actions: [
+            getImportCratesAction(ctx),
+        ],
     };
+}
+
+function renderItem(
+    ctx: RustCrateProviderContext,
+    crateName: string,
+    crateData: ReadonlyDeep<CrateData>,
+    crateCache: ReadonlyDeep<CrateCache>
+): Item {
+    return {
+        id: crateName,
+        name: crateName,
+        sortKey: crateName,
+        pages:
+            getCratePages(ctx, crateName, crateData),
+        links:
+            crateCache
+                ? getCrateLinks(crateName, crateCache)
+                : undefined,
+        actions:
+            getCrateActions(ctx, crateName),
+        versions:
+            crateCache
+                ? getCrateVersions(
+                    crateData,
+                    crateCache,
+                    newVersion => {
+                        const currentUrl = parseUrl(ctx.currentUrl);
+                        if (currentUrl &&
+                            currentUrl.baseUrl === "https://docs.rs/" &&
+                            currentUrl.crateName === crateName) {
+                            ctx.setCurrentUrl(buildUrl({
+                                baseUrl: "https://docs.rs/",
+                                crateName,
+                                crateVersion: newVersion,
+                                pathSegments: currentUrl.pathSegments,
+                            }));
+                        } else {
+                            ctx.updateData(draft => {
+                                const crate = draft.crates[crateName];
+                                if (crate) {
+                                    crate.currentVersion = newVersion;
+                                }
+                            });
+                        }
+                    })
+                : undefined,
+    };
+}
+
+function getCrateVersions(
+    crateData: ReadonlyDeep<CrateData>,
+    crateCache: ReadonlyDeep<CrateCache>,
+    setCurrentVersion: (version: string) => void): ItemVersions {
+    const versions = crateCache.versionGroups;
+
+    const recommended =
+        versions
+            .slice(0, 5)
+            .map(group => group.versions[0]?.num)
+            .filter(version => version)
+            .map(version => version!);
+    if (crateData.currentVersion !== "latest" &&
+        !recommended.includes(crateData.currentVersion)) {
+        recommended.push(crateData.currentVersion);
+    }
+
+    recommended.sort((a, b) => semver.rcompare(a, b));
+    recommended.unshift("latest");
+
+    return {
+        current: crateData.currentVersion,
+        recommended,
+        all: [
+            ["latest"],
+            ...versions.map(({ versions }) => (
+                versions
+                    .filter(version => !version.yanked)
+                    .map(version => version.num))),
+        ],
+        setCurrentVersion,
+    }
+}
+
+function getCrateLinks(
+    crateName: string,
+    crateCache: ReadonlyDeep<CrateCache>): ItemLink[] {
+    const links: ItemLink[] = [];
+
+    links.push({
+        name: "Crates.io",
+        url: `https://crates.io/crates/${crateName}`,
+    });
+
+    if (crateCache.homepage) {
+        links.push({
+            name: "Homepage",
+            url: crateCache.homepage,
+        });
+    }
+
+    if (crateCache.repository) {
+        links.push({
+            name: "Repository",
+            url: crateCache.repository,
+        });
+    }
+
+    return links;
 }
 
 function getCrateActions(
@@ -178,7 +286,6 @@ function getCratePages(
                 ]
             };
         }
-
 
         function getIdentTypeFromFileNamePrefix(prefix: string): IdentType {
             switch (prefix) {
@@ -315,57 +422,20 @@ function getCratePages(
     return pages;
 }
 
-function renderVersionSelector(
+import * as CratesAPI from "./crates-api";
+import * as Utils from "@/utils/version-group";
 
-) {
-
-}
-/**
- * Builds the list of versions to display in the selector.
- *
- * Order:
- * 1. "latest" (special)
- * 2. Latest version from each of the 5 most recent version groups
- * 3. Current version if not already in the list
- */
-function getDisplayVersions(
-    currentVersion: string,
-    versionGroups: ReadonlyDeep<CrateCache["versionGroups"]> | undefined,
-): string[] {
-    const versions = ["latest"];
-    const seen = new Set(["latest"]);
-
-    // Add latest from each version group (max 5)
-    for (const group of versionGroups?.slice(0, 5) ?? []) {
-        const latestInGroup = group.versions[0] ?? null;
-        if (latestInGroup &&
-            !seen.has(latestInGroup.num) &&
-            !latestInGroup.yanked) {
-            versions.push(latestInGroup.num);
-            seen.add(latestInGroup.num);
-        }
-    }
-
-    // Add current version if not already included
-    if (!seen.has(currentVersion)) {
-        versions.push(currentVersion);
-    }
-
-    return versions;
-}
-
-
-function getCrateCache(crateName: string): ReadonlyDeep<CrateCache> | undefined {
 /// Cache expiry time (24 hours in milliseconds)
- const CACHE_EXPIRY_MS = 24 * 60 * 60 * 1000;
+const CACHE_EXPIRY_MS = 24 * 60 * 60 * 1000;
 
-    function shouldRefetch(crateCache: ReadonlyDeep<CrateCache> | undefined): boolean {
-        if (!crateCache) return true;
-        const age = Date.now() - crateCache.lastFetched;
-        return age > CACHE_EXPIRY_MS;
-    }
-
-    async function refetch(crateName: string, callback: (crateCache: CrateCache) => void): Promise<void> {
+function getCrateCache(
+    ctx: RustCrateProviderContext,
+    crateName: string,
+): ReadonlyDeep<CrateCache> | null {
+    async function refetch(
+        crateName: string,
+        callback: (crateCache: CrateCache) => void,
+    ): Promise<void> {
         console.log(`Refetching crate info for ${crateName}.`);
         try {
             const crateInfo = await CratesAPI.fetchCrateInfo(crateName);
@@ -373,7 +443,7 @@ function getCrateCache(crateName: string): ReadonlyDeep<CrateCache> | undefined 
             const newCrateInfo = {
                 name: crateInfo.crate.name,
                 versions: crateInfo.versions,
-                versionGroups: computeVersionGroups(crateInfo.versions),
+                versionGroups: Utils.computeVersionGroups(crateInfo.versions),
                 repository: crateInfo.crate.repository ?? null,
                 homepage: crateInfo.crate.homepage ?? null,
                 documentation: crateInfo.crate.documentation ?? null,
@@ -386,209 +456,15 @@ function getCrateCache(crateName: string): ReadonlyDeep<CrateCache> | undefined 
         }
     }
 
-    let existing = this.cache.crates ? this.cache.crates[crateName] : undefined;
-    if (shouldRefetch(existing)) {
+    let existing = ctx.cache.crates?.[crateName] ?? null;
+    if (!existing || Date.now() - existing.lastFetched > CACHE_EXPIRY_MS) {
         refetch(crateName, crateCache => {
-            this.updateCache(draft => {
+            ctx.updateCache(draft => {
+                draft.crates ??= {};
                 draft.crates[crateName] = crateCache;
             });
         });
     }
 
     return existing;
-}
-
-/**
- * Dropdown menu for crate actions: move to group, refresh metadata, remove.
- */
-export function CrateMenu(props: {
-    crate: ReadonlyDeep<ItemCrate>;
-    removeItem: () => void;
-}) {
-    const app = useAppContext();
-    const crate = props.crate;
-    const crateCache = app.getCrateCache(crate.name);
-
-    function moveCrate(targetGroupIndex: number) {
-        const newItem: Item = {
-            type: "crate",
-            name: crate.name,
-            expanded: crate.expanded,
-            pinnedPages: [...crate.pinnedPages],
-            currentVersion: crate.currentVersion,
-        };
-
-        app.updateWorkspace(draft => {
-            draft.groups[targetGroupIndex]!.items.push(newItem);
-        });
-
-        // Remove from current location after adding to new location
-        props.removeItem();
-    }
-
-    function refreshMetadata() {
-        app.refreshCrateCache(crate.name);
-    }
-
-    return (
-        <DropdownMenu>
-            <DropdownMenuTrigger>
-                <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-6 border rounded-sm hover:bg-input/50 cursor-pointer">
-                    <FontAwesomeIcon icon={faEllipsisVertical} size="sm" />
-                </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent>
-                <CrateMenuLink text="Crates.io" url={`https://crates.io/crates/${crate.name}`} />
-                <CrateMenuLink text="Repository" url={crateCache?.repository ?? null} />
-                <CrateMenuLink text="Homepage" url={crateCache?.homepage ?? null} />
-                <DropdownMenuSeparator />
-                <DropdownMenuSub>
-                    <DropdownMenuSubTrigger className="cursor-pointer">
-                        <FontAwesomeIcon icon={faRightToBracket} size="sm" />
-                        <span>Move to group</span>
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent>
-                        {app.workspace.groups.map((group, index) => (
-                            <CrateMenuItem
-                                key={index}
-                                text={group.name}
-                                action={() => moveCrate(index)} />
-                        ))}
-                    </DropdownMenuSubContent>
-                </DropdownMenuSub>
-                <DropdownMenuSeparator />
-                <CrateMenuItem
-                    icon={faRotate}
-                    text="Refresh metadata"
-                    action={refreshMetadata} />
-                <DropdownMenuSeparator />
-                <CrateMenuItem
-                    icon={faTrash}
-                    text="Remove crate"
-                    variant="destructive"
-                    action={props.removeItem} />
-            </DropdownMenuContent>
-        </DropdownMenu>);
-}
-
-/** Parses URLs from textarea, groups by crate, and imports items. */
-function handleImport() {
-    const lines = importText.split("\n").map(line => line.trim()).filter(Boolean);
-
-    // Parse URLs and group by crate name
-    const cratePages = new Map<string, string[]>();
-    for (const line of lines) {
-        const page = parseUrl(line);
-        if (page.type !== "crate") continue;
-
-        const paths = cratePages.get(page.crateName) ?? [];
-        const pathStr = page.pathSegments.join("/");
-        if (pathStr && !paths.includes(pathStr)) {
-            paths.push(pathStr);
-        }
-        cratePages.set(page.crateName, paths);
-    }
-
-    // Create Item objects and import
-    const items: Item[] = [];
-    for (const [crateName, pinnedPages] of cratePages) {
-        items.push({
-            type: "crate",
-            name: crateName,
-            currentVersion: "latest",
-            pinnedPages,
-            expanded: true,
-        });
-    }
-
-    if (items.length > 0) {
-        props.importItems(items);
-    }
-
-    setImportText("");
-    setShowImportDialog(false);
-
-            {/* Import Dialog */}
-    const _ =         (<Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>Import from URLs</DialogTitle>
-                        <DialogDescription>
-                            Paste docs.rs URLs (one per line) to add crates and pages.
-                        </DialogDescription>
-                    </DialogHeader>
-                    <textarea
-                        value={importText}
-                        onChange={e => setImportText(e.target.value)}
-                        placeholder="https://docs.rs/tokio/latest/tokio/..."
-                        rows={8}
-                        className="w-full rounded-lg border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setShowImportDialog(false)}>Cancel</Button>
-                        <Button onClick={handleImport}>Import</Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>);
-}
-
-function importItem(provider: RustCrateProviderContext, input: string):
-    | { readonly success: true }
-    | { readonly success: false, readonly message: string } {
-    if (input.startsWith("https://docs.rs/")) {
-        let [crateName, crateVersion, ...pathSegments] =
-            input
-                .slice("https://docs.rs/".length)
-                .split("/");
-        if (!crateName) {
-            return { success: false, message: "missing crate name." };
-        }
-
-        if (crateName === "crate") {
-            return { success: false, message: "docs.rs crate URL not supported." };
-        }
-
-        const rootModuleName = crateName.replaceAll("-", "_");
-        const rootModulePath = rootModuleName + "/";
-
-        if (pathSegments[0] !== rootModulePath) {
-            return { success: false, message: "not under the root module" };
-        }
-
-        const crate =
-            provider.data.crates.find(item => item.name === crateName);
-        if (crate) {
-            const path = pathSegments.join("/");
-            if (crate.pinnedPages.includes(path)) {
-                return { success: false, message: "already exists." };
-            }
-
-            provider.updateData(draft => {
-                const crate =
-                    draft.crates.find(item => item.name === crateName)!;
-                crate.pinnedPages ??= [];
-                crate.pinnedPages.push(path);
-                crate.pinnedPages.sort();
-            });
-        } else {
-            provider.updateData(draft => {
-                draft.crates ??= [];
-                draft.crates.push({
-                    name: crateName,
-                    currentVersion: crateVersion ?? "latest",
-                    pinnedPages:
-                        pathSegments.length > 0
-                            ? [pathSegments.join("/")]
-                            : [],
-                });
-                draft.crates.sort((a, b) => a.name.localeCompare(b.name));
-            });
-        }
-
-        return { success: true };
-    }
-
-    return { success: false, message: "unsupported domain." };
 }

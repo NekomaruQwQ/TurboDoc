@@ -9,7 +9,10 @@ export type KnownUrl =
     }
 
 export function parseUrl(url: string): KnownUrl | null {
-    if (url.startsWith("https://docs.rs/")) {
+    if (url.startsWith("https://docs.rs/") && !(
+        url.startsWith("https://docs.rs/-/") ||
+        url.startsWith("https://docs.rs/crate/")
+    )) {
         const [crateName, crateVersion, ...pathSegments] =
             url
                 .substring("https://docs.rs/".length)

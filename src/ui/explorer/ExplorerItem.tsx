@@ -59,12 +59,12 @@ export default function ExplorerItem({ item, itemGroupName }: ReadonlyDeep<{
                 <CollapsibleTrigger asChild className="flex-1 pl-1.5 truncate">
                     <p className="font-mono cursor-pointer">{item.name}</p>
                 </CollapsibleTrigger>
-                {item.versionSelectorProps &&
+                {item.versions &&
                     <ExplorerItemVersionSelector
-                        all={item.versionSelectorProps.all}
-                        current={item.versionSelectorProps.current}
-                        recommended={item.versionSelectorProps.recommended}
-                        select={item.versionSelectorProps?.select} />
+                        all={item.versions.all}
+                        current={item.versions.current}
+                        recommended={item.versions.recommended}
+                        setCurrentVersion={item.versions?.setCurrentVersion} />
                 }
                 <ExplorerItemMenu item={item} itemGroupName={itemGroupName} />
             </div>
@@ -78,7 +78,7 @@ export default function ExplorerItem({ item, itemGroupName }: ReadonlyDeep<{
 
 function ExplorerItemVersionSelector(props: ReadonlyDeep<ItemVersions>) {
     return (
-        <Select value={props.current} onValueChange={props.select}>
+        <Select value={props.current} onValueChange={props.setCurrentVersion}>
             <SelectTrigger
                 size={"xs" as any}
                 className={

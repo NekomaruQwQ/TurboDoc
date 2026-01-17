@@ -146,7 +146,7 @@ export interface Item {
 
     /** For items that represents a package (or crate, module, etc.), this field
      *  contains the view model of the version selector. **/
-    versionSelectorProps?: ItemVersions,
+    versions?: ItemVersions,
 }
 
 export interface ItemLink {
@@ -201,7 +201,7 @@ export interface ItemVersions {
     recommended: string[],
 
     /** Callback to select a version as the current version. */
-    select(version: string): void,
+    setCurrentVersion(version: string): void,
 }
 
 /** A documentation page */
