@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { fetchCrateInfo, searchCrates, CrateNotFoundError } from "@/services/crates-api";
+import { fetchCrateInfo, searchCrates, CrateNotFoundError } from "./crates-api";
 
 /**
  * Integration tests for crates.io API.

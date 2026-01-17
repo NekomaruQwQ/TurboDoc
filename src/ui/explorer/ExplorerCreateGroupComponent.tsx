@@ -1,4 +1,4 @@
-import type { ComponentProps, ReactNode } from "react";
+import type { ComponentProps, KeyboardEvent } from "react";
 import { useState } from "react";
 
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -23,7 +23,7 @@ export default function ExplorerCreateGroupComponent() {
     function createGroup(groupName: string) {
         updateProviderData(draft => {
             if (groupName && !(groupName in providerData.groups)) {
-                draft.groups[groupName] = [];
+                draft.groups[groupName] = { items: [] };
                 draft.groupOrder.push(groupName);
                 draft.expandedGroups.push(groupName);
             }
@@ -43,6 +43,17 @@ export default function ExplorerCreateGroupComponent() {
         setInputMode(false);
     }
 
+    function onKeyDown(e: KeyboardEvent) {
+        switch (e.key) {
+            case "Enter":
+                onOK(e);
+                break;
+            case "Escape":
+                onCancel(e);
+                break;
+        }
+    }
+
     function ActionButton(props: ComponentProps<"button">) {
         return (
             <Button
@@ -60,16 +71,20 @@ export default function ExplorerCreateGroupComponent() {
                     placeholder="Group name..."
                     autoFocus
                     onChange={e => setInputText(e.target.value)}
-                    onKeyDown={e => e.key ? onOK(e) : onCancel(e)}
+                    onKeyDown={onKeyDown}
                     onBlur={e => onCancel(e)}
                     className="h-8"/>
                 {/* Use onMouseDown to prevent onBlur fired before onClick */}
-                <ActionButton className="size-8" onMouseDown={e => onOK(e)}>
+                <ActionButton
+                    className="size-8 cursor-pointer"
+                    onMouseDown={e => onOK(e)}>
                     <FontAwesomeIcon icon={faCheck}/>
                 </ActionButton>
             </> : <>
                 {/* Use onClick to avoid (what?) */}
-                <ActionButton className="w-full" onClick={() => setInputMode(true)}>
+                <ActionButton
+                    className="w-full h-8 cursor-pointer"
+                    onClick={() => setInputMode(true)}>
                     <FontAwesomeIcon icon={faPlus}/>
                     <span>Add Group</span>
                 </ActionButton>

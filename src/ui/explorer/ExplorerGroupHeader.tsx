@@ -201,40 +201,40 @@ export default function ExplorerGroupHeader(
                     <DropdownMenuContent align="end">
                         <DropdownMenuItem onClick={expandAll}>
                             <FontAwesomeIcon icon={faAnglesDown} />
-                            <span>Expand all</span>
+                            <span>Expand All</span>
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={collapseAll}>
                             <FontAwesomeIcon icon={faAnglesUp} />
-                            <span>Collapse all</span>
+                            <span>Collapse All</span>
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
                             disabled={isFirstGroup}
                             onClick={moveUp}>
                             <FontAwesomeIcon icon={faArrowUp} />
-                            <span>Move up</span>
+                            <span>Move Up</span>
                         </DropdownMenuItem>
                         <DropdownMenuItem
                             disabled={isLastGroup}
                             onClick={moveDown}>
                             <FontAwesomeIcon icon={faArrowDown} />
-                            <span>Move down</span>
+                            <span>Move Down</span>
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
                             variant="destructive"
                             onClick={showDeleteDialog}>
                             <FontAwesomeIcon icon={faTrash} />
-                            <span>Remove group</span>
-                            <DeleteDialog
-                                title="Delete Group?"
-                                callback={removeGroup}>
-                                Are you sure you want to delete group "{props.groupName}"?
-                                This action cannot be undone.
-                            </DeleteDialog>
+                            <span>Delete Group</span>
                         </DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>
+                <DeleteDialog
+                    title="Delete Group?"
+                    callback={removeGroup}>
+                    Are you sure you want to delete group "{props.groupName}"?
+                    This action cannot be undone.
+                </DeleteDialog>
             </div>);
     }
 }

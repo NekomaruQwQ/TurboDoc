@@ -6,7 +6,7 @@ import type { State } from "@/core/prelude";
 import type {
     Workspace,
     Cache,
-    ProviderInfo,
+    Provider,
     ProviderData,
 } from "@/core/data";
 
@@ -47,9 +47,9 @@ const appContext = createContext<AppContext>(undefined!);
 export const AppContextProvider = appContext.Provider;
 export const useAppContext = () => useContext(appContext);
 
-const providerId = createContext<string>(undefined!);
-export const ProviderIdProvider = providerId.Provider;
-export const useProviderId = () => useContext(providerId);
+const provider = createContext<Provider>(undefined!);
+export const ProviderProvider = provider.Provider;
+export const useProvider = () => useContext(provider);
 
 export function useCurrentUrl(): State<string> {
     const ctx = useAppContext();
@@ -65,16 +65,16 @@ export function useCurrentUrl(): State<string> {
 
 export function useProviderData(): State<ProviderData> {
     const ctx = useAppContext();
-    const providerId = useProviderId();
-    const providerData = ctx.workspace.providers[providerId];
+    const provider = useProvider();
+    const providerData = ctx.workspace.providers[provider.id];
 
     function updateProviderData(updater: (draft: ProviderData) => void): void {
         ctx.updateWorkspace(draft => {
-            const providerData = draft.providers[providerId];
+            const providerData = draft.providers[provider.id];
             if (providerData) {
                 updater(providerData);
             } else {
-                throw new Error(`Unexpected provider id: ${providerId}`);
+                throw new Error(`Unexpected provider id: ${provider.id}`);
             }
         });
     }
@@ -82,6 +82,6 @@ export function useProviderData(): State<ProviderData> {
     if (providerData) {
         return [providerData, updateProviderData];
     } else {
-        throw new Error(`Unexpected provider id: ${providerId}`);
+        throw new Error(`Unexpected provider id: ${provider.id}`);
     }
 }

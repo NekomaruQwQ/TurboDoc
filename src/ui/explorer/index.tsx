@@ -2,12 +2,12 @@ import type { ReadonlyDeep } from "type-fest";
 
 import * as _ from "remeda";
 
-import type { Item, ProviderData } from "@/core/data";
+import type { Item } from "@/core/data";
 import providers from "@/providers";
 import {
-    ProviderIdProvider,
+    ProviderProvider,
     useAppContext,
-    useProviderId,
+    useProvider,
     useProviderData,
 } from "@/core/context";
 
@@ -24,46 +24,32 @@ export default function Explorer() {
             <div
                 className="flex flex-col w-full h-full gap-1 py-1 rounded overflow-y-scroll"
                 style={{ scrollbarWidth: "none" }}>
-                {preset?.providers.map(providerId => (
-                    <ProviderIdProvider key={providerId} value={providerId}>
-                        <ExplorerProvider />
-                    </ProviderIdProvider>
-                ))}
+                {preset?.providers
+                    .map(providerId => providers[providerId])
+                    .map(provider => provider && (
+                        <ProviderProvider key={provider.id} value={provider}>
+                            <ExplorerProvider />
+                        </ProviderProvider>
+                    ))}
             </div>
         </div>);
 }
 
 function ExplorerProvider() {
     const ctx = useAppContext();
-    const providerId = useProviderId();
-    const provider = providers.find(provider => provider.id === providerId);
-    if (!provider) {
-        return;
-    }
-
-    const providerData = ctx.workspace.providers[providerId];
-
-    function updateProviderData(updater: (draft: ProviderData) => void): void {
-        ctx.updateWorkspace(draft => {
-            const providerData = draft.providers[providerId];
-            if (providerData) {
-                updater(providerData);
-            } else {
-                throw new Error(`Unexpected provider id: ${providerId}`);
-            }
-        });
-    }
+    const provider = useProvider();
+    const [providerData, updateProviderData] = useProviderData();
 
     const providerContext = {
         data: providerData?.data ?? {},
         updateData: (updater: (draft: unknown) => void) => {
             updateProviderData(draft => updater(draft.data));
         },
-        cache: ctx.cache.providers[providerId] ?? {},
+        cache: ctx.cache.providers[provider.id] ?? {},
         updateCache: (updater: (draft: unknown) => void) => {
             ctx.updateCache(draft => {
-                draft.providers[providerId] ??= {};
-                updater(draft.providers[providerId]);
+                draft.providers[provider.id] ??= {};
+                updater(draft.providers[provider.id]);
             });
         },
         currentUrl: ctx.workspace.app.currentUrl,
@@ -76,21 +62,22 @@ function ExplorerProvider() {
 
     const providerOutput = provider.render(providerContext);
     return provider && (
-        provider.enableItemGrouping ? <>
-            <ExplorerCreateGroupComponent />
-            <ExplorerGroup
-                variant="ungrouped"
-                providerOutput={providerOutput} />
-            {_
-                .keys(providerData?.groups ?? {})
-                .map(groupName => (
-                    <ExplorerGroup
-                        key={groupName}
-                        variant="default"
-                        groupName={groupName}
-                        providerOutput={providerOutput} />
-                ))}
-        </> : <>
+        provider.enableItemGrouping ?
+            <div className="flex flex-col gap-3">
+                <ExplorerGroup
+                    variant="ungrouped"
+                    providerOutput={providerOutput} />
+                {_
+                    .keys(providerData?.groups ?? {})
+                    .map(groupName => (
+                        <ExplorerGroup
+                            key={groupName}
+                            variant="default"
+                            groupName={groupName}
+                            providerOutput={providerOutput} />
+                    ))}
+                <ExplorerCreateGroupComponent />
+            </div> :
             <div className="flex flex-col gap-2">
                 {_
                     .entries(providerOutput.items)
@@ -99,8 +86,7 @@ function ExplorerProvider() {
                             key={itemId}
                             item={item}
                             itemGroupName="" />))}
-            </div>
-        </>);
+            </div>);
 }
 
 function ExplorerGroup(props: ReadonlyDeep<{
@@ -108,15 +94,16 @@ function ExplorerGroup(props: ReadonlyDeep<{
 } & (
     | { variant: "default", groupName: string }
     | { variant: "ungrouped" })>) {
-    const [providerData, updateProviderData] = useProviderData();
+    const [providerData, __] = useProviderData();
     return props.variant === "ungrouped"
-        ? <div className="flex flex-col gap-1">
+        ? <div className="flex flex-col gap-1.5">
             <ExplorerGroupHeader variant="ungrouped"/>
             <div className="flex flex-col gap-2">
                 {_
                     .entries(props.providerOutput.items)
                     .filter(([itemId, __]) => (
-                        !_.entries(providerData.groups)
+                        !_
+                            .entries(providerData.groups)
                             .some(([_, group]) => group.items.includes(itemId))))
                     .map(([itemId, item]) => (
                         <ExplorerItem
@@ -125,7 +112,7 @@ function ExplorerGroup(props: ReadonlyDeep<{
                             itemGroupName="" />))}
             </div>
         </div>
-        : <div className="flex flex-col gap-1">
+        : <div className="flex flex-col gap-1.5">
             <ExplorerGroupHeader variant="default" groupName={props.groupName} />
             {providerData.expandedGroups.includes(props.groupName) &&
                 <div className="flex flex-col gap-2">

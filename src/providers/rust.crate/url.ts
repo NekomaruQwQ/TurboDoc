@@ -1,6 +1,6 @@
 import type { ReadonlyDeep } from "type-fest";
 
-export type CratePage =
+export type KnownUrl =
     | {
         baseUrl: "https://docs.rs/",
         crateName: string,
@@ -8,7 +8,7 @@ export type CratePage =
         pathSegments: string[],
     }
 
-export function parseUrl(url: string): CratePage | null {
+export function parseUrl(url: string): KnownUrl | null {
     if (url.startsWith("https://docs.rs/")) {
         const [crateName, crateVersion, ...pathSegments] =
             url
@@ -26,7 +26,7 @@ export function parseUrl(url: string): CratePage | null {
     return null;
 }
 
-export function buildUrl(page: ReadonlyDeep<CratePage>): string {
+export function buildUrl(page: ReadonlyDeep<KnownUrl>): string {
     switch (page.baseUrl) {
         case "https://docs.rs/":
         return `https://docs.rs/${page.crateName}/${page.crateVersion}/${page.pathSegments.join("/")}`;

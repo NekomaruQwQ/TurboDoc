@@ -1,6 +1,6 @@
 import type { IconProp as FontAwesomeIconProp } from "@fortawesome/fontawesome-svg-core";
-export type IconProp =
-    | { type: "fontawesome"; name: FontAwesomeIconProp };
+export type IconProp = ReadonlyDeep<
+    | { type: "fontawesome"; name: FontAwesomeIconProp }>;
 
 import type { ReadonlyDeep } from "type-fest";
 import type { ReactNode } from "react";
@@ -139,18 +139,14 @@ export interface Item {
     pages: Page[],
 
     /** List of external links for this item. */
-    links: ItemLink[],
+    links?: ItemLink[],
 
     /** List of custom actions for this item. */
-    actions: ItemAction[],
+    actions?: ItemAction[],
 
-    /**
-     * For items that represents a package (or crate, module, etc.), this field
-     * contains the view model of the version selector.
-     *
-     * For other items, this field is null.
-     **/
-    versionSelectorProps: ItemVersions | null,
+    /** For items that represents a package (or crate, module, etc.), this field
+     *  contains the view model of the version selector. **/
+    versionSelectorProps?: ItemVersions,
 }
 
 export interface ItemLink {

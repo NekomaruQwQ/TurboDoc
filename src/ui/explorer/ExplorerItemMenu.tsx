@@ -39,12 +39,14 @@ export default function ExplorerItemMenu({ item, itemGroupName }: ReadonlyDeep<{
                     itemGroupName,
                     targetGroupName,
                     updateProviderData)))
-    const moveItemToUngroupedAction =
-        getMoveItemAction(
+    const moveItemToUngroupedAction = {
+        ...getMoveItemAction(
             item.id,
             itemGroupName,
             "",
-            updateProviderData);
+            updateProviderData),
+        name: "Ungrouped",
+    };
     return (
         <DropdownMenu>
             <DropdownMenuTrigger>
@@ -69,12 +71,12 @@ export default function ExplorerItemMenu({ item, itemGroupName }: ReadonlyDeep<{
                         ))}
                     </DropdownMenuSubContent>
                 </DropdownMenuSub>
-                <DropdownMenuSeparator />
-                {item.links.map((link, index) => (
+                {item.links && <DropdownMenuSeparator />}
+                {item.links?.map((link, index) => (
                     <ExplorerItemMenuLink key={index} link={link} />
                 ))}
-                <DropdownMenuSeparator />
-                {item.actions.map((action, index) => (
+                {item.actions && <DropdownMenuSeparator />}
+                {item.actions?.map((action, index) => (
                     <ExplorerItemMenuAction key={index} action={action} />
                 ))}
             </DropdownMenuContent>
