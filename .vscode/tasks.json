@@ -12,7 +12,7 @@
             "label": "tsc: watch",
             "type": "process",
             "command": "tsc",
-            "args": ["--noEmit", "--watch",],
+            "args": ["--noEmit", "--watch"],
             "isBackground": true,
             "problemMatcher": "$tsc-watch"
         },

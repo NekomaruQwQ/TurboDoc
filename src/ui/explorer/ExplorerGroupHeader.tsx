@@ -41,22 +41,13 @@ export default function ExplorerGroupHeader(
     props:
         | { variant: "default", groupName: string }
         | { variant: "ungrouped" }) {
+    const groupName = props.variant === "default" ? props.groupName : "";
     const [providerData, updateProviderData] = useProviderData();
+    const [DeleteDialog, showDeleteDialog] = useDeleteDialog();
+    const [isRenaming, setIsRenaming] = useState(false);
+    const [editedName, setEditedName] = useState(groupName);
 
-    if (props.variant === "ungrouped") {
-        return (
-            <div className="group/header flex flex-row h-8 py-0.5 items-center gap-0.5 text-muted-foreground">
-                {/* Group name */}
-                <p className="flex flex-row flex-1 gap-2 items-center text-lg pl-1 font-semibold cursor-pointer truncate" >
-                    <span className="flex-1 truncate">Ungrouped</span>
-                </p>
-            </div>);
-    } else {
-        const groupName = props.groupName;
-        const [DeleteDialog, showDeleteDialog] = useDeleteDialog();
-        const [isRenaming, setIsRenaming] = useState(false);
-        const [editedName, setEditedName] = useState(groupName);
-
+    if (props.variant === "default") {
         const groupExpanded = providerData.expandedGroups.includes(groupName);
         const isFirstGroup =
             providerData.groupOrder[0] === groupName;
@@ -96,10 +87,10 @@ export default function ExplorerGroupHeader(
         function moveUp() {
             updateProviderData(draft => {
                 const thisIndex = draft.groupOrder.indexOf(groupName);
-                const prevIndex = draft.groupOrder[thisIndex - 1];
-                if (thisIndex && prevIndex) {
+                const prevGroupName = draft.groupOrder[thisIndex - 1];
+                if (thisIndex < draft.groupOrder.length && prevGroupName) {
                     draft.groupOrder[thisIndex - 1] = groupName;
-                    draft.groupOrder[thisIndex] = prevIndex;
+                    draft.groupOrder[thisIndex] = prevGroupName;
                 }
             });
         }
@@ -107,10 +98,10 @@ export default function ExplorerGroupHeader(
         function moveDown() {
             updateProviderData(draft => {
                 const thisIndex = draft.groupOrder.indexOf(groupName);
-                const nextIndex = draft.groupOrder[thisIndex + 1];
-                if (thisIndex && nextIndex) {
+                const nextGroupName = draft.groupOrder[thisIndex + 1];
+                if (thisIndex >= 0 && nextGroupName) {
                     draft.groupOrder[thisIndex + 1] = groupName;
-                    draft.groupOrder[thisIndex] = nextIndex;
+                    draft.groupOrder[thisIndex] = nextGroupName;
                 }
             });
         }
@@ -127,11 +118,22 @@ export default function ExplorerGroupHeader(
             if (trimmed && trimmed !== groupName) {
                 const newName = trimmed;
                 updateProviderData(draft => {
-                    const group = draft.groups[groupName] || {
-                        items: [],
-                    };
+                    // Move group data to new name
+                    const group = draft.groups[groupName] || { items: [] };
                     delete draft.groups[groupName];
                     draft.groups[newName] = group;
+
+                    // Update groupOrder to use new name
+                    const orderIndex = draft.groupOrder.indexOf(groupName);
+                    if (orderIndex >= 0) {
+                        draft.groupOrder[orderIndex] = newName;
+                    }
+
+                    // Preserve expansion state under new name
+                    const expandedIndex = draft.expandedGroups.indexOf(groupName);
+                    if (expandedIndex >= 0) {
+                        draft.expandedGroups[expandedIndex] = newName;
+                    }
                 });
             }
         }
@@ -170,7 +172,7 @@ export default function ExplorerGroupHeader(
                 {/* Group name */}
                 <p
                     className="flex flex-row flex-1 gap-2 items-center text-lg pl-1 font-semibold cursor-pointer truncate"
-                    onClick={() => toggleGroupExpanded()} >
+                    onClick={() => toggleGroupExpanded()}>
                     <FontAwesomeIcon
                         icon={groupExpanded ? faChevronDown : faChevronRight}
                         size="sm" />
@@ -236,6 +238,14 @@ export default function ExplorerGroupHeader(
                     This action cannot be undone.
                 </DeleteDialog>
             </div>);
+    } else {
+        return (
+            <div className="group/header flex flex-row h-8 py-0.5 items-center gap-0.5 text-muted-foreground">
+                {/* Group name */}
+                <p className="flex flex-row flex-1 gap-2 items-center text-lg pl-1 font-semibold cursor-pointer truncate" >
+                    <span className="flex-1 truncate">Ungrouped</span>
+                </p>
+            </div>);
     }
 }
 
@@ -255,13 +265,11 @@ function useDeleteDialog() {
                     </DialogHeader>
                     <DialogFooter>
                         <Button
-                            children="Cancel"
                             variant="outline"
-                            onClick={() => setOpen(false)} />
+                            onClick={() => setOpen(false)}>Cancel</Button>
                         <Button
-                            children="Delete"
                             variant="destructive"
-                            onClick={props.callback} />
+                            onClick={props.callback}>Delete</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>),

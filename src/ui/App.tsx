@@ -14,15 +14,19 @@ export default function App() {
         <div className="w-full h-full flex flex-col">
             <div>-</div>
             <ResizablePanelGroup direction="horizontal">
-                <ResizablePanel defaultSize={20}>
-                    <Explorer />
+                <ResizablePanel defaultSize={20} className="px-2">
+                    {/* Clip the content of explorer with rounded corners */}
+                    <div className="w-full h-full rounded-md overflow-clip">
+                        <Explorer />
+                    </div>
                 </ResizablePanel>
-                <ResizableHandle className="w-0 my-4"/>
-                <ResizablePanel defaultSize={80} className="flex">
+                <ResizableHandle className="w-0"/>
+                <ResizablePanel defaultSize={80}>
+                    {/** biome-ignore lint/a11y/useIframeTitle: don't care */}
                     <iframe
                         ref={ctx.viewerRef}
                         src={ctx.workspace.app.currentUrl}
-                        className="w-full h-full rounded-tl-xl"/>
+                        className="w-full h-full rounded-tl-md"/>
                 </ResizablePanel>
             </ResizablePanelGroup>
         </div>);

@@ -1,7 +1,5 @@
 import type { ReadonlyDeep } from "type-fest";
 
-import * as _ from "remeda";
-
 import type { Item } from "@/core/data";
 import providers from "@/providers";
 import {
@@ -20,18 +18,16 @@ export default function Explorer() {
     const app = ctx.workspace.app;
     const preset = app.presets[app.currentPreset];
     return (
-        <div className="w-full h-full px-2">
-            <div
-                className="flex flex-col w-full h-full gap-1 py-1 rounded overflow-y-scroll"
-                style={{ scrollbarWidth: "none" }}>
-                {preset?.providers
-                    .map(providerId => providers[providerId])
-                    .map(provider => provider && (
-                        <ProviderProvider key={provider.id} value={provider}>
-                            <ExplorerProvider />
-                        </ProviderProvider>
-                    ))}
-            </div>
+        <div
+            className="flex flex-col w-full h-full gap-1 rounded overflow-y-scroll"
+            style={{ scrollbarWidth: "none" }}>
+            {preset?.providers
+                .map(providerId => providers[providerId])
+                .map(provider => provider && (
+                    <ProviderProvider key={provider.id} value={provider}>
+                        <ExplorerProvider />
+                    </ProviderProvider>
+                ))}
         </div>);
 }
 
@@ -62,20 +58,18 @@ function ExplorerProvider() {
 
     const providerOutput = provider.render(providerContext);
     const providerActionNodes =
-        providerOutput.actions?.map(action => {
-            if (action.type === "node") {
-                return action.render();
-            }
-        }) ?? [];
-    return provider && (
-        provider.enableItemGrouping ?
-            <div className="flex flex-col gap-3">
-                {...providerActionNodes}
+        providerOutput.actions?.map(action => (
+            action.type === "node" ? action.render() : undefined
+        )) ?? [];
+    return provider &&
+        <div className="flex flex-col gap-2 mb-2">
+            {...providerActionNodes}
+            {provider.enableItemGrouping ? <>
                 <ExplorerGroup
                     variant="ungrouped"
                     providerOutput={providerOutput} />
-                {Object
-                    .keys(providerData?.groups ?? {})
+                {providerData?.groupOrder
+                    .filter(groupName => groupName in providerData.groups)
                     .map(groupName => (
                         <ExplorerGroup
                             key={groupName}
@@ -84,17 +78,15 @@ function ExplorerProvider() {
                             providerOutput={providerOutput} />
                     ))}
                 <ExplorerCreateGroupComponent />
-            </div> :
-            <div className="flex flex-col gap-2">
-                {...providerActionNodes}
-                {Object
+            </> :
+                Object
                     .entries(providerOutput.items)
                     .map(([itemId, item]) => (
                         <ExplorerItem
                             key={itemId}
                             item={item}
                             itemGroupName="" />))}
-            </div>);
+        </div>;
 }
 
 function ExplorerGroup(props: ReadonlyDeep<{
@@ -104,27 +96,24 @@ function ExplorerGroup(props: ReadonlyDeep<{
     | { variant: "ungrouped" })>) {
     const [providerData, __] = useProviderData();
     return props.variant === "ungrouped"
-        ? <div className="flex flex-col gap-1.5">
+        ? <>
             <ExplorerGroupHeader variant="ungrouped"/>
-            <div className="flex flex-col gap-2">
-                {Object
-                    .entries(props.providerOutput.items)
-                    .filter(([itemId, __]) => (
-                        !Object
-                            .entries(providerData.groups)
-                            .some(([_, group]) => group.items.includes(itemId))))
-                    .map(([itemId, item]) => (
-                        <ExplorerItem
-                            key={itemId}
-                            item={item}
-                            itemGroupName="" />))}
-            </div>
-        </div>
-        : <div className="flex flex-col gap-1.5">
+            {Object
+                .entries(props.providerOutput.items)
+                .filter(([itemId, __]) => (
+                    !Object
+                        .entries(providerData.groups)
+                        .some(([_, group]) => group.items.includes(itemId))))
+                .map(([itemId, item]) => (
+                    <ExplorerItem
+                        key={itemId}
+                        item={item}
+                        itemGroupName="" />))}
+        </>
+        : <>
             <ExplorerGroupHeader variant="default" groupName={props.groupName} />
             {providerData.expandedGroups.includes(props.groupName) &&
-                <div className="flex flex-col gap-2">
-                    {_
+                Object
                         .entries(props.providerOutput.items)
                         .filter(([itemId, __]) => (
                             providerData.groups[props.groupName]?.items.includes(itemId)))
@@ -133,6 +122,5 @@ function ExplorerGroup(props: ReadonlyDeep<{
                                 key={itemId}
                                 item={item}
                                 itemGroupName="" />))}
-                </div>}
-        </div>;
+        </>;
 }

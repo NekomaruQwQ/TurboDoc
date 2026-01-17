@@ -47,7 +47,7 @@ export interface CrateInfo {
 /** Timestamp of the last request made for rate limiting. */
 let lastRequest = 0;
 /** Minimum delay between requests in milliseconds according to crates.io crawler policy. */
-let minDelay = 1000;
+const minDelay = 1000;
 
 /** Queue a request with rate limiting. */
 async function queueRequest<T>(fn: () => Promise<T>): Promise<T> {
@@ -83,14 +83,14 @@ export async function fetchCrateInfo(crateName: string): Promise<CrateInfo> {
 
         if (response.status === 429) {
             const retryAfter = response.headers.get("Retry-After");
-            throw new RateLimitError(parseInt(retryAfter || "60"));
+            throw new RateLimitError(parseInt(retryAfter || "60", 10));
         }
 
         if (!response.ok) {
             throw new Error(`Crates.io API error: ${response.status}`);
         }
 
-        let data = await response.json() as PartialDeep<CrateInfo>;
+        const data = await response.json() as PartialDeep<CrateInfo>;
         return {
             crate: {
                 id: data.crate?.id
@@ -124,13 +124,14 @@ export async function searchCrates(query: string): Promise<{ name: string, descr
 
         if (response.status === 429) {
             const retryAfter = response.headers.get("Retry-After");
-            throw new RateLimitError(parseInt(retryAfter || "60"));
+            throw new RateLimitError(parseInt(retryAfter || "60", 10));
         }
 
         if (!response.ok) {
             throw new Error(`Crates.io API error: ${response.status}`);
         }
 
+        // biome-ignore lint/suspicious/noExplicitAny: assume valid data from external API.
         return ((await response.json()).crates || []).map((crate: any) => ({
             name: crate.name,
             description: crate.description,

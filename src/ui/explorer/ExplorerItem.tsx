@@ -80,7 +80,8 @@ function ExplorerItemVersionSelector(props: ReadonlyDeep<ItemVersions>) {
     return (
         <Select value={props.current} onValueChange={props.setCurrentVersion}>
             <SelectTrigger
-                size={"xs" as any}
+                // biome-ignore lint/suspicious/noExplicitAny: custom size workaround.
+                size={"custom" as any}
                 className={
                     "pl-2 pr-1 py-0 w-24 h-6 rounded-sm shadow-none " +
                     "text-xs text-foreground/60 cursor-pointer "}>

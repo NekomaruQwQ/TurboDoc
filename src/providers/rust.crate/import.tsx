@@ -27,6 +27,7 @@ export function getImportCratesAction(ctx: RustCrateProviderContext): ProviderAc
                 return (
                     <Button
                         variant="secondary"
+                        // biome-ignore lint/suspicious/noExplicitAny: custom size workaround.
                         size={"custom" as any}
                         className={`border size-8 cursor-pointer ${props.className}`}
                         {...props} />);
@@ -48,20 +49,21 @@ export function getImportCratesAction(ctx: RustCrateProviderContext): ProviderAc
                     if (line.startsWith("https://")) {
                         const page = parseUrl(line);
                         switch (page?.baseUrl) {
-                            case "https://docs.rs/":
+                            case "https://docs.rs/": {
                                 const path = page.pathSegments.join("/");
                                 if (!(importCrates[page.crateName]?.includes(path))) {
                                     importCrates[page.crateName] ??= [];
-                                    importCrates[page.crateName]!.push(path);
+                                    importCrates[page.crateName]?.push(path);
                                 }
                                 break;
+                            }
                             default:
                                 console.log(`[ImportCrates] Unsupported URL: ${line}`);
                                 break;
                         }
                     } else {
                         // Try to interpret as crate name.
-                        if (/[a-z0-9-_]+/g.test(line)) {
+                        if (/^[a-z0-9_-]+$/i.test(line)) {
                             importCrates[line] ??= [];
                         } else {
                             console.log(`[ImportCrates] Invalid input: ${line}`);
@@ -76,6 +78,7 @@ export function getImportCratesAction(ctx: RustCrateProviderContext): ProviderAc
                             pinnedPages: [],
                         };
 
+                        // biome-ignore lint/style/noNonNullAssertion: checked above.
                         const pinnedPages = draft.crates[crateName]!.pinnedPages;
                         for (const page of newPages) {
                             if (!pinnedPages.includes(page)) {
@@ -92,14 +95,12 @@ export function getImportCratesAction(ctx: RustCrateProviderContext): ProviderAc
             }
 
             return <>
-                <div className="flex flex-row items-center w-full gap-2 mb-2">
-                    <ActionButton
-                        className="w-full h-8 cursor-pointer"
-                        onClick={() => setShowDialog(true)}>
-                        <FontAwesomeIcon icon={faPlus}/>
-                        <span>Import Crates</span>
-                    </ActionButton>
-                </div>
+                <ActionButton
+                    className="w-full h-8 cursor-pointer"
+                    onClick={() => setShowDialog(true)}>
+                    <FontAwesomeIcon icon={faPlus}/>
+                    <span>Import Crates</span>
+                </ActionButton>
                 <Dialog open={showDialog} onOpenChange={setShowDialog}>
                     <DialogContent>
                         <DialogHeader>

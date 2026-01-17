@@ -40,7 +40,7 @@ export default function ExplorerPageList({ pages }: ReadonlyDeep<{ pages: Page[]
             {_.pipe(
                 pages,
                 _.sortBy(page => page.sortKey),
-                _.map(page => <ExplorerPage page={page} />))
+                _.map(page => <ExplorerPage key={page.url} page={page} />))
             }
         </div>);
 }

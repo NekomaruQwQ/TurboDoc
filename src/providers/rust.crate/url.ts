@@ -32,6 +32,7 @@ export function parseUrl(url: string): KnownUrl | null {
 export function buildUrl(page: ReadonlyDeep<KnownUrl>): string {
     switch (page.baseUrl) {
         case "https://docs.rs/":
-        return `https://docs.rs/${page.crateName}/${page.crateVersion}/${page.pathSegments.join("/")}`;
+        // Use "latest" when version is null to avoid malformed URLs like "docs.rs/tokio/null/..."
+        return `https://docs.rs/${page.crateName}/${page.crateVersion ?? "latest"}/${page.pathSegments.join("/")}`;
     }
 }

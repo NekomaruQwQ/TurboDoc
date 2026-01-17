@@ -66,18 +66,18 @@ export default function ExplorerItemMenu({ item, itemGroupName }: ReadonlyDeep<{
                     <DropdownMenuSubContent>
                         <ExplorerItemMenuAction action={moveItemToUngroupedAction} />
                         <DropdownMenuSeparator />
-                        {moveItemActions.map((action, index) => (
-                            <ExplorerItemMenuAction key={index} action={action} />
+                        {moveItemActions.map(action => (
+                            <ExplorerItemMenuAction key={action.name} action={action} />
                         ))}
                     </DropdownMenuSubContent>
                 </DropdownMenuSub>
                 {item.links && <DropdownMenuSeparator />}
-                {item.links?.map((link, index) => (
-                    <ExplorerItemMenuLink key={index} link={link} />
+                {item.links?.map(link => (
+                    <ExplorerItemMenuLink key={link.url} link={link} />
                 ))}
                 {item.actions && <DropdownMenuSeparator />}
-                {item.actions?.map((action, index) => (
-                    <ExplorerItemMenuAction key={index} action={action} />
+                {item.actions?.map(action => (
+                    <ExplorerItemMenuAction key={action.name} action={action} />
                 ))}
             </DropdownMenuContent>
         </DropdownMenu>);

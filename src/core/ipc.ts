@@ -1,4 +1,5 @@
 // Type declarations for Microsoft WebView2 JavaScript API
+/** biome-ignore-all lint/complexity/noBannedTypes: don't care */
 declare global {
     interface Window {
         chrome: {
@@ -68,7 +69,7 @@ const eventHandlerMap:
 const responseHandlerMap:
     Partial<Record<IPCResponse["type"], IPCResponseHandler>> = {};
 
-window.chrome.webview.addEventListener("message", (event: any) => {
+window.chrome.webview.addEventListener("message", (event: MessageEvent<unknown>) => {
     // Here we assume that the host always send well-formed messages and omit any type
     // checking here for simplicity.
     const message = event.data as IPCEvent | IPCResponse;
@@ -106,7 +107,11 @@ export function on<T extends IPCEvent>(type: T["type"], handler: (event: T) => v
     }
 
     const handlerCasted = handler as (event: IPCEvent) => void;
-    const handlerMap = eventHandlerMap[type]!;
+    const handlerMap = eventHandlerMap[type];
+    if (!handlerMap) {
+        throw new Error("Unreachable: handler map should exist");
+    }
+
     handlerMap.add(handlerCasted);
     return () => handlerMap.delete(handlerCasted);
 }

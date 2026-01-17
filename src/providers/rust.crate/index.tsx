@@ -80,7 +80,7 @@ export interface CrateCache {
 function handleCurrentUrl(ctx: RustCrateProviderContext) {
     const currentUrl = parseUrl(ctx.currentUrl);
     switch (currentUrl?.baseUrl) {
-        case "https://docs.rs/":
+        case "https://docs.rs/": {
             const crateName = currentUrl.crateName;
             const crate = ctx.data.crates[crateName];
             if (crate) {
@@ -115,6 +115,7 @@ function handleCurrentUrl(ctx: RustCrateProviderContext) {
                 });
             }
             break;
+        }
     }
 }
 
@@ -131,7 +132,7 @@ function render(ctx: RustCrateProviderContext): ProviderOutput {
                     ctx,
                     crateName,
                     crateData,
-                    crateCache!);
+                    crateCache);
             return [crateName, crateItem];
         });
 
@@ -147,7 +148,7 @@ function renderItem(
     ctx: RustCrateProviderContext,
     crateName: string,
     crateData: ReadonlyDeep<CrateData>,
-    crateCache: ReadonlyDeep<CrateCache>
+    crateCache: ReadonlyDeep<CrateCache> | null,
 ): Item {
     return {
         id: crateName,
@@ -201,6 +202,7 @@ function getCrateVersions(
             .slice(0, 5)
             .map(group => group.versions[0]?.num)
             .filter(version => version)
+            // biome-ignore lint/style/noNonNullAssertion: filtered above.
             .map(version => version!);
     if (crateData.currentVersion !== "latest" &&
         !recommended.includes(crateData.currentVersion)) {
@@ -282,6 +284,7 @@ function getCratePages(
                             type: "namespace",
                             name: segment,
                         } as const)),
+                    // biome-ignore lint/style/noNonNullAssertion: assumes segments.length > 0.
                     { type, name: segments.at(-1)! }
                 ]
             };
@@ -456,7 +459,7 @@ function getCrateCache(
         }
     }
 
-    let existing = ctx.cache.crates?.[crateName] ?? null;
+    const existing = ctx.cache.crates?.[crateName] ?? null;
     if (!existing || Date.now() - existing.lastFetched > CACHE_EXPIRY_MS) {
         refetch(crateName, crateCache => {
             ctx.updateCache(draft => {

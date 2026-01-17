@@ -3,6 +3,7 @@ import * as ReactDOM from "react-dom/client";
 import App from "@/ui/App";
 
 ReactDOM
+    // biome-ignore lint/style/noNonNullAssertion: element created in index.html.
     .createRoot(document.getElementById("app")!)
     .render(React.createElement(() => {
         console.log("App rerendered.");
@@ -70,6 +71,7 @@ function useAppContext(): AppContext | null {
         }) : null;
 
     // Load the workspace and cache from disk on first render.
+    // biome-ignore lint/correctness/useExhaustiveDependencies: effect only run once.
     useEffect(() => {
         load()
             .then(([workspace, cache]) => {
@@ -100,7 +102,7 @@ function useAppContext(): AppContext | null {
     // Listen to the "navigated" IPCEvent.
     useEffect(() => {
         return app
-            ? IPC.on("navigated", event => app && app.onNavigated(event.url))
+            ? IPC.on("navigated", event => app?.onNavigated(event.url))
             : undefined;
     }, [app]);
 

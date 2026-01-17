@@ -1,3 +1,5 @@
+/** biome-ignore-all lint/style/noNonNullAssertion: test code */
+
 import { describe, expect, test } from "bun:test";
 
 import { fetchCrateInfo, searchCrates, CrateNotFoundError } from "./crates-api";

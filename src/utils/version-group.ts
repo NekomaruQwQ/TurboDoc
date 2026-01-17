@@ -1,3 +1,5 @@
+/** biome-ignore-all lint/style/noNonNullAssertion: don't care */
+
 import * as semver from "semver";
 
 interface VersionOrYanked {
@@ -18,7 +20,7 @@ interface VersionOrYanked {
 export function computeVersionGroups(
 	versions: VersionOrYanked[],
 	maxGroups: number = 5
-): { latest: string; versions: VersionOrYanked[] }[] {
+): { versions: VersionOrYanked[] }[] {
 	const parsed = versions
 		.map(v => ({
 			...v,
@@ -45,7 +47,7 @@ export function computeVersionGroups(
 	}
 
 	// Convert to array and take only maxGroups
-	const groups: { latest: string; versions: VersionOrYanked[] }[] = [];
+	const groups: { versions: VersionOrYanked[] }[] = [];
 
 	for (const [_, versions] of Array.from(groupMap.entries())) {
 		if (groups.length >= maxGroups) break;
@@ -53,7 +55,6 @@ export function computeVersionGroups(
 
 		// Latest version is the first one (already sorted newest first)
 		groups.push({
-			latest: versions[0]!.num,
 			versions: versions,
 		});
 	}

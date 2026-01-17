@@ -58,13 +58,14 @@ export default function ExplorerCreateGroupComponent() {
         return (
             <Button
                 variant="secondary"
+                // biome-ignore lint/suspicious/noExplicitAny: custom size workaround.
                 size={"custom" as any}
                 className={`border size-8 cursor-pointer ${props.className}`}
                 {...props} />);
     }
 
     return (
-        <div className="flex flex-row items-center w-full gap-2 mb-2">
+        <div className="flex flex-row items-center w-full gap-2">
             {inputMode ? <>
                 <Input
                     value={inputText}

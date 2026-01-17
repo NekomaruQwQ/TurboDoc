@@ -33,8 +33,8 @@ export class AppContext {
     }
 
     public onNavigated(url: string): void {
-        // Ignore false navigations.
-        if (url == "https://docs.rs/-/storage-change-detectioappn.html")
+        // Ignore false navigation.
+        if (url === "https://docs.rs/-/storage-change-detection.html")
             return;
 
         this.updateWorkspace(draft => {
@@ -43,10 +43,12 @@ export class AppContext {
     }
 }
 
+// biome-ignore lint/style/noNonNullAssertion: always assigned in the context provider.
 const appContext = createContext<AppContext>(undefined!);
 export const AppContextProvider = appContext.Provider;
 export const useAppContext = () => useContext(appContext);
 
+// biome-ignore lint/style/noNonNullAssertion: always assigned in the context provider.
 const provider = createContext<Provider>(undefined!);
 export const ProviderProvider = provider.Provider;
 export const useProvider = () => useContext(provider);
