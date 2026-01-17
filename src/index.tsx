@@ -32,7 +32,9 @@ async function load(): Promise<[ReadonlyDeep<Workspace>, ReadonlyDeep<Cache>]> {
     workspace.app ??= {
         currentUrl: "https://docs.rs/",
         currentPreset: "Empty",
-        presets: [{name: "Empty", providers: []}],
+        presets: {
+            "Empty": { providers: [] },
+        },
     };
     workspace.providers ??= {};
     cache.providers ??= {};
@@ -49,6 +51,8 @@ function useAppContext(): AppContext | null {
         useImmer<ReadonlyDeep<Workspace> | null>(null);
     const [cache, updateCache] =
         useImmer<ReadonlyDeep<Cache | null>>(null);
+    console.log("Current workspace:", workspace);
+    console.log("Current cache:", cache);
 
     const app = workspace && cache ?
         new AppContext({
@@ -56,9 +60,13 @@ function useAppContext(): AppContext | null {
             workspace,
             cache,
             updateWorkspace:
-                updater => updateWorkspace(draft => draft && updater(draft)),
+                updater => updateWorkspace(draft => {
+                    draft && updater(draft);
+                }),
             updateCache:
-                updater => updateCache(draft => draft && updater(draft)),
+                updater => updateCache(draft => {
+                    draft && updater(draft);
+                }),
         }) : null;
 
     // Load the workspace and cache from disk on first render.

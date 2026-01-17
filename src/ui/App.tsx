@@ -9,7 +9,7 @@ import { useAppContext } from "@/core/context";
 import Explorer from "@/ui/explorer";
 
 export default function App() {
-    const app = useAppContext();
+    const ctx = useAppContext();
     return (
         <div className="w-full h-full flex flex-col">
             <div>-</div>
@@ -20,8 +20,8 @@ export default function App() {
                 <ResizableHandle className="w-0 my-4"/>
                 <ResizablePanel defaultSize={80} className="flex">
                     <iframe
-                        ref={app.viewerRef}
-                        src={app.workspace.app.currentUrl}
+                        ref={ctx.viewerRef}
+                        src={ctx.workspace.app.currentUrl}
                         className="w-full h-full rounded-tl-xl"/>
                 </ResizablePanel>
             </ResizablePanelGroup>

@@ -1,141 +1,143 @@
 import type { ReadonlyDeep } from "type-fest";
 
-import type { Item } from "@/data";
-import { useAppContext } from "@/core/context";
+import * as _ from "remeda";
 
-import type ExplorerItemProps from "@/explorer/ExplorerItemProps";
-import CrateCard from "@/explorer/crate/CrateCard";
-import ExplorerGroupHeader from "@/explorer/ExplorerGroupHeader";
-import ExplorerCreateGroupComponent from "@/explorer/ExplorerCreateGroupComponent";
+import type { Item, ProviderData } from "@/core/data";
+import providers from "@/providers";
+import {
+    ProviderIdProvider,
+    useAppContext,
+    useProviderId,
+    useProviderData,
+} from "@/core/context";
+
+import ExplorerItem from "@/ui/explorer/ExplorerItem";
+import ExplorerGroupHeader from "@/ui/explorer/ExplorerGroupHeader";
+import ExplorerCreateGroupComponent from "@/ui/explorer/ExplorerCreateGroupComponent";
 
 export default function Explorer() {
-    const app = useAppContext();
+    const ctx = useAppContext();
+    const app = ctx.workspace.app;
+    const preset = app.presets[app.currentPreset];
     return (
         <div className="w-full h-full px-2">
             <div
                 className="flex flex-col w-full h-full gap-1 py-1 rounded overflow-y-scroll"
                 style={{ scrollbarWidth: "none" }}>
-                <ExplorerCreateGroupComponent insertAt="top" />
-                {app.workspace.groups.map((group, i) => (
-                    <ExplorerGroup
-                        key={i}
-                        name={group.name}
-                        items={group.items}
-                        expanded={group.expanded}
-                        groupIndex={i}
-                        groupCount={app.workspace.groups.length}
-                        setName={name => {
-                            app.updateWorkspace(draft => { draft.groups[i]!.name = name; });
-                        }}
-                        setExpanded={expanded => {
-                            app.updateWorkspace(draft => { draft.groups[i]!.expanded = expanded; });
-                        }}
-                        updateItems={updater => {
-                            app.updateWorkspace(draft => {
-                                updater(draft.groups[i]!.items);
-                                draft.groups[i]!.items.sort((a, b) => a.name.localeCompare(b.name));
-                            });
-                        }}
-                        moveUp={() => {
-                            if (i === 0) return;
-                            app.updateWorkspace(draft => {
-                                const temp = draft.groups[i - 1]!;
-                                draft.groups[i - 1] = draft.groups[i]!;
-                                draft.groups[i] = temp;
-                            });
-                        }}
-                        moveDown={() => {
-                            if (i === app.workspace.groups.length - 1) return;
-                            app.updateWorkspace(draft => {
-                                const temp = draft.groups[i + 1]!;
-                                draft.groups[i + 1] = draft.groups[i]!;
-                                draft.groups[i] = temp;
-                            });
-                        }}
-                        removeGroup={() => {
-                            app.updateWorkspace(draft => { draft.groups.splice(i, 1); });
-                        }} />
+                {preset?.providers.map(providerId => (
+                    <ProviderIdProvider key={providerId} value={providerId}>
+                        <ExplorerProvider />
+                    </ProviderIdProvider>
                 ))}
-                <ExplorerCreateGroupComponent insertAt="bottom" />
             </div>
         </div>);
+}
+
+function ExplorerProvider() {
+    const ctx = useAppContext();
+    const providerId = useProviderId();
+    const provider = providers.find(provider => provider.id === providerId);
+    if (!provider) {
+        return;
+    }
+
+    const providerData = ctx.workspace.providers[providerId];
+
+    function updateProviderData(updater: (draft: ProviderData) => void): void {
+        ctx.updateWorkspace(draft => {
+            const providerData = draft.providers[providerId];
+            if (providerData) {
+                updater(providerData);
+            } else {
+                throw new Error(`Unexpected provider id: ${providerId}`);
+            }
+        });
+    }
+
+    const providerContext = {
+        data: providerData?.data ?? {},
+        updateData: (updater: (draft: unknown) => void) => {
+            updateProviderData(draft => updater(draft.data));
+        },
+        cache: ctx.cache.providers[providerId] ?? {},
+        updateCache: (updater: (draft: unknown) => void) => {
+            ctx.updateCache(draft => {
+                draft.providers[providerId] ??= {};
+                updater(draft.providers[providerId]);
+            });
+        },
+        currentUrl: ctx.workspace.app.currentUrl,
+        setCurrentUrl: (url: string) => {
+            ctx.updateWorkspace(draft => {
+                draft.app.currentUrl = url;
+            });
+        },
+    };
+
+    const providerOutput = provider.render(providerContext);
+    return provider && (
+        provider.enableItemGrouping ? <>
+            <ExplorerCreateGroupComponent />
+            <ExplorerGroup
+                variant="ungrouped"
+                providerOutput={providerOutput} />
+            {_
+                .keys(providerData?.groups ?? {})
+                .map(groupName => (
+                    <ExplorerGroup
+                        key={groupName}
+                        variant="default"
+                        groupName={groupName}
+                        providerOutput={providerOutput} />
+                ))}
+        </> : <>
+            <div className="flex flex-col gap-2">
+                {_
+                    .entries(providerOutput.items)
+                    .map(([itemId, item]) => (
+                        <ExplorerItem
+                            key={itemId}
+                            item={item}
+                            itemGroupName="" />))}
+            </div>
+        </>);
 }
 
 function ExplorerGroup(props: ReadonlyDeep<{
-    name: string;
-    items: Item[];
-    expanded: boolean;
-    groupIndex: number;
-    groupCount: number;
-    setName(name: string): void;
-    setExpanded(expanded: boolean): void;
-    updateItems(updater: (items: Item[]) => void): void;
-    moveUp(): void;
-    moveDown(): void;
-    removeGroup(): void;
-}>) {
-    function expandAll() {
-        props.updateItems(items => {
-            for (const item of items) item.expanded = true;
-        });
-    }
-
-    function collapseAll() {
-        props.updateItems(items => {
-            for (const item of items) item.expanded = false;
-        });
-    }
-
-    function removeGroup() {
-        props.removeGroup();
-    }
-
-    return (
-        <div className="flex flex-col gap-1">
-            <ExplorerGroupHeader
-                groupName={props.name}
-                groupExpanded={props.expanded}
-                setGroupExpanded={props.setExpanded}
-                isFrozen={false}
-                isFirst={props.groupIndex === 0}
-                isLast={props.groupIndex === props.groupCount - 1}
-                expandAll={expandAll}
-                collapseAll={collapseAll}
-                moveUp={props.moveUp}
-                moveDown={props.moveDown}
-                renameGroup={props.setName}
-                removeGroup={removeGroup}
-                importItems={items => props.updateItems(draft => draft.push(...items))} />
+    providerOutput: ReadonlyDeep<{ items: Record<string, Item>}>,
+} & (
+    | { variant: "default", groupName: string }
+    | { variant: "ungrouped" })>) {
+    const [providerData, updateProviderData] = useProviderData();
+    return props.variant === "ungrouped"
+        ? <div className="flex flex-col gap-1">
+            <ExplorerGroupHeader variant="ungrouped"/>
             <div className="flex flex-col gap-2">
-                {props.expanded && props.items.map((item, i) => (
-                    <ExplorerItem
-                        key={i}
-                        item={item}
-                        expanded={item.expanded}
-                        setExpanded={expanded => {
-                            props.updateItems(items => { items[i]!.expanded = expanded; });
-                        }}
-                        updateItem={updater => {
-                            props.updateItems(items => updater(items[i]!));
-                        }}
-                        removeItem={() => {
-                            props.updateItems(items => { items.splice(i, 1); });
-                        }} />))}
+                {_
+                    .entries(props.providerOutput.items)
+                    .filter(([itemId, __]) => (
+                        !_.entries(providerData.groups)
+                            .some(([_, group]) => group.items.includes(itemId))))
+                    .map(([itemId, item]) => (
+                        <ExplorerItem
+                            key={itemId}
+                            item={item}
+                            itemGroupName="" />))}
             </div>
-        </div>);
-}
-
-function ExplorerItem(props: ReadonlyDeep<ExplorerItemProps<Item>>) {
-    switch (props.item.type) {
-        case "crate":
-            return (
-                <CrateCard
-                    expanded={props.expanded}
-                    setExpanded={props.setExpanded}
-                    item={props.item}
-                    updateItem={props.updateItem}
-                    removeItem={props.removeItem} />);
-        default:
-            return null;
-    }
+        </div>
+        : <div className="flex flex-col gap-1">
+            <ExplorerGroupHeader variant="default" groupName={props.groupName} />
+            {providerData.expandedGroups.includes(props.groupName) &&
+                <div className="flex flex-col gap-2">
+                    {_
+                        .entries(props.providerOutput.items)
+                        .filter(([itemId, __]) => (
+                            providerData.groups[props.groupName]?.items.includes(itemId)))
+                        .map(([itemId, item]) => (
+                            <ExplorerItem
+                                key={itemId}
+                                item={item}
+                                itemGroupName="" />))}
+                </div>}
+        </div>;
 }

@@ -1,13 +1,12 @@
 import type { ReadonlyDeep } from "type-fest";
 
-import type { IconProp } from "@fortawesome/fontawesome-svg-core";
+import * as _ from "remeda";
+
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
     faArrowUpRightFromSquare,
     faEllipsisVertical,
     faRightToBracket,
-    faRotate,
-    faTrash
 } from "@fortawesome/free-solid-svg-icons";
 
 import { Button } from "@shadcn/components/ui/button";
@@ -22,26 +21,30 @@ import {
     DropdownMenuTrigger,
 } from "@shadcn/components/ui/dropdown-menu";
 
-import type { Item, ItemLink, ItemAction } from "@/core/data";
+import type { Item, ItemLink, ItemAction, ProviderData } from "@/core/data";
 import Icon from "@/ui/common/Icon";
 
-import { useAppContext, useCurrentUrl, useProviderData } from "@/core/context";
+import { useCurrentUrl, useProviderData } from "@/core/context";
 
-/**
- * Dropdown menu for crate actions: move to group, refresh metadata, remove.
- */
-export default function ExplorerItemMenu({ item, ...props }: {
+export default function ExplorerItemMenu({ item, itemGroupName }: ReadonlyDeep<{
     item: Item,
-}) {
-    const app = useAppContext();
+    itemGroupName: string,
+}>) {
     const [providerData, updateProviderData] = useProviderData();
-
-    function moveItem(
-        itemName: string,
-        sourceGroupName: string,
-        targetGroupName: string) {
-    }
-
+    const moveItemActions =
+        _.keys(providerData.groups).map(
+            targetGroupName => (
+                getMoveItemAction(
+                    item.id,
+                    itemGroupName,
+                    targetGroupName,
+                    updateProviderData)))
+    const moveItemToUngroupedAction =
+        getMoveItemAction(
+            item.id,
+            itemGroupName,
+            "",
+            updateProviderData);
     return (
         <DropdownMenu>
             <DropdownMenuTrigger>
@@ -59,21 +62,10 @@ export default function ExplorerItemMenu({ item, ...props }: {
                         <span>Move to group</span>
                     </DropdownMenuSubTrigger>
                     <DropdownMenuSubContent>
-                        {providerData.groups.map((group, index) => (
-                            <ExplorerItemMenuAction
-                                action={{
-                                    name: group.name,
-                                    icon: {
-                                        type: "fontawesome",
-                                        name: faRightToBracket,
-                                    },
-                                    invoke: () => {
-                                        moveItem(
-                                            item.name,
-                                            group.name,
-                                            group.name);
-                                    },
-                                }} />
+                        <ExplorerItemMenuAction action={moveItemToUngroupedAction} />
+                        <DropdownMenuSeparator />
+                        {moveItemActions.map((action, index) => (
+                            <ExplorerItemMenuAction key={index} action={action} />
                         ))}
                     </DropdownMenuSubContent>
                 </DropdownMenuSub>
@@ -89,7 +81,7 @@ export default function ExplorerItemMenu({ item, ...props }: {
         </DropdownMenu>);
 }
 
-function ExplorerItemMenuLink({ link }: { link: ItemLink }) {
+function ExplorerItemMenuLink({ link }: ReadonlyDeep<{ link: ItemLink }>) {
     const [_, setCurrentUrl] = useCurrentUrl();
     const defaultLinkIcon = {
         type: "fontawesome",
@@ -104,14 +96,90 @@ function ExplorerItemMenuLink({ link }: { link: ItemLink }) {
         </DropdownMenuItem>);
 }
 
-
-function ExplorerItemMenuAction({ action }: { action: ItemAction }) {
+function ExplorerItemMenuAction({ action }: ReadonlyDeep<{ action: ItemAction }>) {
     return (
         <DropdownMenuItem
             variant={action.destructive ? "destructive" : undefined}
             className="cursor-pointer"
             onClick={action.invoke}>
-            <Icon icon={action.icon} size="sm" />
+            {action.icon && <Icon icon={action.icon} size="sm" />}
             <span>{action.name}</span>
         </DropdownMenuItem>);
+}
+
+function getMoveItemAction(
+    itemId: string,
+    sourceGroupName: string,
+    targetGroupName: string,
+    updateProviderData: (updater: (draft: ProviderData) => void) => void): ItemAction {
+    return {
+        name: targetGroupName,
+        disabled: targetGroupName === sourceGroupName || undefined,
+        invoke(): void {
+            if (targetGroupName !== sourceGroupName) {
+                updateProviderData(
+                    getMoveItemUpdater(
+                        itemId,
+                        sourceGroupName,
+                        targetGroupName));
+            }
+        },
+    };
+}
+
+/** Returns an updater function that moves an item from one group to another. */
+//* Note that the "ungrouped" group is represented by an empty string as the group name!!
+function getMoveItemUpdater(
+    itemId: string,
+    sourceGroupName: string,
+    targetGroupName: string): (draft: ProviderData) => void {
+    return draft => {
+        // Collect actions to perform after validation to avoid partial updates.
+        const actions: (() => void)[] = [];
+
+        if (sourceGroupName) {
+            const sourceGroup =
+                draft.groups[sourceGroupName];
+            if (!sourceGroup) {
+                console.warn(
+                    `Unable to move item ${itemId}: ` +
+                    `Source group "${sourceGroupName}" not found.`);
+                return;
+            }
+
+            const itemIndex =
+                sourceGroup.items.indexOf(itemId);
+            if (itemIndex < 0) {
+                console.warn(
+                    `Unable to move item ${itemId}: ` +
+                    `Item not found in source group "${sourceGroupName}".`);
+                return;
+            }
+
+            actions.push(() => {
+                sourceGroup.items.splice(itemIndex, 1);
+            });
+        }
+
+        if (targetGroupName) {
+            const targetGroup =
+                draft.groups[targetGroupName];
+
+            if (!targetGroup) {
+                console.warn(
+                    `Unable to move item ${itemId}: ` +
+                    `Target group "${targetGroupName}" not found.`);
+                return;
+            }
+
+            actions.push(() => {
+                targetGroup.items.push(itemId);
+                targetGroup.items.sort();
+            });
+        }
+
+        for (const action of actions) {
+            action();
+        }
+    };
 }

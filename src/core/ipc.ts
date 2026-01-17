@@ -159,7 +159,7 @@ function postMessage(message: ReadonlyDeep<IPCRequest>): void {
 }
 
 /**
- * Request to load workspace from the host. Throws an error if the file doesn"t
+ * Request to load workspace from the host. Throws an error if the file doesn't
  * exist or any other error occurs.
  *
  * This function does not perform any validation on the loaded workspace object,

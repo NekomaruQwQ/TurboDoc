@@ -1,9 +1,12 @@
+import type { ReadonlyDeep } from "type-fest";
+
+import * as _ from "remeda";
+
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faThumbtack } from "@fortawesome/free-solid-svg-icons";
 
 import type { IdentType, Page, PageName } from "@/core/data";
 import { cn } from "@/core/prelude";
-import { ArrayExt } from "@/core/prelude";
 import { useCurrentUrl } from "@/core/context";
 
 function getIdentColor(type: IdentType): string | undefined {
@@ -31,19 +34,18 @@ function getIdentColor(type: IdentType): string | undefined {
  * 2. Pinned pages (with unpin icon)
  * 3. Preview page (italic, with pin icon) if currentPage is not pinned
  */
-export default function ExplorerPageList(props: {
-    pages: readonly Page[],
-}) {
-    const pages = ArrayExt.sortByKey(props.pages, page => page.sortKey);
+export default function ExplorerPageList({ pages }: ReadonlyDeep<{ pages: Page[] }>) {
     return (
         <div className="flex flex-col gap-0.5">
-            {pages.map(page => <ExplorerPage page={page} />)}
+            {_.pipe(
+                pages,
+                _.sortBy(page => page.sortKey),
+                _.map(page => <ExplorerPage page={page} />))
+            }
         </div>);
 }
 
-function ExplorerPage({ page }: {
-    page: Page,
-}) {
+function ExplorerPage({ page }: ReadonlyDeep<{ page: Page }>) {
     const [currentUrl, setCurrentUrl] = useCurrentUrl();
     const active = page.url === currentUrl;
     const pinned = page.pinned === true;
@@ -65,7 +67,7 @@ function ExplorerPage({ page }: {
                 italic={italic}
                 setPinned={value => {
                     if (page.pinned !== null) {
-                        page.pinned = value;
+                        page.setPinned(value);
                     } else {
                         console.warn("Trying to pin/unpin a page with pinning disabled.");
                     }
@@ -73,7 +75,7 @@ function ExplorerPage({ page }: {
         </div>);
 }
 
-function ExplorerPageName({ value }: { value: PageName }) {
+function ExplorerPageName({ value }: ReadonlyDeep<{ value: PageName }>) {
     switch (value.type) {
         case "text":
             return <>{value.text}</>;

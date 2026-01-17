@@ -2,7 +2,6 @@ import type { ReadonlyDeep } from "type-fest";
 import { createContext, useContext } from "react";
 
 import type { State } from "@/core/prelude";
-import { assertSome } from "@/core/prelude";
 
 import type {
     Workspace,
@@ -38,7 +37,9 @@ export class AppContext {
         if (url == "https://docs.rs/-/storage-change-detectioappn.html")
             return;
 
-        this.updateWorkspace(draft => draft.app.currentUrl = url);
+        this.updateWorkspace(draft => {
+            draft.app.currentUrl = url;
+        });
     }
 }
 
@@ -46,9 +47,9 @@ const appContext = createContext<AppContext>(undefined!);
 export const AppContextProvider = appContext.Provider;
 export const useAppContext = () => useContext(appContext);
 
-const providerInfo = createContext<ProviderInfo>(undefined!);
-export const ProviderInfoProvider = providerInfo.Provider;
-export const useProviderInfo = () => useContext(providerInfo);
+const providerId = createContext<string>(undefined!);
+export const ProviderIdProvider = providerId.Provider;
+export const useProviderId = () => useContext(providerId);
 
 export function useCurrentUrl(): State<string> {
     const ctx = useAppContext();
@@ -64,14 +65,23 @@ export function useCurrentUrl(): State<string> {
 
 export function useProviderData(): State<ProviderData> {
     const ctx = useAppContext();
-    const provider = useProviderInfo();
-    const message = `Unexpected provider id: ${provider.id}`;
-    return [
-        assertSome(ctx.workspace.providers[provider.id], message),
-        (updater: (draft: ProviderData) => void) => {
-            ctx.updateWorkspace(draft => {
-                updater(assertSome(draft.providers[provider.id], message));
-            });
-        }
-    ]
+    const providerId = useProviderId();
+    const providerData = ctx.workspace.providers[providerId];
+
+    function updateProviderData(updater: (draft: ProviderData) => void): void {
+        ctx.updateWorkspace(draft => {
+            const providerData = draft.providers[providerId];
+            if (providerData) {
+                updater(providerData);
+            } else {
+                throw new Error(`Unexpected provider id: ${providerId}`);
+            }
+        });
+    }
+
+    if (providerData) {
+        return [providerData, updateProviderData];
+    } else {
+        throw new Error(`Unexpected provider id: ${providerId}`);
+    }
 }

@@ -11,13 +11,9 @@ import {
     faChevronRight,
     faCheck,
     faEllipsisVertical,
-    faFileImport,
     faPencil,
     faTrash,
 } from "@fortawesome/free-solid-svg-icons";
-
-import type { Item } from "@/data";
-import { parseUrl } from "@/data";
 
 import { Button } from "@shadcn/components/ui/button";
 import { Input } from "@shadcn/components/ui/input";
@@ -39,265 +35,236 @@ import {
     DropdownMenuTrigger,
 } from "@shadcn/components/ui/dropdown-menu";
 
-interface ExplorerGroupHeaderProps {
-    /** Name of the group. */
-    groupName: string;
+import { useProviderData } from "@/core/context";
 
-    /** Whether the group is expanded. */
-    groupExpanded: boolean;
+export default function ExplorerGroupHeader(
+    props:
+        | { variant: "default", groupName: string }
+        | { variant: "ungrouped" }) {
+    const [providerData, updateProviderData] = useProviderData();
 
-    /** Sets the expanded state of the group. */
-    setGroupExpanded(expanded: boolean): void;
+    if (props.variant === "ungrouped") {
+        return (
+            <div className="group/header flex flex-row h-8 py-0.5 items-center gap-0.5 text-muted-foreground">
+                {/* Group name */}
+                <p className="flex flex-row flex-1 gap-2 items-center text-lg pl-1 font-semibold cursor-pointer truncate" >
+                    <span className="flex-1 truncate">Ungrouped</span>
+                </p>
+            </div>);
+    } else {
+        const groupName = props.groupName;
+        const [DeleteDialog, showDeleteDialog] = useDeleteDialog();
+        const [isRenaming, setIsRenaming] = useState(false);
+        const [editedName, setEditedName] = useState(groupName);
 
-    /** Whether the group is frozen (cannot be renamed, moved and deleted). */
-    isFrozen?: boolean;
+        const groupExpanded = providerData.expandedGroups.includes(groupName);
+        const isFirstGroup =
+            providerData.groupOrder[0] === groupName;
+        const isLastGroup =
+            providerData.groupOrder[providerData.groupOrder.length - 1] === groupName;
 
-    /** Whether this is the first group (disables "Move up"). */
-    isFirst: boolean;
-
-    /** Whether this is the last group (disables "Move down"). */
-    isLast: boolean;
-
-    /** Renames the group to the new name. */
-    renameGroup(newName: string): void;
-
-    /** Removes the group from the workspace. */
-    removeGroup(): void;
-
-    /** Expand all items in the group. */
-    expandAll(): void;
-
-    /** Collapse all items in the group. */
-    collapseAll(): void;
-
-    /** Move the group up in the list. */
-    moveUp(): void;
-
-    /** Move the group down in the list. */
-    moveDown(): void;
-
-    /** Import items parsed from URLs. Called with the items to add. */
-    importItems(items: Item[]): void;
-}
-
-
-/**
- * Header for a named group with rename, expand/collapse all, and group menu.
- * Manages its own rename state (inline input).
- */
-export default function ExplorerGroupHeader(props: ExplorerGroupHeaderProps) {
-    const [isRenaming, setIsRenaming] = useState(false);
-    const [editedName, setEditedName] = useState(props.groupName);
-    const [showRemoveDialog, setShowRemoveDialog] = useState(false);
-    const [showImportDialog, setShowImportDialog] = useState(false);
-    const [importText, setImportText] = useState("");
-
-    function beginRename() {
-        setEditedName(props.groupName);
-        setIsRenaming(true);
-    }
-
-    function confirmRename() {
-        const trimmed = editedName.trim();
-        if (trimmed && trimmed !== props.groupName) {
-            props.renameGroup(trimmed);
-        }
-        setIsRenaming(false);
-    }
-
-    function cancelRename() {
-        setEditedName(props.groupName);
-        setIsRenaming(false);
-    }
-
-    function onRenameKeyDown(e: KeyboardEvent) {
-        if (e.key === "Enter") {
-            confirmRename();
-        } else if (e.key === "Escape") {
-            cancelRename();
-        }
-    }
-
-    function confirmRemoveGroup() {
-        props.removeGroup();
-        setShowRemoveDialog(false);
-    }
-
-    /** Parses URLs from textarea, groups by crate, and imports items. */
-    function handleImport() {
-        const lines = importText.split("\n").map(line => line.trim()).filter(Boolean);
-
-        // Parse URLs and group by crate name
-        const cratePages = new Map<string, string[]>();
-        for (const line of lines) {
-            const page = parseUrl(line);
-            if (page.type !== "crate") continue;
-
-            const paths = cratePages.get(page.crateName) ?? [];
-            const pathStr = page.pathSegments.join("/");
-            if (pathStr && !paths.includes(pathStr)) {
-                paths.push(pathStr);
-            }
-            cratePages.set(page.crateName, paths);
-        }
-
-        // Create Item objects and import
-        const items: Item[] = [];
-        for (const [crateName, pinnedPages] of cratePages) {
-            items.push({
-                type: "crate",
-                name: crateName,
-                currentVersion: "latest",
-                pinnedPages,
-                expanded: true,
+        function toggleGroupExpanded() {
+            updateProviderData(draft => {
+                if (groupExpanded) {
+                    draft.expandedGroups =
+                        draft.expandedGroups.filter(name => name !== groupName);
+                } else {
+                    draft.expandedGroups.push(groupName);
+                }
             });
         }
 
-        if (items.length > 0) {
-            props.importItems(items);
+        function expandAll() {
+            updateProviderData(draft => {
+                const items = draft.groups[groupName]?.items || [];
+                for (const itemId of items) {
+                    if (!draft.expandedItems.includes(itemId)) {
+                        draft.expandedItems.push(itemId);
+                    }
+                }
+            });
         }
 
-        setImportText("");
-        setShowImportDialog(false);
-    }
+        function collapseAll() {
+            updateProviderData(draft => {
+                const items = draft.groups[groupName]?.items || [];
+                draft.expandedItems =
+                    draft.expandedItems.filter(id => !items.includes(id));
+            });
+        }
 
-    // Inline rename input mode
-    if (isRenaming) {
+        function moveUp() {
+            updateProviderData(draft => {
+                const thisIndex = draft.groupOrder.indexOf(groupName);
+                const prevIndex = draft.groupOrder[thisIndex - 1];
+                if (thisIndex && prevIndex) {
+                    draft.groupOrder[thisIndex - 1] = groupName;
+                    draft.groupOrder[thisIndex] = prevIndex;
+                }
+            });
+        }
+
+        function moveDown() {
+            updateProviderData(draft => {
+                const thisIndex = draft.groupOrder.indexOf(groupName);
+                const nextIndex = draft.groupOrder[thisIndex + 1];
+                if (thisIndex && nextIndex) {
+                    draft.groupOrder[thisIndex + 1] = groupName;
+                    draft.groupOrder[thisIndex] = nextIndex;
+                }
+            });
+        }
+
+        function removeGroup() {
+            updateProviderData(draft => {
+                delete draft.groups[groupName];
+            });
+        }
+
+        function confirmRename() {
+            setIsRenaming(false);
+            const trimmed = editedName.trim();
+            if (trimmed && trimmed !== groupName) {
+                const newName = trimmed;
+                updateProviderData(draft => {
+                    const group = draft.groups[groupName] || {
+                        items: [],
+                    };
+                    delete draft.groups[groupName];
+                    draft.groups[newName] = group;
+                });
+            }
+        }
+
+        function onRenameKeyDown(e: KeyboardEvent) {
+            if (e.key === "Enter") {
+                confirmRename();
+            } else if (e.key === "Escape") {
+                setIsRenaming(false);
+            }
+        }
+
+        // Inline rename input mode
+        if (isRenaming) {
+            return (
+                <div className="flex flex-row items-center h-8 py-0.5">
+                    <Input
+                        value={editedName}
+                        onChange={e => setEditedName(e.target.value)}
+                        onKeyDown={onRenameKeyDown}
+                        onBlur={confirmRename}
+                        autoFocus
+                        className="h-7 mx-1 rounded-md font-semibold" />
+                    <Button
+                        variant="secondary"
+                        size="icon"
+                        className="size-7 rounded-md"
+                        onClick={confirmRename}>
+                        <FontAwesomeIcon icon={faCheck} />
+                    </Button>
+                </div>);
+        }
+
         return (
-            <div className="flex flex-row items-center h-8 py-0.5">
-                <Input
-                    value={editedName}
-                    onChange={e => setEditedName(e.target.value)}
-                    onKeyDown={onRenameKeyDown}
-                    onBlur={confirmRename}
-                    autoFocus
-                    className="h-7 mx-1 rounded-md font-semibold" />
-                <Button
-                    variant="secondary"
-                    size="icon"
-                    className="size-7 rounded-md"
-                    onClick={confirmRename}>
-                    <FontAwesomeIcon icon={faCheck} />
-                </Button>
-            </div>);
-    }
-
-    return (
-        <div className="group/header flex flex-row h-8 py-0.5 items-center gap-0.5 text-muted-foreground">
-            {/* Group name */}
-            <p
-                className="flex flex-row flex-1 gap-2 items-center text-lg pl-1 font-semibold cursor-pointer truncate"
-                onClick={() => props.setGroupExpanded(!props.groupExpanded)} >
-                <FontAwesomeIcon
-                    icon={props.groupExpanded ? faChevronDown : faChevronRight}
-                    size="sm" />
-                <span className="flex-1 truncate">{props.groupName}</span>
-            </p>
-            {/* Rename button*/}
-            {!props.isFrozen &&
+            <div className="group/header flex flex-row h-8 py-0.5 items-center gap-0.5 text-muted-foreground">
+                {/* Group name */}
+                <p
+                    className="flex flex-row flex-1 gap-2 items-center text-lg pl-1 font-semibold cursor-pointer truncate"
+                    onClick={() => toggleGroupExpanded()} >
+                    <FontAwesomeIcon
+                        icon={groupExpanded ? faChevronDown : faChevronRight}
+                        size="sm" />
+                    <span className="flex-1 truncate">{groupName}</span>
+                </p>
+                {/* Rename button*/}
                 <Button
                     variant="ghost"
                     size="icon"
                     className="size-7 rounded-md invisible group-hover/header:visible"
                     title="Rename group"
-                    onClick={beginRename}>
+                    onClick={() => {
+                        setIsRenaming(true);
+                        setEditedName(groupName);
+                    }}>
                     <FontAwesomeIcon icon={faPencil} />
                 </Button>
-            }
-            {/* Group Menu */}
-            <DropdownMenu>
-                <DropdownMenuTrigger>
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-7 rounded-md">
-                        <FontAwesomeIcon icon={faEllipsisVertical} />
-                    </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={props.expandAll}>
-                        <FontAwesomeIcon icon={faAnglesDown} />
-                        <span>Expand all</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={props.collapseAll}>
-                        <FontAwesomeIcon icon={faAnglesUp} />
-                        <span>Collapse all</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => setShowImportDialog(true)}>
-                        <FontAwesomeIcon icon={faFileImport} />
-                        <span>Import</span>
-                    </DropdownMenuItem>
-                    {!props.isFrozen && <>
+                {/* Group Menu */}
+                <DropdownMenu>
+                    <DropdownMenuTrigger>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-7 rounded-md">
+                            <FontAwesomeIcon icon={faEllipsisVertical} />
+                        </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={expandAll}>
+                            <FontAwesomeIcon icon={faAnglesDown} />
+                            <span>Expand all</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={collapseAll}>
+                            <FontAwesomeIcon icon={faAnglesUp} />
+                            <span>Collapse all</span>
+                        </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
-                            disabled={props.isFirst}
-                            onClick={props.moveUp}>
+                            disabled={isFirstGroup}
+                            onClick={moveUp}>
                             <FontAwesomeIcon icon={faArrowUp} />
                             <span>Move up</span>
                         </DropdownMenuItem>
                         <DropdownMenuItem
-                            disabled={props.isLast}
-                            onClick={props.moveDown}>
+                            disabled={isLastGroup}
+                            onClick={moveDown}>
                             <FontAwesomeIcon icon={faArrowDown} />
                             <span>Move down</span>
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
                             variant="destructive"
-                            onClick={() => setShowRemoveDialog(true)}>
+                            onClick={showDeleteDialog}>
                             <FontAwesomeIcon icon={faTrash} />
                             <span>Remove group</span>
+                            <DeleteDialog
+                                title="Delete Group?"
+                                callback={removeGroup}>
+                                Are you sure you want to delete group "{props.groupName}"?
+                                This action cannot be undone.
+                            </DeleteDialog>
                         </DropdownMenuItem>
-                    </>}
-                </DropdownMenuContent>
-            </DropdownMenu>
+                    </DropdownMenuContent>
+                </DropdownMenu>
+            </div>);
+    }
+}
 
-            {/* Delete Confirmation Dialog */}
-            <Dialog open={showRemoveDialog} onOpenChange={setShowRemoveDialog}>
+function useDeleteDialog() {
+    const [open, setOpen] = useState(false);
+    return [
+        (props: {
+            title: string,
+            children: undefined | string | string[],
+            callback: () => void
+        }) => (
+            <Dialog open={open} onOpenChange={setOpen}>
                 <DialogContent showCloseButton={false}>
                     <DialogHeader>
-                        <DialogTitle>Delete group?</DialogTitle>
-                        <DialogDescription>
-                            This will remove the group "{props.groupName}".
-                            Crates in this group will be lost forever.
-                        </DialogDescription>
+                        <DialogTitle>{props.title}</DialogTitle>
+                        <DialogDescription>{props.children}</DialogDescription>
                     </DialogHeader>
                     <DialogFooter>
                         <Button
+                            children="Cancel"
                             variant="outline"
-                            onClick={() => setShowRemoveDialog(false)}>
-                            Cancel
-                        </Button>
+                            onClick={() => setOpen(false)} />
                         <Button
+                            children="Delete"
                             variant="destructive"
-                            onClick={confirmRemoveGroup}>
-                            Delete
-                        </Button>
+                            onClick={props.callback} />
                     </DialogFooter>
                 </DialogContent>
-            </Dialog>
-
-            {/* Import Dialog */}
-            <Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>Import from URLs</DialogTitle>
-                        <DialogDescription>
-                            Paste docs.rs URLs (one per line) to add crates and pages.
-                        </DialogDescription>
-                    </DialogHeader>
-                    <textarea
-                        value={importText}
-                        onChange={e => setImportText(e.target.value)}
-                        placeholder="https://docs.rs/tokio/latest/tokio/..."
-                        rows={8}
-                        className="w-full rounded-lg border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setShowImportDialog(false)}>Cancel</Button>
-                        <Button onClick={handleImport}>Import</Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
-        </div>);
+            </Dialog>),
+        () => setOpen(true),
+    ] as const;
 }

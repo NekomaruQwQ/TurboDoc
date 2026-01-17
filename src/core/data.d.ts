@@ -1,8 +1,9 @@
 import type { IconProp as FontAwesomeIconProp } from "@fortawesome/fontawesome-svg-core";
-export type IconName =
+export type IconProp =
     | { type: "fontawesome"; name: FontAwesomeIconProp };
 
 import type { ReadonlyDeep } from "type-fest";
+import type { ReactNode } from "react";
 
 /** The root data model for the application. */
 export interface Workspace {
@@ -12,7 +13,10 @@ export interface Workspace {
 
 interface AppData {
     /** Preset definitions. */
-    presets: Preset[],
+    presets: Record<string, {
+        /** List of active provider IDs in this preset. */
+        providers: string[],
+    }>;
 
     /** Currently active preset name. */
     currentPreset: string,
@@ -21,28 +25,21 @@ interface AppData {
     currentUrl: string,
 }
 
-/** The preset data model, also used as view model. */
-export interface Preset {
-    /** Name of the preset. */
-    name: string,
-
-    /** List of active provider IDs in this preset. */
-    providers: string[],
-}
-
 export interface ProviderData {
     /** Provider-specific data storage. */
     data: unknown,
 
     /**
      * Definition of item groups under this provider. For providers that
-     * do not support grouping, this field is an empty array.
+     * do not support grouping, this field is an empty object.
      *
      * The app manages item grouping for each provider and providers only
      * need to provide a flat list of items in `Provider.render()`.
      *
-     * Each group under a provider must have a unique name. Order of groups
-     * is managed by the app and defined here.
+     * Each group under a provider must have a unique name, serving as the
+     * identifier for the group within that provider. The "ungrouped" group
+     * is represented by an empty string as the group name. Order of groups
+     * is managed by the app and is defined by the order of this array.
      *
      * Each group contains a list of item identifiers that belong to that
      * group. An item can only belong to one group at a time.
@@ -51,24 +48,25 @@ export interface ProviderData {
      * will be displayed in a default "ungrouped" group at top of all other
      * groups.
      *
-     * Order of groups is defined by this array and is managed by the app.
+     * Order of groups is defined by the `groupOrder` field below.
+     *
      * Order of items within each group as well as in the ungrouped group
      * is determined by the `sortKey` field of each item. The order of the
      * `items` array of each group is not preserved.
      **/
-    groups: {
-        /** Name of the group */
-        name: string,
-
-        /** List of item IDs in this group */
+    groups: Record<string, {
+        /** List of item IDs contained in this group. */
         items: string[],
+    }>,
 
-        /** Whether the group is expanded in the UI */
-        expanded: boolean,
-    }[],
+    /** Order of groups under this provider. */
+    groupOrder: string[],
 
     /** List of item IDs that are expanded in the UI. */
     expandedItems: string[],
+
+    /** List of group names that are expanded in the UI. */
+    expandedGroups: string[],
 }
 
 export interface Cache {
@@ -80,11 +78,6 @@ export interface Provider<T = unknown, TCache = unknown>
     extends ProviderInfo {
     /** Render a full view model from provider-specific data storage. */
     render(provider: ProviderContext<T, TCache>): ProviderOutput,
-
-    /** Import an item from a user input string into the provider-specific data storage. */
-    importItem?(provider: ProviderContext<T, TCache>, input: string):
-        | { readonly success: true }
-        | { readonly success: false, readonly message: string },
 }
 
 /** Metadata about a provider. */
@@ -123,8 +116,13 @@ export interface ProviderContext<T = unknown, TCache = unknown> {
 }
 
 export type ProviderOutput = ReadonlyDeep<{
-    items: Item[],
+    items: Record<string, Item>,
+    actions?: ProviderAction[],
 }>;
+
+export type ProviderAction =
+    | { type: "node", render(): ReactNode }
+    | { type: "menu", name: string, icon: IconProp, invoke(): void };
 
 /** The uniform view model of a documentation item. */
 export interface Item {
@@ -164,7 +162,7 @@ export interface ItemLink {
 
     /** Icon for the action.
      *  If `undefined`, the default link icon (`faArrowUpRightFromSquare`) is used. */
-    icon?: IconName,
+    icon?: IconProp,
 
 }
 
@@ -174,7 +172,10 @@ export interface ItemAction {
     name: string,
 
     /** Icon for the action. */
-    icon: IconName,
+    icon?: IconProp,
+
+    /** Whether this action is disabled. */
+    disabled?: true,
 
     /** Whether this action is destructive (e.g., delete).
      *  Destructive actions are highlighted in red in the UI. */
