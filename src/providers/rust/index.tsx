@@ -316,7 +316,7 @@ function getCratePages(
             }
         }
 
-        const segments = path.split("/");
+        const segments = path.split("/").filter(s => s !== "");
         const fileName = segments.at(-1);
 
         if (!segments[0]) {
@@ -365,9 +365,9 @@ function getCratePages(
 
     const currentUrl = parseUrl(ctx.currentUrl);
 
-    // Root module path differs between docs.rs and doc.rust-lang.org:
-    // - docs.rs: path includes module name (e.g., "tokio/runtime/...")
-    // - doc.rust-lang.org: path excludes crate name (e.g., "vec/..." not "std/vec/...")
+    // Both docs.rs and doc.rust-lang.org paths include the crate/module name:
+    // - docs.rs: "tokio/runtime/..."
+    // - doc.rust-lang.org: "std/vec/..."
     const rootModuleName = crateName.replaceAll("-", "_");
     const rootModulePath = `${rootModuleName}/`;
 

@@ -331,7 +331,7 @@ The code is correct (`pathSegments` includes the crate name for both); only the 
 | #4 | Critical | Open | "Delete Crate" leaves orphaned group references |
 | #5 | Critical | Open | Redundant API fetches due to missing in-flight tracking |
 | #6 | Moderate | Open | IPC handler registered on every render |
-| #7 | Critical | Open | `getPageNameFromPath` doesn't handle trailing slashes |
+| #7 | Critical | Fixed | `getPageNameFromPath` doesn't handle trailing slashes |
 | #8 | Moderate | Open | No `index.html` normalization in URL handling |
-| #9 | Minor    | Open | Importing root module URLs adds dead entries |
-| #10 | Minor   | Open | Misleading comment about path structure |
+| #9 | Minor    | Fixed | Importing root module URLs adds dead entries |
+| #10 | Minor   | Fixed | Misleading comment about path structure |

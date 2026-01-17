@@ -52,6 +52,14 @@ export function getImportCratesAction(ctx: RustProviderContext): ProviderAction 
                             case "https://docs.rs/":
                             case "https://doc.rust-lang.org/": {
                                 const path = page.pathSegments.join("/");
+                                const rootModulePath = `${page.name.replaceAll("-", "_")}/`;
+
+                                // Skip root module paths - they're always shown and cannot be pinned.
+                                if (path === rootModulePath) {
+                                    importCrates[page.name] ??= [];
+                                    break;
+                                }
+
                                 if (!(importCrates[page.name]?.includes(path))) {
                                     importCrates[page.name] ??= [];
                                     importCrates[page.name]?.push(path);
