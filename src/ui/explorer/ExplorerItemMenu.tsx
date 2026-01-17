@@ -31,14 +31,6 @@ export default function ExplorerItemMenu({ item, itemGroupName }: ReadonlyDeep<{
     itemGroupName: string,
 }>) {
     const [providerData, updateProviderData] = useProviderData();
-    const moveItemActions =
-        _.keys(providerData.groups).map(
-            targetGroupName => (
-                getMoveItemAction(
-                    item.id,
-                    itemGroupName,
-                    targetGroupName,
-                    updateProviderData)))
     const moveItemToUngroupedAction = {
         ...getMoveItemAction(
             item.id,
@@ -47,6 +39,16 @@ export default function ExplorerItemMenu({ item, itemGroupName }: ReadonlyDeep<{
             updateProviderData),
         name: "Ungrouped",
     };
+    const moveItemActions =
+        providerData
+            .groupOrder
+            .filter(targetGroupName => targetGroupName in providerData.groups)
+            .map(targetGroupName => (
+                getMoveItemAction(
+                    item.id,
+                    itemGroupName,
+                    targetGroupName,
+                    updateProviderData)))
     return (
         <DropdownMenu>
             <DropdownMenuTrigger>
@@ -99,9 +101,11 @@ function ExplorerItemMenuLink({ link }: ReadonlyDeep<{ link: ItemLink }>) {
 }
 
 function ExplorerItemMenuAction({ action }: ReadonlyDeep<{ action: ItemAction }>) {
+    console.log("Rendering action:", action);
     return (
         <DropdownMenuItem
             variant={action.destructive ? "destructive" : undefined}
+            disabled={action.disabled}
             className="cursor-pointer"
             onClick={action.invoke}>
             {action.icon && <Icon icon={action.icon} size="sm" />}

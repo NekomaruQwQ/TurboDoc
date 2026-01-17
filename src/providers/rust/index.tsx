@@ -144,6 +144,21 @@ function renderItem(
     crateData: ReadonlyDeep<CrateData>,
     crateCache: ReadonlyDeep<CrateCache> | null,
 ): Item {
+    function getSortKey(name: string): string {
+        switch (name) {
+            case "std":
+                return " _0";
+            case "core":
+                return " _1";
+            case "alloc":
+                return " _2";
+            case "proc-macro":
+                return " _3";
+            default:
+                return name;
+        }
+    }
+
     function setCurrentVersion(newVersion: string) {
         const currentUrl = parseUrl(ctx.currentUrl);
         if (currentUrl && currentUrl.name === crateName) {
@@ -166,7 +181,7 @@ function renderItem(
     return {
         id: crateName,
         name: crateName,
-        sortKey: crateName,
+        sortKey: getSortKey(crateName),
         pages:
             getCratePages(ctx, crateName, crateData),
         links:
@@ -174,9 +189,7 @@ function renderItem(
                 ? getCrateLinks(crateName, crateCache)
                 : undefined,
         actions:
-            getBaseUrlForCrate(crateName) !== "https://doc.rust-lang.org/"
-                ? getCrateActions(ctx, crateName)
-                : undefined,
+            getCrateActions(ctx, crateName),
         versions:
             getBaseUrlForCrate(crateName) !== "https://doc.rust-lang.org/"
                 ? crateCache
@@ -383,9 +396,14 @@ function getCratePages(
     const pages: Page[] = [];
     for (const path of crateData.pinnedPages) {
         const url = buildPageUrl(path.split("/"));
+        const name = getPageNameFromPath(path);
+        const sortKey =
+            name.type === "symbol"
+                ? name.path.map(segment => segment.name).join("::")
+                : name.text;
         pages.push({
-            name: getPageNameFromPath(path),
-            sortKey: path,
+            name,
+            sortKey,
             url,
             pinned: true,
             setPinned(pinned: boolean) {
@@ -414,9 +432,14 @@ function getCratePages(
     if (currentPath &&
         currentPath !== rootModulePath &&
         !crateData.pinnedPages.includes(currentPath)) {
+        const name = getPageNameFromPath(currentPath);
+        const sortKey =
+            name.type === "symbol"
+                ? name.path.map(segment => segment.name).join("::")
+                : name.text;
         pages.push({
-            name: getPageNameFromPath(currentPath),
-            sortKey: currentPath,
+            name,
+            sortKey,
             url: ctx.currentUrl,
             pinned: false,
             setPinned(pinned: boolean) {

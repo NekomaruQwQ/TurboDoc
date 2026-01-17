@@ -6,12 +6,14 @@ export type CrateUrl =
         name: string,
         version: string,
         pathSegments: string[],
+        fragment?: string,
     }
     | {
         baseUrl: "https://doc.rust-lang.org/",
         name: string,
         version: string,
         pathSegments: string[],
+        fragment?: string,
     };
 
 export function getBaseUrlForCrate(crateName: string): CrateUrl["baseUrl"] {
@@ -30,13 +32,18 @@ export function getBaseUrlForCrate(crateName: string): CrateUrl["baseUrl"] {
 }
 
 export function parseUrl(url: string): CrateUrl | null {
+    // Extract fragment (e.g., "#method.block_on") before parsing the base URL.
+    const hashIndex = url.indexOf("#");
+    const fragment = hashIndex !== -1 ? url.substring(hashIndex + 1) : undefined;
+    const baseUrl = hashIndex !== -1 ? url.substring(0, hashIndex) : url;
+
     // docs.rs URLs: https://docs.rs/{crate}/{version}/{path...}
-    if (url.startsWith("https://docs.rs/") && !(
-        url.startsWith("https://docs.rs/-/") ||
-        url.startsWith("https://docs.rs/crate/")
+    if (baseUrl.startsWith("https://docs.rs/") && !(
+        baseUrl.startsWith("https://docs.rs/-/") ||
+        baseUrl.startsWith("https://docs.rs/crate/")
     )) {
         const [name, version, ...pathSegments] =
-            url
+            baseUrl
                 .substring("https://docs.rs/".length)
                 .split("/");
         if (name)
@@ -45,15 +52,16 @@ export function parseUrl(url: string): CrateUrl | null {
                 name,
                 version: version || "latest",
                 pathSegments,
+                fragment: fragment || undefined,
             };
     }
 
     // doc.rust-lang.org URLs:
     //   https://doc.rust-lang.org/{std|core|alloc|..}/{path...}
     //   https://doc.rust-lang.org/{stable|nightly}/{std|core|alloc|..}/{path...}
-    if (url.startsWith("https://doc.rust-lang.org/")) {
+    if (baseUrl.startsWith("https://doc.rust-lang.org/")) {
         const segments =
-            url
+            baseUrl
                 .substring("https://doc.rust-lang.org/".length)
                 .split("/");
 
@@ -72,6 +80,7 @@ export function parseUrl(url: string): CrateUrl | null {
                 name,
                 version,
                 pathSegments: segments,
+                fragment: fragment || undefined,
             };
         }
     }
@@ -81,24 +90,26 @@ export function parseUrl(url: string): CrateUrl | null {
 
 export function buildUrl(crate: ReadonlyDeep<CrateUrl>): string {
     let path = crate.pathSegments.join("/");
-    if (!path.endsWith(".html") &&
+    if (!(path === "") &&
+        !path.endsWith(".html") &&
         !path.endsWith("/")) {
         path = `${path}/`;
     }
+    const fragment = crate.fragment ? `#${crate.fragment}` : "";
     switch (crate.baseUrl) {
         case "https://docs.rs/": {
             // Use "latest" when version is null to avoid malformed URLs like
             // "docs.rs/tokio/null/...".
             const crateName = crate.name;
             const crateVersion = crate.version ?? "latest";
-            return `https://docs.rs/${crateName}/${crateVersion}/${path}`;
+            return `https://docs.rs/${crateName}/${crateVersion}/${path}${fragment}`;
         }
         case "https://doc.rust-lang.org/": {
             switch (crate.version) {
                 case "nightly":
-                    return `https://doc.rust-lang.org/nightly/${path}`;
+                    return `https://doc.rust-lang.org/nightly/${path}${fragment}`;
                 default:
-                    return `https://doc.rust-lang.org/${path}`;
+                    return `https://doc.rust-lang.org/${path}${fragment}`;
             }
         }
     }

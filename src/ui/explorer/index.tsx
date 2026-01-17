@@ -1,5 +1,7 @@
 import type { ReadonlyDeep } from "type-fest";
 
+import * as _ from "remeda";
+
 import type { Item } from "@/core/data";
 import providers from "@/providers";
 import {
@@ -94,33 +96,39 @@ function ExplorerGroup(props: ReadonlyDeep<{
 } & (
     | { variant: "default", groupName: string }
     | { variant: "ungrouped" })>) {
+    function renderItem([itemId, item]: ReadonlyDeep<[string, Item]>) {
+        return (
+            <ExplorerItem
+                key={itemId}
+                item={item}
+                itemGroupName={props.variant === "default" ? props.groupName : ""} />
+        );
+    }
+
     const [providerData, __] = useProviderData();
     return props.variant === "ungrouped"
         ? <>
             <ExplorerGroupHeader variant="ungrouped"/>
-            {Object
-                .entries(props.providerOutput.items)
-                .filter(([itemId, __]) => (
+            {_.pipe(
+                _.entries(props.providerOutput.items),
+                _.filter(([itemId, __]) => (
                     !Object
                         .entries(providerData.groups)
-                        .some(([_, group]) => group.items.includes(itemId))))
-                .map(([itemId, item]) => (
-                    <ExplorerItem
-                        key={itemId}
-                        item={item}
-                        itemGroupName="" />))}
+                        .some(([_, group]) => group.items.includes(itemId)))),
+                _.sortBy(([_, item]) => item.sortKey),
+                _.map(renderItem))}
         </>
         : <>
             <ExplorerGroupHeader variant="default" groupName={props.groupName} />
             {providerData.expandedGroups.includes(props.groupName) &&
-                Object
-                        .entries(props.providerOutput.items)
-                        .filter(([itemId, __]) => (
-                            providerData.groups[props.groupName]?.items.includes(itemId)))
-                        .map(([itemId, item]) => (
-                            <ExplorerItem
-                                key={itemId}
-                                item={item}
-                                itemGroupName="" />))}
+                _.pipe(
+                    _.entries(props.providerOutput.items),
+                    _.filter(([itemId, __]) => (
+                        providerData
+                            .groups[props.groupName]?.items
+                            .includes(itemId)
+                        ?? false)),
+                    _.sortBy(([_, item]) => item.sortKey),
+                    _.map(renderItem))}
         </>;
 }

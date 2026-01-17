@@ -4,9 +4,11 @@
 
 TurboDoc v0.1 is a docs.rs-specific documentation viewer. v0.2 transforms it into a **universal documentation reader** supporting multiple providers.
 
-**Planned Providers:**
-- v0.2: `rust.std` (doc.rust-lang.org/std)
-- Future: `rust.cargo`, `cpp.cppreference`, `cpp.msdocs`, etc.
+**Implemented Providers:**
+- v0.2: `rust` — unified provider for docs.rs + doc.rust-lang.org (std, core, alloc, proc_macro)
+
+**Future Providers:**
+- `rust.cargo`, `cpp.cppreference`, `cpp.msdocs`, etc.
 
 **Core Metaphor:** TurboDoc is an "enhanced tabbed browser with inactive tab resources released"—not a hierarchical resource manager. The tree depth is strictly limited.
 
@@ -51,9 +53,9 @@ Cache (JSON) ────────►   (cast unknown)  ─────► wi
 
 | Entity | Global ID Format | Example |
 |--------|------------------|---------|
-| Provider | `<provider>` | `rust.crate` |
-| Group | `<provider>:<group_name>` | `rust.crate:My Project` |
-| Item | `<provider>:<item_name>` | `rust.crate:tokio` |
+| Provider | `<provider>` | `rust` |
+| Group | `<provider>:<group_name>` | `rust:My Project` |
+| Item | `<provider>:<item_name>` | `rust:tokio` |
 | Page (global) | Full URL | `https://docs.rs/tokio/latest/tokio/` |
 | Page (local) | `<semantic>` | `runtime/struct.Runtime` |
 
@@ -124,9 +126,9 @@ interface Provider<T = unknown, TCache = unknown> extends ProviderInfo {
 }
 
 interface ProviderInfo {
-  readonly id: string;                    // "rust.crate", "rust.std"
-  readonly name: string;                  // "Rust Crates"
-  readonly enableItemGrouping: boolean;   // rust.crate: true, rust.std: false
+  readonly id: string;                    // "rust"
+  readonly name: string;                  // "Rust"
+  readonly enableItemGrouping: boolean;   // true for rust provider
   readonly renderItemNameAsCode: boolean; // Display item names in monospace
 }
 
@@ -278,7 +280,7 @@ Users select a preset to determine which providers appear and their order:
 
 ```typescript
 const presets = {
-  "Rust": { providers: ["rust.std", "rust.crate"] },
+  "Rust": { providers: ["rust"] },
   "Empty": { providers: [] },
 };
 ```
@@ -332,55 +334,63 @@ const presets = {
 
 ## Remaining Work
 
-- [ ] **rust.std Provider** — implement for doc.rust-lang.org
+- [x] **Unified Rust Provider** — merged `rust.crate` + `rust.std` into single `rust` provider
 - [ ] **Preset Picker UI** — allow users to switch/create presets
-- [ ] **Cross-Provider Navigation** — handle links between providers
+- [ ] **Cross-Provider Navigation** — handle links between providers (partially done via unified rust provider)
 
 ---
 
-## rust.std Provider (TODO)
+## Unified Rust Provider (Implemented)
 
-### Files to Create
+### Design Decision: Single Provider
 
-- `providers/rust.std/index.ts` — Provider implementation
-- `providers/rust.std/url.ts` — URL parsing for doc.rust-lang.org
+Originally planned as separate `rust.crate` and `rust.std` providers, but merged into a single `rust` provider for simplicity.
 
-### Implementation Notes
+**Rationale:**
+- Both handle Rust documentation with identical page structure
+- Symbol parsing and color coding are the same
+- Simpler mental model for users (one "Rust" section in sidebar)
+- URL routing handled internally via `getBaseUrlForCrate()`
 
-```typescript
-const RustStdProvider: Provider = {
-  id: "rust.std",
-  name: "Rust Standard Library",
-  enableItemGrouping: false,
-  renderItemNameAsCode: true,
-  render(context) {
-    // Return fixed items: std, core, alloc, proc_macro, test
-    // Each item has pages based on currentUrl if it matches
-    // No version selector initially (versions = undefined)
-  },
-};
-```
+### Files
 
-### URL Patterns
+- `providers/rust/index.tsx` — Provider implementation
+- `providers/rust/url.ts` — URL parsing for docs.rs + doc.rust-lang.org
+- `providers/rust/import.tsx` — Import dialog via ProviderAction
+- `providers/rust/crates-api.ts` — crates.io API client
 
-- `doc.rust-lang.org/std/...`
-- `doc.rust-lang.org/core/...`
-- `doc.rust-lang.org/alloc/...`
-- `doc.rust-lang.org/nightly/std/...` (version prefix)
+### URL Routing
+
+`getBaseUrlForCrate()` determines the base URL based on crate name:
+- `std`, `core`, `alloc`, `proc_macro` → `https://doc.rust-lang.org/`
+- All other crates → `https://docs.rs/`
+
+### URL Patterns Supported
+
+**docs.rs:**
+- `https://docs.rs/{crate}/{version}/{path...}`
+
+**doc.rust-lang.org:**
+- `https://doc.rust-lang.org/{std|core|alloc|proc_macro}/{path...}`
+- `https://doc.rust-lang.org/{nightly|stable|1.x.y}/{crate}/{path...}` (version prefix)
 
 ---
 
-## Cross-Provider Navigation (TODO)
+## Cross-Provider Navigation
 
+With the unified `rust` provider, navigation between docs.rs and doc.rust-lang.org is handled seamlessly within a single provider.
+
+**Current behavior (within rust provider):**
+- docs.rs page links to `doc.rust-lang.org/std/vec/struct.Vec.html`
+- `rust` provider's `parseUrl()` recognizes both URL patterns
+- `std` crate auto-imported if not present, page displayed
+
+**Future (multiple providers):**
 When a page links to a URL handled by a different provider:
-
 1. Each provider attempts to parse the URL (provider-specific `parseUrl`)
 2. First matching provider handles the import
-3. Auto-import to target provider (like current cross-crate behavior)
+3. Auto-import to target provider
 4. Navigate to the new page
-
-**Example:** docs.rs page links to `doc.rust-lang.org/std/vec/struct.Vec.html`
-→ `rust.std` provider parses URL, imports `std` item, page displayed
 
 ---
 
@@ -389,9 +399,9 @@ When a page links to a URL handled by a different provider:
 - [x] View model derived via `Provider.render()`, not hard-coded
 - [x] `Workspace` structure used for persistence
 - [x] All v0.1 crate features preserved (pin, version, import, groups)
-- [ ] Two providers (`rust.crate` + `rust.std`) registered and rendering
+- [x] Unified `rust` provider handles both docs.rs and doc.rust-lang.org
+- [x] Cross-crate navigation within rust provider (std ↔ third-party crates)
 - [ ] Preset switching works without errors
-- [ ] Cross-provider navigation: std link → auto-display
 
 ---
 
@@ -411,12 +421,13 @@ src/
 │
 ├── providers/
 │   ├── index.ts              # ✅ Provider registration (Record<string, Provider>)
-│   ├── rust.crate/
-│   │   ├── index.tsx         # ✅ Full provider implementation
-│   │   ├── url.ts            # ✅ URL parsing/building
-│   │   ├── import.tsx        # ✅ Import dialog via ProviderAction
-│   │   └── crates-api.ts     # ✅ crates.io API client
-│   └── rust.std/             # ⬜ (empty, planned)
+│   └── rust/                 # ✅ Unified Rust provider (docs.rs + doc.rust-lang.org)
+│       ├── index.tsx         # ✅ Provider implementation
+│       ├── url.ts            # ✅ URL parsing/building for both domains
+│       ├── url.test.ts       # ✅ URL parsing tests
+│       ├── import.tsx        # ✅ Import dialog via ProviderAction
+│       ├── crates-api.ts     # ✅ crates.io API client
+│       └── crates-api.integration.test.ts
 │
 ├── ui/
 │   ├── App.tsx               # ✅ React app root

@@ -7,11 +7,13 @@ import {
     faAnglesUp,
     faArrowDown,
     faArrowUp,
+    faArrowUpFromBracket,
     faChevronDown,
     faChevronRight,
     faCheck,
     faEllipsisVertical,
     faPencil,
+    faRightToBracket,
     faTrash,
 } from "@fortawesome/free-solid-svg-icons";
 
@@ -32,6 +34,9 @@ import {
     DropdownMenuContent,
     DropdownMenuItem,
     DropdownMenuSeparator,
+    DropdownMenuSub,
+    DropdownMenuSubContent,
+    DropdownMenuSubTrigger,
     DropdownMenuTrigger,
 } from "@shadcn/components/ui/dropdown-menu";
 
@@ -84,11 +89,18 @@ export default function ExplorerGroupHeader(
             });
         }
 
+        function moveToTop() {
+            updateProviderData(draft => {
+                const filtered = draft.groupOrder.filter(name => name !== groupName);
+                draft.groupOrder = [groupName, ...filtered];
+            });
+        }
+
         function moveUp() {
             updateProviderData(draft => {
                 const thisIndex = draft.groupOrder.indexOf(groupName);
                 const prevGroupName = draft.groupOrder[thisIndex - 1];
-                if (thisIndex < draft.groupOrder.length && prevGroupName) {
+                if (thisIndex > 0 && prevGroupName !== undefined) {
                     draft.groupOrder[thisIndex - 1] = groupName;
                     draft.groupOrder[thisIndex] = prevGroupName;
                 }
@@ -99,9 +111,21 @@ export default function ExplorerGroupHeader(
             updateProviderData(draft => {
                 const thisIndex = draft.groupOrder.indexOf(groupName);
                 const nextGroupName = draft.groupOrder[thisIndex + 1];
-                if (thisIndex >= 0 && nextGroupName) {
+                if (thisIndex >= 0 && nextGroupName !== undefined) {
                     draft.groupOrder[thisIndex + 1] = groupName;
                     draft.groupOrder[thisIndex] = nextGroupName;
+                }
+            });
+        }
+
+        // Move this group to immediately after the target group
+        function moveUnder(targetGroupName: string) {
+            updateProviderData(draft => {
+                const filtered = draft.groupOrder.filter(name => name !== groupName);
+                const targetIndex = filtered.indexOf(targetGroupName);
+                if (targetIndex >= 0) {
+                    filtered.splice(targetIndex + 1, 0, groupName);
+                    draft.groupOrder = filtered;
                 }
             });
         }
@@ -212,6 +236,12 @@ export default function ExplorerGroupHeader(
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
                             disabled={isFirstGroup}
+                            onClick={moveToTop}>
+                            <FontAwesomeIcon icon={faArrowUpFromBracket} />
+                            <span>Move to Top</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                            disabled={isFirstGroup}
                             onClick={moveUp}>
                             <FontAwesomeIcon icon={faArrowUp} />
                             <span>Move Up</span>
@@ -222,6 +252,27 @@ export default function ExplorerGroupHeader(
                             <FontAwesomeIcon icon={faArrowDown} />
                             <span>Move Down</span>
                         </DropdownMenuItem>
+                        {/* "Move Under" submenu - only show if there are other groups */}
+                        {providerData.groupOrder.length > 1 && (
+                            <DropdownMenuSub>
+                                <DropdownMenuSubTrigger className="cursor-pointer">
+                                    <FontAwesomeIcon icon={faRightToBracket} />
+                                    <span>Move Under</span>
+                                </DropdownMenuSubTrigger>
+                                <DropdownMenuSubContent>
+                                    {providerData
+                                        .groupOrder
+                                        .filter(name => name in providerData.groups)
+                                        .filter(name => name !== groupName)
+                                        .map(targetName => (
+                                            <DropdownMenuItem
+                                                key={targetName}
+                                                className="cursor-pointer"
+                                                onClick={() => moveUnder(targetName)}>
+                                                {targetName}
+                                            </DropdownMenuItem>))}
+                                </DropdownMenuSubContent>
+                            </DropdownMenuSub>)}
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
                             variant="destructive"
