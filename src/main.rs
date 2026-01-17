@@ -37,6 +37,7 @@ mod consts {
         PrefixCollection(Cow::Borrowed(&[
             "https://docs.rs",
             "https://doc.rust-lang.org",
+            "https://microsoft.github.io/windows-docs-rs/doc/",
         ]));
 
     pub const IGNORED_URL: PrefixCollection<'static> =

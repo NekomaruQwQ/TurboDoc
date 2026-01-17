@@ -1,20 +1,21 @@
 import type { ReadonlyDeep } from "type-fest";
 
-export type CrateUrl =
-    | {
-        baseUrl: "https://docs.rs/",
-        name: string,
-        version: string,
-        pathSegments: string[],
-        fragment?: string,
-    }
-    | {
-        baseUrl: "https://doc.rust-lang.org/",
-        name: string,
-        version: string,
-        pathSegments: string[],
-        fragment?: string,
-    };
+export type CrateBaseUrl =
+    | "https://docs.rs/"
+    | "https://doc.rust-lang.org/"
+    | "https://microsoft.github.io/windows-docs-rs/doc/";
+export interface CrateUrl {
+    /* Base URL of the crate documentation. */
+    baseUrl: CrateBaseUrl;
+    /* Name of the crate. */
+    name: string;
+    /* Version of the crate ("<version_number>" | "latest" | "stable" | "nightly"). */
+    version: string;
+    /* Path segments within the documentation site, including the root module. */
+    pathSegments: string[];
+    /* Optional fragment identifier (without the leading '#'). */
+    fragment?: string;
+}
 
 export function getBaseUrlForCrate(crateName: string): CrateUrl["baseUrl"] {
     // NOTE: `test` (https://doc.rust-lang.org/test/) is not included here because
@@ -26,6 +27,8 @@ export function getBaseUrlForCrate(crateName: string): CrateUrl["baseUrl"] {
         case "alloc":
         case "proc_macro":
             return "https://doc.rust-lang.org/";
+        case "windows":
+            return "https://microsoft.github.io/windows-docs-rs/doc/";
         default:
             return "https://docs.rs/";
     }
@@ -85,6 +88,25 @@ export function parseUrl(url: string): CrateUrl | null {
         }
     }
 
+    // microsoft.github.io/windows-docs-rs URLs:
+    //   https://microsoft.github.io/windows-docs-rs/doc/windows/{path...}
+    // No versioning in URL - only latest docs are published.
+    const windowsDocsBase = "https://microsoft.github.io/windows-docs-rs/doc/";
+    if (baseUrl.startsWith(windowsDocsBase)) {
+        const segments = baseUrl.substring(windowsDocsBase.length).split("/");
+        if (segments[0] &&
+            getBaseUrlForCrate(segments[0]) === windowsDocsBase) {
+            const name = segments[0];
+            return {
+                baseUrl: windowsDocsBase,
+                name,
+                version: "latest",
+                pathSegments: segments,
+                fragment: fragment || undefined,
+            };
+        }
+    }
+
     return null;
 }
 
@@ -111,6 +133,10 @@ export function buildUrl(crate: ReadonlyDeep<CrateUrl>): string {
                 default:
                     return `https://doc.rust-lang.org/${path}${fragment}`;
             }
+        }
+        case "https://microsoft.github.io/windows-docs-rs/doc/": {
+            // No versioning in URL - only latest docs are published.
+            return `https://microsoft.github.io/windows-docs-rs/doc/${path}${fragment}`;
         }
     }
 }

@@ -159,6 +159,27 @@ function renderItem(
         }
     }
 
+    function getCrateVersions(): ItemVersions | undefined {
+        switch (getBaseUrlForCrate(crateName)) {
+            case "https://doc.rust-lang.org/":
+                // Standard library crates: stable/nightly versions.
+                return {
+                    current: crateData.currentVersion,
+                    recommended: ["stable", "nightly"],
+                    all: [["stable", "nightly"]],
+                    setCurrentVersion,
+                };
+            case "https://microsoft.github.io/windows-docs-rs/doc/":
+                // Windows crate: only "latest" (docs URL doesn't support versioning).
+                return undefined;
+            default:
+                // Regular docs.rs crates: show versions from cache.
+                return crateCache
+                    ? getCrateVersionsFromCache(crateData, crateCache, setCurrentVersion)
+                    : undefined;
+        }
+    }
+
     function setCurrentVersion(newVersion: string) {
         const currentUrl = parseUrl(ctx.currentUrl);
         if (currentUrl && currentUrl.name === crateName) {
@@ -191,23 +212,11 @@ function renderItem(
         actions:
             getCrateActions(ctx, crateName),
         versions:
-            getBaseUrlForCrate(crateName) !== "https://doc.rust-lang.org/"
-                ? crateCache
-                    ? getCrateVersions(
-                        crateData,
-                        crateCache,
-                        setCurrentVersion)
-                    : undefined
-                : {
-                    current: crateData.currentVersion,
-                    recommended: ["stable", "nightly"],
-                    all: [["stable", "nightly"]],
-                    setCurrentVersion,
-                },
+            getCrateVersions(),
     };
 }
 
-function getCrateVersions(
+function getCrateVersionsFromCache(
     crateData: ReadonlyDeep<CrateData>,
     crateCache: ReadonlyDeep<CrateCache>,
     setCurrentVersion: (version: string) => void): ItemVersions {

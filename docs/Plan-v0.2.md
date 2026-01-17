@@ -5,7 +5,7 @@
 TurboDoc v0.1 is a docs.rs-specific documentation viewer. v0.2 transforms it into a **universal documentation reader** supporting multiple providers.
 
 **Implemented Providers:**
-- v0.2: `rust` — unified provider for docs.rs + doc.rust-lang.org (std, core, alloc, proc_macro)
+- v0.2: `rust` — unified provider for docs.rs + doc.rust-lang.org (std, core, alloc, proc_macro) + microsoft.github.io/windows-docs-rs (windows)
 
 **Future Providers:**
 - `rust.cargo`, `cpp.cppreference`, `cpp.msdocs`, etc.
@@ -355,7 +355,7 @@ Originally planned as separate `rust.crate` and `rust.std` providers, but merged
 ### Files
 
 - `providers/rust/index.tsx` — Provider implementation
-- `providers/rust/url.ts` — URL parsing for docs.rs + doc.rust-lang.org
+- `providers/rust/url.ts` — URL parsing for docs.rs + doc.rust-lang.org + windows-docs-rs
 - `providers/rust/import.tsx` — Import dialog via ProviderAction
 - `providers/rust/crates-api.ts` — crates.io API client
 
@@ -363,7 +363,10 @@ Originally planned as separate `rust.crate` and `rust.std` providers, but merged
 
 `getBaseUrlForCrate()` determines the base URL based on crate name:
 - `std`, `core`, `alloc`, `proc_macro` → `https://doc.rust-lang.org/`
+- `windows` → `https://microsoft.github.io/windows-docs-rs/doc/`
 - All other crates → `https://docs.rs/`
+
+**Note:** Other `windows-*` crates (e.g., `windows-sys`, `windows-core`) have their documentation on docs.rs as usual. Only the main `windows` crate uses the microsoft.github.io host.
 
 ### URL Patterns Supported
 
@@ -373,6 +376,11 @@ Originally planned as separate `rust.crate` and `rust.std` providers, but merged
 **doc.rust-lang.org:**
 - `https://doc.rust-lang.org/{std|core|alloc|proc_macro}/{path...}`
 - `https://doc.rust-lang.org/{nightly|stable|1.x.y}/{crate}/{path...}` (version prefix)
+
+**microsoft.github.io/windows-docs-rs:**
+- `https://microsoft.github.io/windows-docs-rs/doc/windows/{path...}`
+- No versioning in URL—only latest docs are published
+- Version selector shows only "latest"
 
 ---
 
@@ -421,9 +429,9 @@ src/
 │
 ├── providers/
 │   ├── index.ts              # ✅ Provider registration (Record<string, Provider>)
-│   └── rust/                 # ✅ Unified Rust provider (docs.rs + doc.rust-lang.org)
+│   └── rust/                 # ✅ Unified Rust provider (docs.rs + doc.rust-lang.org + windows-docs-rs)
 │       ├── index.tsx         # ✅ Provider implementation
-│       ├── url.ts            # ✅ URL parsing/building for both domains
+│       ├── url.ts            # ✅ URL parsing/building for all three domains
 │       ├── url.test.ts       # ✅ URL parsing tests
 │       ├── import.tsx        # ✅ Import dialog via ProviderAction
 │       ├── crates-api.ts     # ✅ crates.io API client
