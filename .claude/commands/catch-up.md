@@ -1,1 +1,1 @@
-Read @docs/README.md ans @docs/Plan-v0.2.md to catch up.
+Read @docs/README.md and @docs/Plan-v0.3.md to catch up.

@@ -8,7 +8,7 @@ This document tracks remaining bugs identified during the v0.2 migration review.
 
 ### #1: `removeGroup()` leaves orphaned state
 
-**File:** [ExplorerGroupHeader.tsx:109-112](../src/ui/explorer/ExplorerGroupHeader.tsx#L109-L112)
+**File:** [ExplorerGroupHeader.tsx:109-112](../src/app/ui/explorer/ExplorerGroupHeader.tsx#L109-L112)
 
 **Problem:** Deleting a group only removes it from `groups`, leaving stale entries elsewhere.
 
@@ -44,7 +44,7 @@ function removeGroup() {
 
 ### #2: State updates during render
 
-**File:** [rust/index.tsx:116-117](../src/providers/rust/index.tsx#L116-L117)
+**File:** [rust/index.tsx:116-117](../src/app/providers/rust/index.tsx#L116-L117)
 
 **Problem:** `handleCurrentUrl()` is called during `render()` and may trigger state updates.
 
@@ -70,8 +70,8 @@ function render(ctx: RustProviderContext): ProviderOutput {
 ### #3: Provider not initialized → crash
 
 **Files:**
-- [explorer/index.tsx:37](../src/ui/explorer/index.tsx#L37)
-- [context.ts:84-88](../src/core/context.ts#L84-L88)
+- [explorer/index.tsx:37](../src/app/ui/explorer/index.tsx#L37)
+- [context.ts:84-88](../src/app/core/context.ts#L84-L88)
 
 **Problem:** If a preset references a provider ID that hasn't been initialized in `workspace.providers`, the app crashes.
 
@@ -116,7 +116,7 @@ export function useProviderData(): State<ProviderData> {
 
 ### #4: "Delete Crate" action leaves orphaned group references
 
-**File:** [rust/index.tsx:264-269](../src/providers/rust/index.tsx#L264-L269)
+**File:** [rust/index.tsx:264-269](../src/app/providers/rust/index.tsx#L264-L269)
 
 **Problem:** When a crate is deleted via the "Delete Crate" action, it only removes from `draft.crates`. If that crate was assigned to a group, the group will still contain a stale reference to the deleted crate ID.
 
@@ -149,7 +149,7 @@ invoke: () => {
 
 ### #5: Redundant API fetches due to missing in-flight tracking
 
-**File:** [rust/index.tsx:476-484](../src/providers/rust/index.tsx#L476-L484)
+**File:** [rust/index.tsx:476-484](../src/app/providers/rust/index.tsx#L476-L484)
 
 **Problem:** `getCrateCache` starts an async `refetch()` without tracking in-flight requests. If `render()` is called multiple times before the first fetch completes, multiple redundant API calls are made for the same crate.
 
@@ -187,7 +187,7 @@ function getCrateCache(...) {
 
 ### #7: `getPageNameFromPath` doesn't handle trailing slashes
 
-**File:** [rust/index.tsx:319-329](../src/providers/rust/index.tsx#L319-L329)
+**File:** [rust/index.tsx:319-329](../src/app/providers/rust/index.tsx#L319-L329)
 
 **Problem:** When a path ends with `/` (e.g., `"std/vec/"`), `split("/")` produces `["std", "vec", ""]`. The empty string becomes the final segment in the symbol path.
 
@@ -249,7 +249,7 @@ useEffect(() => {
 
 ### #8: No `index.html` normalization in URL handling
 
-**File:** [rust/url.ts:83-87](../src/providers/rust/url.ts#L83-L87)
+**File:** [rust/url.ts:83-87](../src/app/providers/rust/url.ts#L83-L87)
 
 **Problem:** `buildUrl` doesn't normalize `index.html` paths. URLs like `tokio/runtime/index.html` and `tokio/runtime/` point to the same content but are treated as different paths.
 
@@ -280,7 +280,7 @@ if (path.endsWith("/index.html")) {
 
 ### #9: Importing root module URLs adds dead entries to `pinnedPages`
 
-**File:** [rust/import.tsx:54-58](../src/providers/rust/import.tsx#L54-L58)
+**File:** [rust/import.tsx:54-58](../src/app/providers/rust/import.tsx#L54-L58)
 
 **Problem:** When importing a root module URL (e.g., `https://docs.rs/tokio/latest/tokio/`), the path `"tokio/"` is added to `pinnedPages`. However, in `getCratePages`, the root module page always has `pinned: null` and is rendered separately—so the entry is never displayed.
 
@@ -300,7 +300,7 @@ if (path !== rootPath && !(importCrates[page.name]?.includes(path))) {
 
 ### #10: Misleading comment about path structure
 
-**File:** [rust/index.tsx:369-371](../src/providers/rust/index.tsx#L369-L371)
+**File:** [rust/index.tsx:369-371](../src/app/providers/rust/index.tsx#L369-L371)
 
 **Problem:** Comment says doc.rust-lang.org paths exclude the crate name, but they actually include it.
 

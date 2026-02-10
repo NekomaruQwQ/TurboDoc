@@ -1,6 +1,6 @@
 # Project TurboDoc: Architecture v3 (The "Bun Sidecar" Shift)
 
-**Status:** Draft / Ready for Implementation
+**Status:** Partially Implemented
 
 **Context:** Moving from a monolithic Rust-heavy MVP to a Hybrid Host + Local Server architecture to improve maintainability, type safety, and UI polish capabilities.
 
@@ -8,11 +8,25 @@
 
 TurboDoc is a customized documentation viewer for `docs.rs` designed to reduce friction (loading times, cache invalidation). We are refactoring the application to decouple the **Host** (Windowing/WebView) from the **Logic** (Caching/Parsing).
 
-We are moving to a **"Bun Sidecar"** architecture:
+The target is a **"Bun Sidecar"** architecture:
 
 1.  **Rust Host:** A lightweight "dumb pipe" that handles the window and forwards requests.
 2.  **Bun Server:** A local Hono server that handles all business logic, caching, and HTML parsing.
 3.  **Frontend:** A standard React+Vite SPA that consumes data via REST APIs from the Bun server.
+
+### Current Implementation Status
+
+The architecture has been **partially migrated**. The Bun+Hono server is running and handles frontend data persistence (workspace/cache CRUD), but the Rust host still owns the HTTP proxy and caching layer.
+
+| Planned Component | Status | Notes |
+|-------------------|--------|-------|
+| Hono API server | ✅ Implemented | Workspace/cache CRUD via `/api/v1/*` |
+| Vite integration | ✅ Implemented | Hono + Vite share a single `node:http` server on port 9680 |
+| Frontend data fetching | ✅ Implemented | Uses `hono/client` for type-safe API calls |
+| SQLite caching | ❌ Not implemented | Rust still uses file-based memory+disk cache (24h expiry) |
+| HTTP proxy in Bun | ❌ Not implemented | Rust still intercepts and proxies docs.rs requests |
+| HTML parsing/polish | ❌ Not implemented | Rust injects dark theme script; no cheerio/HTML cleanup |
+| Bun as child process | ❌ Not implemented | Dev server started manually via `bun --hot src/server/` |
 
 ## 2. High-Level Architecture
 
@@ -20,119 +34,145 @@ We are moving to a **"Bun Sidecar"** architecture:
 
 Instead of intercepting and handling HTTP requests inside the Rust WebView2 event loop, we **rewrite** the request flow to delegate responsibility to the local Bun server.
 
-+   **Ports:**
-    +   **Bun Server:** `9688` (Fixed)
-    +   **Vite Dev Server:** `9689` (Fixed)
++   **Port:** `9680` (single server, Hono API + Vite dev server combined)
 
 ### Component Responsibilities
 
-| **Component** | **Tech Stack**          | **Role**      | **Key Responsibilities**                                     |
-| ------------- | ----------------------- | ------------- | ------------------------------------------------------------ |
-| **Host**      | Rust (Winit + WebView2) | **The Shell** | • Window management & System Tray. • Spawns the Bun child process. • Intercepts `https://docs.rs/*` and blindly streams them to `localhost:9688`. • Handles native file dialogs. |
-| **Server**    | TypeScript (Bun + Hono) | **The Brain** | • **HTTP Proxy:** Fetches `docs.rs` content. • **Caching:** Implements RFC 7234 via `http-cache-semantics` backed by SQLite. • **HTML Polish:** Parses/cleans HTML (removes ads, injects scripts) before serving. • **API:** Provides REST endpoints for the frontend. |
-| **Frontend**  | React + Vite            | **The Face**  | • UI rendering (Navigation, Search, Settings). • Fetches data from `localhost:9688/api`. • Uses Shared Types with the Backend. |
+| **Component** | **Tech Stack**          | **Role**              | **Key Responsibilities** |
+| ------------- | ----------------------- | --------------------- | ------------------------ |
+| **Host**      | Rust (Winit + WebView2) | **The Shell**         | Window management. Intercepts `https://docs.rs/*`, `https://doc.rust-lang.org/*`, `https://microsoft.github.io/windows-docs-rs/*` and proxies them with memory+disk caching. Sends `navigated` events to frontend via WebView2 messages. Opens external URLs in system browser. |
+| **Server**    | TypeScript (Bun + Hono) | **The Brain** (partial) | Provides REST endpoints for workspace/cache persistence (`/api/v1/*`). Serves frontend assets via Vite middleware. |
+| **Frontend**  | React + Vite            | **The Face**          | UI rendering (Explorer, Navigation). Fetches data from `/api/v1/*` via `hono/client`. Provider-based architecture for multi-source docs. |
+
+**What changed from the original plan:**
+- The Rust host still owns HTTP proxying and caching (not yet migrated to Bun)
+- Hono and Vite share a single port (9680) instead of separate ports
+- No SQLite or `http-cache-semantics` — Rust uses custom file-based caching with 24h expiry
+- Frontend IPC is hybrid: Hono HTTP for CRUD, WebView2 messages for navigation events
 
 ------
 
 ## 3. Implementation Specifications
 
-### A. The Bun Server (`server.ts`)
+### A. The Bun Server (`src/server/index.ts`)
 
 +   **Framework:** `hono` (Lightweight, standard Request/Response).
-+   **Database:** `bun:sqlite`.
-+   **Caching Logic:** `http-cache-semantics`.
++   **Validation:** `zod` + `@hono/zod-validator`.
++   **Frontend:** Vite dev server in middleware mode.
 
-#### 1. Database Schema (`turbodoc_cache.db`)
+#### Implemented: API Endpoints (`/api/v1/*`)
 
-We use SQLite to store both the raw content and the cache policy metadata.
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/api/v1/workspace` | Load workspace JSON from `target/data/workspace.json` |
+| `PUT` | `/api/v1/workspace` | Save workspace JSON |
+| `GET` | `/api/v1/cache` | Load cache JSON from `target/data/cache.json` |
+| `PUT` | `/api/v1/cache` | Save cache JSON |
 
-SQL
+The exported `HonoApp` type enables type-safe client usage via `hono/client` in the frontend.
 
-```
+#### Not Yet Implemented: SQLite Caching
+
+The original plan called for SQLite-backed HTTP caching with `http-cache-semantics`. This has not been implemented — the Rust host still handles HTTP proxying with its own memory+disk cache.
+
+```sql
+-- Planned but not implemented
 CREATE TABLE IF NOT EXISTS cache (
   url TEXT PRIMARY KEY,
-  policy TEXT,   -- JSON serialized CachePolicy object
-  body BLOB,     -- Raw response body (gzip/brotli preserved if possible, or decoded)
+  policy TEXT,
+  body BLOB,
   created_at INTEGER DEFAULT (unixepoch())
 );
-
--- Future-proofing for Search
-CREATE VIRTUAL TABLE IF NOT EXISTS docs_fts USING fts5(url, content);
 ```
 
-#### 2. The Proxy Endpoint (`GET /view/*`)
+#### Not Yet Implemented: Proxy Endpoint (`GET /view/*`)
 
-+   **Route:** `/view/*` (Wildcard).
-+   **Logic:**
-    1.  Extract target URL (e.g., `https://docs.rs/tokio`).
-    2.  Check SQLite for valid `CachePolicy`.
-    3.  **HIT:** Serve from BLOB with correct headers.
-    4.  **MISS:** Fetch from upstream `docs.rs`.
-        +   Generate new `CachePolicy`.
-        +   **Parser Step:** (Future) Parse HTML with `cheerio` to clean/inject scripts.
-        +   Store in SQLite.
-        +   Stream response to client.
+The original plan had the Bun server proxy docs.rs requests. Currently the Rust host intercepts `WebResourceRequested` events and proxies them directly using `reqwest`.
 
-#### 3. The API Endpoints (`GET /api/*`)
+### B. The Rust Host (`src/main.rs`, `src/app.rs`, `src/server.rs`)
 
-+   Provide REST endpoints for frontend needs.
-+   Example: `/api/status`, `/api/history`, `/api/search`.
-
-### B. The Rust Host (`main.rs`)
+**Current state** (differs from original "dumb pipe" plan):
 
 +   **WebView2 Configuration:**
-    +   Register `WebResourceRequested` filter for `https://docs.rs/*`.
-+   **Interception Handler:**
-    +   DO NOT implement cache logic here.
-    +   Construct a new HTTP request to `http://localhost:9688/view/{original_url}`.
-    +   **Stream** the response body from the local server back to the WebView `IStream`.
-+   **Lifecycle:**
-    +   On launch: `Command::new("bun").arg("run").arg("server.ts").spawn()`.
-    +   On exit: Ensure the child process is killed.
+    +   Registers wildcard resource filter for all iframe requests.
+    +   Intercepts GET requests matching `KNOWN_URL` prefixes (docs.rs, doc.rust-lang.org, windows-docs-rs).
++   **HTTP Proxy** (still in Rust):
+    +   Fetches upstream content via `reqwest`.
+    +   Two-tier caching: in-memory `FxHashMap` + disk (TOML metadata + binary content).
+    +   24-hour cache expiry.
+    +   Injects dark theme script into docs.rs HTML responses.
++   **IPC:**
+    +   Sends `navigated` events to frontend via `postMessageAsJson`.
+    +   Shows native dialog for external (non-docs) URLs.
++   **Frontend URL:** Navigates to `http://localhost:9680/` on startup.
 
-### C. The Frontend (`src/`)
+**Original plan** (not yet achieved):
++   Strip out cache logic from Rust.
++   Forward all intercepted requests to `http://localhost:9680/view/{original_url}`.
++   Spawn Bun server as child process on launch.
 
-+   **Dev Mode:** Connects to `localhost:9689` (Vite).
-+   **Prod Mode:** Served statically by Bun at `localhost:9688/`.
+### C. The Frontend (`src/app/`)
+
++   **Dev Mode:** Served by Vite middleware at `http://localhost:9680/`.
 +   **Data Fetching:**
-    +   Uses `fetch('/api/...')` which resolves to the Bun server origin.
-    +   Types are imported from a shared `types.ts` file (No Zod required, purely TS interfaces).
+    +   Uses `hono/client` with the exported `HonoApp` type for type-safe API calls.
+    +   Workspace and cache loaded on mount, auto-saved on every change.
+    +   Navigation events received via WebView2 `postMessage` (not HTTP).
++   **Provider Architecture:** Multi-provider system (see README.md).
 
 ------
 
-## 4. Directory Structure (Monorepo-lite)
-
-Plaintext
+## 4. Directory Structure
 
 ```
-/turbodoc
-  /src-tauri (or /src-host)  -- Rust code
-  /server                    -- Bun Server
-    package.json
-    src/
-      index.ts               -- Hono entry point
-      db.ts                  -- SQLite wrapper
-      cache.ts               -- http-cache-semantics logic
-  /shared                    -- Shared TypeScript definitions
-    types.ts
-  /ui                        -- React + Vite
-    package.json
-    src/
+TurboDoc/
+├── package.json             # Bun project, script: `bun --hot src/server/`
+├── vite.config.ts           # Root: src/, aliases: @/ → src/, @shadcn/ → 3rdparty/shadcn/
+├── tsconfig.json            # ESNext, bundler mode, strict
+├── Cargo.toml               # Rust workspace
+│
+├── src/
+│   ├── index.html           # Entry HTML
+│   ├── index.tsx            # React entry point
+│   ├── global.css           # Global styles
+│   ├── global.tailwind.css  # Tailwind entry
+│   │
+│   ├── app/                 # Frontend application code
+│   │   ├── core/            # Data model, context, IPC, utilities
+│   │   ├── providers/       # Documentation providers (rust/)
+│   │   ├── ui/              # React components (App, explorer/)
+│   │   └── utils/           # Shared utilities (version-group)
+│   │
+│   ├── server/
+│   │   └── index.ts         # Hono API + Vite dev server (port 9680)
+│   │
+│   │ # Rust backend
+│   ├── main.rs              # Entry point, constants
+│   ├── app.rs               # Window + WebView2 + IPC handlers
+│   ├── server.rs            # HTTP proxy with caching
+│   └── webview.rs           # WebView2 COM wrapper
+│
+├── 3rdparty/
+│   └── shadcn/              # Vendored shadcn/ui components
+│
+└── crates/
+    ├── nkcore/              # Core utilities
+    └── nkcore-macros/       # Procedural macros
 ```
 
-## 5. Migration Checklist for "Mr. Claude"
+## 5. Migration Checklist
 
-1.  **Scaffold Bun Server:** Initialize `Hono` + `bun:sqlite` + `http-cache-semantics`.
-2.  **Implement Cache Logic:** Create the `get(url)` and `set(url, res)` wrapper around `http-cache-semantics`.
-3.  **Create Proxy Route:** Implement the `/view/*` handler in Hono that fetches, caches, and returns data.
-4.  **Update Rust Host:** Strip out old file-system cache logic. Replace with the "Stream Forwarding" logic pointing to port 9688.
-5.  **Refactor Frontend:** Ensure it fetches API data from relative paths (`/api/...`).
+1.  [x] **Scaffold Bun Server:** Initialize Hono server with Vite integration.
+2.  [ ] **Implement Cache Logic:** Create SQLite-backed caching with `http-cache-semantics`.
+3.  [ ] **Create Proxy Route:** Implement the `/view/*` handler in Hono.
+4.  [ ] **Update Rust Host:** Strip out file-system cache logic. Replace with stream forwarding to Bun server.
+5.  [x] **Refactor Frontend:** Fetches API data from `/api/v1/*` via `hono/client`.
 
 ------
 
 **Constraint Checklist:**
 
-+   [x] **No URL Rewriting:** The WebView must still believe it is browsing `docs.rs`.
-+   [x] **No SSL Proxy:** We are proxying *after* WebView2 handles the intent, or via direct HTTP requests for the API.
-+   [x] **Fixed Ports:** Bun @ 9688, Vite @ 9689.
++   [x] **No URL Rewriting:** The WebView still believes it is browsing `docs.rs`.
++   [x] **No SSL Proxy:** Proxying after WebView2 handles the intent.
++   [x] **Fixed Port:** Combined server @ 9680.
 +   [x] **OS:** Windows x64 target (WebView2).
