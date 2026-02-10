@@ -5,9 +5,9 @@ import * as _ from "remeda";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faThumbtack } from "@fortawesome/free-solid-svg-icons";
 
-import type { IdentType, Page, PageName } from "@/core/data";
-import { cn } from "@/core/prelude";
-import { useCurrentUrl } from "@/core/context";
+import type { IdentType, Page, PageName } from "@/app/core/data";
+import { cn } from "@/app/core/prelude";
+import { useCurrentUrl } from "@/app/core/context";
 
 function getIdentColor(type: IdentType): string | undefined {
     switch (type) {

@@ -7,7 +7,7 @@ import { faCheck, faPlus } from "@fortawesome/free-solid-svg-icons";
 import { Button } from "@shadcn/components/ui/button";
 import { Input } from "@shadcn/components/ui/input";
 
-import { useProviderData } from "@/core/context";
+import { useProviderData } from "@/app/core/context";
 
 /**
  * Button that transforms into an inline input for creating a new group.

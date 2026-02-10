@@ -21,10 +21,10 @@ import {
     DropdownMenuTrigger,
 } from "@shadcn/components/ui/dropdown-menu";
 
-import type { Item, ItemLink, ItemAction, ProviderData } from "@/core/data";
-import Icon from "@/ui/common/Icon";
+import type { Item, ItemLink, ItemAction, ProviderData } from "@/app/core/data";
+import Icon from "@/app/ui/common/Icon";
 
-import { useCurrentUrl, useProviderData } from "@/core/context";
+import { useCurrentUrl, useProviderData } from "@/app/core/context";
 
 export default function ExplorerItemMenu({ item, itemGroupName }: ReadonlyDeep<{
     item: Item,

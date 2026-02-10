@@ -20,13 +20,13 @@ import {
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faEllipsis } from "@fortawesome/free-solid-svg-icons";
 
-import type { Item, ItemVersions } from "@/core/data";
-import { useProviderData } from "@/core/context";
+import type { Item, ItemVersions } from "@/app/core/data";
+import { useProviderData } from "@/app/core/context";
 
 import ExplorerItemMenu
-    from "@/ui/explorer/ExplorerItemMenu";
+    from "@/app/ui/explorer/ExplorerItemMenu";
 import ExplorerPageList
-    from "@/ui/explorer/ExplorerPageList";
+    from "@/app/ui/explorer/ExplorerPageList";
 
 export default function ExplorerItem({ item, itemGroupName }: ReadonlyDeep<{
     item: Item,

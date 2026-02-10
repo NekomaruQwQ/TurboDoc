@@ -1,5 +1,5 @@
 import type { ReadonlyDeep } from "type-fest";
-import type { IconProp } from "@/core/data";
+import type { IconProp } from "@/app/core/data";
 
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { castDraft } from "immer";

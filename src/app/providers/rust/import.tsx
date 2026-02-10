@@ -15,7 +15,7 @@ import {
     DialogTitle,
 } from "@shadcn/components/ui/dialog";
 
-import type { ProviderAction } from "@/core/data";
+import type { ProviderAction } from "@/app/core/data";
 import { parseUrl, getBaseUrlForCrate } from "./url";
 import type { RustProviderContext } from "./index";
 

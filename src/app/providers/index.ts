@@ -1,7 +1,7 @@
-import type { Provider } from "@/core/data";
+import type { Provider } from "@/app/core/data";
 import * as _ from "remeda";
 
-import RustProvider from "@/providers/rust";
+import RustProvider from "@/app/providers/rust";
 
 const providers: Provider[] = [
     RustProvider,

@@ -40,7 +40,7 @@ import {
     DropdownMenuTrigger,
 } from "@shadcn/components/ui/dropdown-menu";
 
-import { useProviderData } from "@/core/context";
+import { useProviderData } from "@/app/core/context";
 
 export default function ExplorerGroupHeader(
     props:

@@ -15,7 +15,7 @@ import type {
     Page,
     PageName,
     IdentType,
-} from "@/core/data";
+} from "@/app/core/data";
 
 import { parseUrl, buildUrl, getBaseUrlForCrate } from "./url";
 import { getImportCratesAction } from "./import";
@@ -468,7 +468,7 @@ function getCratePages(
 }
 
 import * as CratesAPI from "./crates-api";
-import * as Utils from "@/utils/version-group";
+import * as Utils from "@/app/utils/version-group";
 
 /// Cache expiry time (24 hours in milliseconds)
 const CACHE_EXPIRY_MS = 24 * 60 * 60 * 1000;

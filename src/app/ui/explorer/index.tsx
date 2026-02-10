@@ -2,18 +2,18 @@ import type { ReadonlyDeep } from "type-fest";
 
 import * as _ from "remeda";
 
-import type { Item } from "@/core/data";
-import providers from "@/providers";
+import type { Item } from "@/app/core/data";
+import providers from "@/app/providers";
 import {
     ProviderProvider,
     useAppContext,
     useProvider,
     useProviderData,
-} from "@/core/context";
+} from "@/app/core/context";
 
-import ExplorerItem from "@/ui/explorer/ExplorerItem";
-import ExplorerGroupHeader from "@/ui/explorer/ExplorerGroupHeader";
-import ExplorerCreateGroupComponent from "@/ui/explorer/ExplorerCreateGroupComponent";
+import ExplorerItem from "@/app/ui/explorer/ExplorerItem";
+import ExplorerGroupHeader from "@/app/ui/explorer/ExplorerGroupHeader";
+import ExplorerCreateGroupComponent from "@/app/ui/explorer/ExplorerCreateGroupComponent";
 
 export default function Explorer() {
     const ctx = useAppContext();

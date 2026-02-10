@@ -1,6 +1,6 @@
 import * as React from "react";
 import * as ReactDOM from "react-dom/client";
-import App from "@/ui/App";
+import App from "@/app/ui/App";
 
 ReactDOM
     // biome-ignore lint/style/noNonNullAssertion: element created in index.html.
@@ -18,9 +18,9 @@ import type { ReadonlyDeep } from "type-fest";
 import { useEffect, useRef } from "react";
 import { useImmer } from "use-immer";
 
-import type { Workspace, Cache } from "@/core/data";
-import { AppContext, AppContextProvider } from "@/core/context";
-import * as IPC from "@/core/ipc";
+import type { Workspace, Cache } from "@/app/core/data";
+import { AppContext, AppContextProvider } from "@/app/core/context";
+import * as IPC from "@/app/core/ipc";
 
 async function load(): Promise<[ReadonlyDeep<Workspace>, ReadonlyDeep<Cache>]> {
     // Here we just assume that the loaded data is valid.

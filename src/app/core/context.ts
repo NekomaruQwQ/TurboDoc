@@ -1,14 +1,14 @@
 import type { ReadonlyDeep } from "type-fest";
 import { createContext, useContext } from "react";
 
-import type { State } from "@/core/prelude";
+import type { State } from "@/app/core/prelude";
 
 import type {
     Workspace,
     Cache,
     Provider,
     ProviderData,
-} from "@/core/data";
+} from "@/app/core/data";
 
 export class AppContext {
     /** Reference to the viewer iframe for programmatic navigation */

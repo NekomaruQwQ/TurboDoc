@@ -4,9 +4,9 @@ import {
     ResizablePanelGroup,
 } from "@shadcn/components/ui/resizable";
 
-import { useAppContext } from "@/core/context";
+import { useAppContext } from "@/app/core/context";
 
-import Explorer from "@/ui/explorer";
+import Explorer from "@/app/ui/explorer";
 
 export default function App() {
     const ctx = useAppContext();

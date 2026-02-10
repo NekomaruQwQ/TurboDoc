@@ -1,4 +1,4 @@
-/** Type declarations for Microsoft WebView2 JavaScript API */
+// == Type declarations for Microsoft WebView2 JavaScript API ==
 declare global {
     interface Window {
         chrome: {
@@ -13,6 +13,7 @@ declare global {
     }
 }
 
+// == IPC event emitter setup ==
 import type { ReadonlyDeep } from "type-fest";
 import mitt from "mitt";
 
@@ -31,6 +32,8 @@ window.chrome.webview.addEventListener("message", ({ data }) => {
         console.error("[->] ", data, " (missing 'type')");
     }
 });
+
+// == Wrapper functions for API endpoints ==
 
 import type { HonoApp } from "@/server";
 import { hc } from "hono/client";
