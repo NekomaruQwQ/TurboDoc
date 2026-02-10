@@ -2,6 +2,7 @@
     "include": ["src"],
     "compilerOptions": {
         "baseUrl": ".",
+
         "paths": {
             "@/*": ["src/*"],
             "@shadcn/*": ["3rdparty/shadcn/*"],

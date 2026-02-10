@@ -1,9 +1,9 @@
-import { defineConfig } from "vite";
+import * as path from "node:path";
+import * as vite from "vite";
 import react from "@vitejs/plugin-react-swc";
 import tailwindcss from "@tailwindcss/vite";
-import path from "path";
 
-export default defineConfig({
+export default vite.defineConfig({
     root: "src",
     plugins: [
         react(),
@@ -16,9 +16,5 @@ export default defineConfig({
             "@shadcn":
                 path.resolve(__dirname, "3rdparty", "shadcn"),
         },
-    },
-    server: {
-        port: 9680,
-        strictPort: true,
     },
 });
