@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <OutputType>winexe</OutputType>
+        <TargetFramework>net10.0-windows10.0.22000.0</TargetFramework>
+        <TargetPlatformMinVersion>10.0.22000.0</TargetPlatformMinVersion>
+        <Platforms>x64</Platforms>
+        <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+        <WindowsPackageType>none</WindowsPackageType>
+        <ApplicationManifest>App.manifest</ApplicationManifest>
+    </PropertyGroup>
+    <PropertyGroup>
+        <RootNamespace>TurboDoc</RootNamespace>
+        <IsPublishable>false</IsPublishable>
+        <UseWinUI>true</UseWinUI>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <!-- Required for LibraryImport P/Invoke -->
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    </PropertyGroup>
+    <ItemGroup>
+        <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260101001" />
+    </ItemGroup>
+    <ItemGroup>
+        <!-- Remove non-C# files -->
+        <None Remove="**" />
+    </ItemGroup>
+</Project>
