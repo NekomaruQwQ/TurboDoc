@@ -50,7 +50,9 @@ const honoApp =
     new Hono()
         .get("/api/v1/workspace", async c => {
             console.log(`Reading workspace from ${workspacePath}`);
-            return c.json(await Bun.file(workspacePath).text());
+            return c.body(await Bun.file(workspacePath).text(), {
+                headers: { "Content-Type": "application/json" },
+            });
         })
         .put("/api/v1/workspace", zValidator("json", z.unknown()), async c => {
             console.log(`Writing workspace to ${workspacePath}`);
@@ -59,7 +61,9 @@ const honoApp =
         })
         .get("/api/v1/cache", async c => {
             console.log(`Reading cache from ${cachePath}`);
-            return c.json(await Bun.file(cachePath).text());
+            return c.body(await Bun.file(cachePath).text(), {
+                headers: { "Content-Type": "application/json" },
+            });
         })
         .put("/api/v1/cache", zValidator("json", z.unknown()), async c => {
             console.log(`Writing cache to ${cachePath}`);

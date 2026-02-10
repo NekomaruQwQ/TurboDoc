@@ -7,133 +7,101 @@ import type { ReactNode } from "react";
 
 import * as z from "zod";
 
+// ============================================================================
+// Data Model — Zod Schemas
+//
+// These schemas define the serializable data model for the application.
+// The types are inferred from the schemas via `z.infer<>`.
+// ============================================================================
+
 /** The root data model for the application. */
 
-const workspace = z.object({
-    // Top-level app data. This is where we store global app state such as the current
-    // URL and preset definitions.
+// Provider-specific data storage and UI state.
+export const providerDataSchema = z.object({
+    // Provider-specific data storage. The schema of this field is defined by
+    // each provider and is opaque to the app. The app only provides storage and
+    // update mechanism for this field.
+    data: z.unknown(),
+
+    // Definition of item groups under this provider. For providers that
+    // do not support grouping, this field is an empty object.
+    //
+    // The app manages item grouping for each provider and providers only
+    // need to provide a flat list of items in `Provider.render()`.
+    //
+    // Each group under a provider must have a unique name, serving as the
+    // identifier for the group within that provider. Order of groups is
+    // managed by the app and is defined by the order of this array.
+    //
+    // Each group contains a list of item identifiers that belong to that
+    // group. An item can only belong to one group at a time.
+    //
+    // Items that are not listed in any group are considered ungrouped and
+    // will be displayed in a default "ungrouped" group at top of all other
+    // groups.
+    //
+    // Order of groups is defined by the `groupOrder` field below.
+    //
+    // Order of items within each group as well as in the ungrouped group
+    // is determined by the `sortKey` field of each item. The order of the
+    // `items` array of each group is not preserved.
+    groups: z.record(z.string(), z.object({
+        // List of item IDs contained in this group.
+        items: z.array(z.string()),
+    })),
+
+    // Order of groups under this provider.
+    groupOrder: z.array(z.string()),
+
+    // List of item IDs that are expanded in the UI.
+    expandedItems: z.array(z.string()),
+
+    // List of group names that are expanded in the UI.
+    expandedGroups: z.array(z.string()),
+});
+
+export const workspaceSchema = z.object({
+    // Top-level app data. This is where we store global app state such as
+    // the current URL and preset definitions.
     app: z.object({
-        // Preset definitions. Each preset is a named collection of active providers.
+        // Preset definitions. Each preset is a named collection of active
+        // providers.
         presets: z.record(z.string(), z.object({
             // List of active provider IDs in this preset.
             providers: z.array(z.string()),
         })),
 
+        // Currently active preset name.
         currentPreset: z.string(),
+
+        // Currently viewed URL. HTTPS protocol assumed.
         currentUrl: z.string(),
     }),
 
-    // Data storage for each provider. This is where we store item grouping and UI
-    // states, as well as provider-specific data defined by each provider.
-    providers: z.record(z.string(), z.object({
-        // Provider-specific data storage. The schema of this field is defined by
-        // each provider and is opaque to the app. The app only provides storage and
-        // update mechanism for this field.
-        data: z.unknown(),
-
-        // Definition of item groups under this provider. For providers that
-        // do not support grouping, this field is an empty object.
-        //
-        // The app manages item grouping for each provider and providers only
-        // need to provide a flat list of items in `Provider.render()`.
-        //
-        // Each group under a provider must have a unique name, serving as the
-        // identifier for the group within that provider. Order of groups is
-        // managed by the app and is defined by the order of this array.
-        //
-        // Each group contains a list of item identifiers that belong to that
-        // group. An item can only belong to one group at a time.
-        //
-        // Items that are not listed in any group are considered ungrouped
-        // and will be displayed in a default "ungrouped" group at top of
-        // all other groups.
-        //
-        // Order of groups is defined by the `groupOrder` field below.
-        //
-        // Order of items within each group as well as in the ungrouped group
-        // is determined by the `sortKey` field of each item. The order of the
-        // `items` array of each group does not matter.
-        groups: z.optional().record(z.string(), z.object({
-            items: z.array(z.string()),
-        })),
-
-        // Order of groups under this provider.
-        groupOrder: z.array(z.string()),
-
-        // List of item IDs that are expanded in the UI.
-        expandedItems: z.array(z.string()),
-
-        // List of group names that are expanded in the UI.
-        expandedGroups: z.array(z.string()),
-    })),
+    // Data storage for each provider. This is where we store item grouping
+    // and UI states, as well as provider-specific data defined by each
+    // provider.
+    providers: z.record(z.string(), providerDataSchema),
 });
 
-export interface Workspace {
-    app: AppData,
-    providers: Record<string, ProviderData>,
-}
+export const cacheSchema = z.object({
+    // Provider-specific cache storage. Keyed by provider ID.
+    providers: z.record(z.string(), z.unknown()),
+});
 
-interface AppData {
-    /** Preset definitions. */
-    presets: Record<string, {
-        /** List of active provider IDs in this preset. */
-        providers: string[],
-    }>;
+export type ProviderData =
+    z.infer<typeof providerDataSchema>;
+export type Workspace =
+    z.infer<typeof workspaceSchema>;
+export type Cache =
+    z.infer<typeof cacheSchema>;
 
-    /** Currently active preset name. */
-    currentPreset: string,
-
-    /** Currently viewed URL. HTTPS protocol assumed. */
-    currentUrl: string,
-}
-
-export interface ProviderData {
-    /** Provider-specific data storage. */
-    data: unknown,
-
-    /**
-     * Definition of item groups under this provider. For providers that
-     * do not support grouping, this field is an empty object.
-     *
-     * The app manages item grouping for each provider and providers only
-     * need to provide a flat list of items in `Provider.render()`.
-     *
-     * Each group under a provider must have a unique name, serving as the
-     * identifier for the group within that provider. The "ungrouped" group
-     * is represented by an empty string as the group name. Order of groups
-     * is managed by the app and is defined by the order of this array.
-     *
-     * Each group contains a list of item identifiers that belong to that
-     * group. An item can only belong to one group at a time.
-     *
-     * Items that are not listed in any group are considered ungrouped and
-     * will be displayed in a default "ungrouped" group at top of all other
-     * groups.
-     *
-     * Order of groups is defined by the `groupOrder` field below.
-     *
-     * Order of items within each group as well as in the ungrouped group
-     * is determined by the `sortKey` field of each item. The order of the
-     * `items` array of each group is not preserved.
-     **/
-    groups: Record<string, {
-        /** List of item IDs contained in this group. */
-        items: string[],
-    }>,
-
-    /** Order of groups under this provider. */
-    groupOrder: string[],
-
-    /** List of item IDs that are expanded in the UI. */
-    expandedItems: string[],
-
-    /** List of group names that are expanded in the UI. */
-    expandedGroups: string[],
-}
-
-export interface Cache {
-    providers: Record<string, unknown>,
-}
+// ============================================================================
+// View Model — Manual Interfaces
+//
+// These types contain callbacks and are never serialized.
+// They are derived fresh on every render via `Provider.render()`.
+// ============================================================================
 
 /** The uniform interface for documentation providers. */
 export interface Provider<T = unknown, TCache = unknown>
@@ -297,7 +265,7 @@ export type PageName =
     };
 
 /** Type of a language-agnostic identifier */
-type IdentType =
+export type IdentType =
     | "constant"
     | "function"
     | "interface" // trait in Rust.

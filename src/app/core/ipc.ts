@@ -53,7 +53,7 @@ export async function loadWorkspace(): Promise<unknown> {
         throw new Error(`Failed to load workspace: ${response.statusText}`);
     }
 
-    return JSON.parse(await response.json());
+    return await response.json();
 }
 
 /**
@@ -74,8 +74,8 @@ export async function saveWorkspace(workspace: {}): Promise<void> {
  * This function does not perform any validation on the loaded cache object,
  * and as such, it resolves to `unknown`.
  *
- * Errors during cache loading are non-fatal, in which case `null` is returned.
- * As such, this function never throws an error.
+ * HTTP errors during cache loading are non-fatal, in which case `null` is
+ * returned. Network errors and malformed JSON will throw.
  */
 export async function loadCache(): Promise<unknown> {
     const response = await client.api.v1.cache.$get();
@@ -84,13 +84,13 @@ export async function loadCache(): Promise<unknown> {
         return null;
     }
 
-    return JSON.parse(await response.json());
+    return await response.json();
 }
 
 /**
  * Request to save cache to the host.
  *
- * Failures during cache saving are non-fatal, and as such, this function never throws.
+ * HTTP errors during cache saving are non-fatal. Network errors will throw.
  */
 export async function saveCache(cache: ReadonlyDeep<{}>): Promise<void> {
     const response = await client.api.v1.cache.$put({
