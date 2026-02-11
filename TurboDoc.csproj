@@ -1,11 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
+        <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
         <OutputType>winexe</OutputType>
-        <TargetFramework>net10.0-windows10.0.22000.0</TargetFramework>
-        <TargetPlatformMinVersion>10.0.22000.0</TargetPlatformMinVersion>
         <Platforms>x64</Platforms>
-        <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+        <RuntimeIdentifier>win-x64</RuntimeIdentifier>
         <WindowsPackageType>none</WindowsPackageType>
         <ApplicationManifest>App.manifest</ApplicationManifest>
     </PropertyGroup>
@@ -15,11 +14,16 @@
         <UseWinUI>true</UseWinUI>
         <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
-        <!-- Required for LibraryImport P/Invoke -->
-        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    </PropertyGroup>
+    <PropertyGroup>
+        <OutputPath>$(BaseOutputPath)bin\$(Configuration)\</OutputPath>
+        <IntermediateOutputPath>$(BaseOutputPath)obj\$(Configuration)\</IntermediateOutputPath>
+        <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+        <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
     </PropertyGroup>
     <ItemGroup>
         <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260101001" />
+        <PackageReference Include="Vanara.PInvoke.User32" Version="5.0.0" />
     </ItemGroup>
     <ItemGroup>
         <!-- Remove non-C# files -->
