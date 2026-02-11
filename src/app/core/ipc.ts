@@ -24,7 +24,7 @@ const ipc = mitt<{
 export const on = ipc.on;
 export const off = ipc.off;
 
-window.chrome.webview.addEventListener("message", ({ data }) => {
+window.chrome?.webview?.addEventListener("message", ({ data }) => {
     if (typeof data.type === "string") {
         console.log("[->] ", data);
         ipc.emit(data.type, data);

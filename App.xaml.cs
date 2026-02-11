@@ -11,5 +11,6 @@ public partial class App {
 
     protected override void OnLaunched(LaunchActivatedEventArgs args) {
         this._window = new MainWindow();
+        this._window.Activate();
     }
 }

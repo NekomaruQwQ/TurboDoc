@@ -216,7 +216,7 @@ export default function ExplorerGroupHeader(
                 </Button>
                 {/* Group Menu */}
                 <DropdownMenu>
-                    <DropdownMenuTrigger>
+                    <DropdownMenuTrigger asChild>
                         <Button
                             variant="ghost"
                             size="icon"

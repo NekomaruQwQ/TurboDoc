@@ -45,6 +45,7 @@ public sealed partial class MainWindow {
             1280,
             800);
 
+        this.WebView2.Visibility = Visibility.Collapsed;
         this.InitializeWebViewAsync();
     }
 
@@ -88,7 +89,7 @@ public sealed partial class MainWindow {
         sender.NavigationCompleted -= this.OnFirstNavigationCompleted;
 
         if (e.IsSuccess) {
-            this.Activate();
+            this.WebView2.Visibility = Visibility.Visible;
         } else {
             const string errorMessage =
                 "Failed to load the TurboDoc frontend. " +

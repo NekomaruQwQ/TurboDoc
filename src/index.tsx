@@ -9,9 +9,11 @@ ReactDOM
         console.log("App rerendered.");
         const ctx = useAppContext();
         return ctx &&
-            <AppContextProvider value={ctx}>
-                <App />
-            </AppContextProvider>;
+            <React.StrictMode>
+                <AppContextProvider value={ctx}>
+                    <App />
+                </AppContextProvider>
+            </React.StrictMode>;
     }));
 
 import type { ReadonlyDeep } from "type-fest";

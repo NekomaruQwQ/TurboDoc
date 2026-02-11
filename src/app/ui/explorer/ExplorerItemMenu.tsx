@@ -51,7 +51,7 @@ export default function ExplorerItemMenu({ item, itemGroupName }: ReadonlyDeep<{
                     updateProviderData)))
     return (
         <DropdownMenu>
-            <DropdownMenuTrigger>
+            <DropdownMenuTrigger asChild>
                 <Button
                     variant="ghost"
                     size="icon"
@@ -75,7 +75,7 @@ export default function ExplorerItemMenu({ item, itemGroupName }: ReadonlyDeep<{
                 </DropdownMenuSub>
                 {item.links && <DropdownMenuSeparator />}
                 {item.links?.map(link => (
-                    <ExplorerItemMenuLink key={link.url} link={link} />
+                    <ExplorerItemMenuLink key={link.name} link={link} />
                 ))}
                 {item.actions && <DropdownMenuSeparator />}
                 {item.actions?.map(action => (
@@ -101,7 +101,6 @@ function ExplorerItemMenuLink({ link }: ReadonlyDeep<{ link: ItemLink }>) {
 }
 
 function ExplorerItemMenuAction({ action }: ReadonlyDeep<{ action: ItemAction }>) {
-    console.log("Rendering action:", action);
     return (
         <DropdownMenuItem
             variant={action.destructive ? "destructive" : undefined}
