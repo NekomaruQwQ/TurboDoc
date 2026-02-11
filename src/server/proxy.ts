@@ -1,0 +1,221 @@
+// HTTP proxy route for documentation pages.
+//
+// Fetches upstream documentation on behalf of the Rust WebView2 host,
+// with http-cache-semantics for RFC 7234 caching and dark mode injection
+// at serve time.
+//
+// The Rust host calls `GET /proxy?url={encoded_url}` for every intercepted
+// documentation request. This handler returns the response (possibly cached)
+// with dark mode script injected for rustdoc HTML pages.
+
+import { Hono } from "hono";
+import CachePolicy from "http-cache-semantics";
+import type { HttpCache, CacheEntry } from "./cache";
+
+// == Known rustdoc domains ==
+//
+// All three use the same rustdoc theme system (`rustdoc-theme` localStorage key).
+// Since WebView2 preserves the original URL origin, the injection must happen
+// per-domain (localStorage is origin-scoped).
+const RUSTDOC_PREFIXES = [
+    "https://docs.rs",
+    "https://doc.rust-lang.org",
+    "https://microsoft.github.io/windows-docs-rs/doc/",
+];
+
+const DARK_MODE_SCRIPT =
+    `<script>window.localStorage.setItem('rustdoc-theme','dark');</script>`;
+
+// == Dark mode injection ==
+
+/**
+ * Inject the dark theme script into rustdoc HTML responses.
+ * Inserts immediately after `<meta charset="UTF-8">`, matching the previous
+ * Rust implementation.
+ *
+ * Returns the body unchanged if the response is not rustdoc HTML.
+ */
+function injectDarkMode(url: string, contentType: string, body: Buffer): Buffer {
+    if (!contentType.startsWith("text/html")) return body;
+    if (!RUSTDOC_PREFIXES.some(prefix => url.startsWith(prefix))) return body;
+
+    const html = body.toString("utf-8");
+    const injected = html.replace(
+        `<meta charset="UTF-8">`,
+        `<meta charset="UTF-8">${DARK_MODE_SCRIPT}`);
+    return Buffer.from(injected, "utf-8");
+}
+
+// == Helpers ==
+
+/** Convert a Headers object to a plain record for http-cache-semantics. */
+function headersToRecord(headers: Headers): Record<string, string> {
+    const record: Record<string, string> = {};
+    headers.forEach((value, key) => { record[key] = value; });
+    return record;
+}
+
+/**
+ * Build the request object that http-cache-semantics expects.
+ * We use a minimal GET request — the Rust host only forwards GETs.
+ */
+function policyRequest(url: string): CachePolicy.Request {
+    return { url, method: "GET", headers: {} };
+}
+
+/** Fetch the upstream URL and return the raw Response. */
+async function fetchUpstream(
+    url: string,
+    extraHeaders?: Record<string, string>,
+): Promise<Response> {
+    return fetch(url, {
+        method: "GET",
+        headers: extraHeaders,
+        redirect: "manual",
+    });
+}
+
+// == Route factory ==
+
+/**
+ * Create the `/proxy` Hono route.
+ *
+ * Accepts the `HttpCache` instance as a parameter so the cache lifecycle is
+ * managed by the server entry point (not by this module).
+ */
+export function createProxyRoute(cache: HttpCache) {
+    const app = new Hono();
+
+    app.get("/proxy", async c => {
+        const url = c.req.query("url");
+        if (!url) {
+            return c.text("Missing 'url' query parameter", 400);
+        }
+
+        try {
+            const result = await handleProxy(cache, url);
+            return new Response(result.body?.buffer, {
+                status: result.status,
+                headers: result.headers,
+            });
+        } catch (err) {
+            console.error(`[proxy] Error fetching ${url}:`, err);
+            return c.text("Bad Gateway", 502);
+        }
+    });
+
+    return app;
+}
+
+// == Core proxy logic ==
+
+interface ProxyResult {
+    status: number;
+    headers: Record<string, string>;
+    body: Buffer | null;
+}
+
+async function handleProxy(cache: HttpCache, url: string): Promise<ProxyResult> {
+    const req = policyRequest(url);
+
+    // 1. Check cache
+    const cached = cache.get(url);
+    if (cached) {
+        // Check if the cached response is still fresh.
+        if (cached.policy.satisfiesWithoutRevalidation(req)) {
+            console.log(`[proxy] HIT (fresh) ${url}`);
+            return serveCacheEntry(url, cached);
+        }
+
+        // Stale — attempt conditional revalidation.
+        console.log(`[proxy] STALE (revalidating) ${url}`);
+        const revalHeaders = cached.policy.revalidationHeaders(req);
+        const revalResponse = await fetchUpstream(url, revalHeaders as Record<string, string>);
+
+        if (revalResponse.status === 304) {
+            // Not modified — update the policy and serve the cached body.
+            const policyResponse: CachePolicy.Response = {
+                status: revalResponse.status,
+                headers: headersToRecord(revalResponse.headers),
+            };
+            const { policy: updatedPolicy } =
+                cached.policy.revalidatedPolicy(revalHeaders, policyResponse);
+
+            const updatedEntry: CacheEntry = { ...cached, policy: updatedPolicy };
+            cache.set(url, updatedEntry);
+
+            console.log(`[proxy] REVALIDATED (304) ${url}`);
+            return serveCacheEntry(url, updatedEntry);
+        }
+
+        // Upstream returned a new response — fall through to cache-and-serve.
+        return await cacheAndServe(cache, url, req, revalResponse);
+    }
+
+    // 2. Cache miss — fetch upstream.
+    console.log(`[proxy] MISS ${url}`);
+    const response = await fetchUpstream(url);
+    return await cacheAndServe(cache, url, req, response);
+}
+
+/**
+ * Cache an upstream response if storable, then serve it.
+ * Handles both 2xx (content) and 3xx (redirect) responses.
+ */
+async function cacheAndServe(
+    cache: HttpCache,
+    url: string,
+    req: CachePolicy.Request,
+    response: Response,
+): Promise<ProxyResult> {
+    const status = response.status;
+    const responseHeaders = headersToRecord(response.headers);
+    const contentType = response.headers.get("content-type") ?? "";
+    const location = response.headers.get("location") ?? "";
+
+    // Read body for 2xx responses. Redirects have no meaningful body.
+    const isRedirect = status >= 300 && status < 400;
+    const body = isRedirect ? null : Buffer.from(await response.arrayBuffer());
+
+    // Build cache policy.
+    const policyResponse: CachePolicy.Response = { status, headers: responseHeaders };
+    const policy = new CachePolicy(req, policyResponse);
+
+    // Only cache storable and successful/redirect responses.
+    if (policy.storable() && (status === 200 || isRedirect)) {
+        const entry: CacheEntry = { policy, statusCode: status, contentType, location, body };
+        cache.set(url, entry);
+    }
+
+    return serveResponse(url, status, contentType, location, body);
+}
+
+/** Build a ProxyResult from a cache entry, applying dark mode injection. */
+function serveCacheEntry(url: string, entry: CacheEntry): ProxyResult {
+    return serveResponse(url, entry.statusCode, entry.contentType, entry.location, entry.body);
+}
+
+/** Build a ProxyResult, applying dark mode injection for rustdoc HTML. */
+function serveResponse(
+    url: string,
+    status: number,
+    contentType: string,
+    location: string,
+    body: Buffer | null,
+): ProxyResult {
+    const headers: Record<string, string> = {};
+
+    if (status >= 300 && status < 400) {
+        // Redirect — forward the Location header, no body.
+        headers["location"] = location;
+        return { status, headers, body: null };
+    }
+
+    // Apply dark mode injection at serve time.
+    const finalBody = body ? injectDarkMode(url, contentType, body) : null;
+
+    if (contentType) headers["content-type"] = contentType;
+    if (finalBody) headers["content-length"] = String(finalBody.length);
+
+    return { status, headers, body: finalBody };
+}

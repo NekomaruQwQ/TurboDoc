@@ -1,10 +1,11 @@
 // Entry point of the TurboDoc server.
 //
-// The TurboDoc server has two parts:
-// 1. The API server powered by Hono;
-// 2. The frontend asset server powered by Vite;
+// The TurboDoc server has three parts:
+// 1. The API server powered by Hono (workspace/cache CRUD);
+// 2. The HTTP proxy for documentation pages (with SQLite caching);
+// 3. The frontend asset server powered by Vite;
 //
-// To make the two parts work together in Bun, we create an node:http server
+// To make the three parts work together in Bun, we create a node:http server
 // via the Bun NodeJS Compat Layer and route requests to either Hono or Vite
 // based on the URL path.
 //
@@ -35,11 +36,23 @@ const dataDir =
 console.log(`baseDir: ${baseDir.replaceAll("\\", "/")}`);
 console.log(`dataDir: ${dataDir.replaceAll("\\", "/")}`);
 
-// == Hono Server for API Endpoints ==
+// == HTTP Cache Initialization ==
+
+import { HttpCache } from "./cache";
+
+const httpCachePath =
+    path.resolve(`${dataDir}/http-cache.sqlite`);
+const httpCache =
+    new HttpCache(httpCachePath);
+
+console.log(`httpCache: ${httpCachePath.replaceAll("\\", "/")} (${httpCache.size} entries)`);
+
+// == Hono Server for API + Proxy ==
 
 import { Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator"
+import { createProxyRoute } from "./proxy";
 
 const workspacePath =
     path.resolve(`${dataDir}/workspace.json`);
@@ -69,7 +82,8 @@ const honoApp =
             console.log(`Writing cache to ${cachePath}`);
             await Bun.write(cachePath, JSON.stringify(await c.req.valid("json")));
             return c.json({ success: true });
-        });
+        })
+        .route("/", createProxyRoute(httpCache));
 
 export type HonoApp = typeof honoApp;
 
@@ -85,7 +99,8 @@ const viteServer =
     await vite.createServer({ server: { middlewareMode: true } });
 const httpServer =
     http.createServer(async (req, res) => {
-        if (req.url?.startsWith("/api/")) {
+        if (req.url?.startsWith("/api") ||
+            req.url?.startsWith("/proxy")) {
             honoServer(req, res);
         } else {
             viteServer.middlewares(req, res);
