@@ -15,9 +15,14 @@
 
 // == Setup and Configuration ==
 
+/** Port for the server to listen on. */
 const port = 9680;
+const baseUrl = `http://localhost:${port}`;
 
-console.log("JavaScript Runtime:", process.execPath.replaceAll("\\", "/"));
+/** Format a filesystem path for logging, replacing backslashes with slashes. */
+const formatPath = (path: string) => path.replaceAll("\\", "/");
+
+console.log("JavaScript Runtime:", formatPath(process.execPath));
 
 import path from "node:path";
 import url from "node:url";
@@ -27,63 +32,68 @@ const __filename =
 const __dirname =
     path.dirname(__filename);
 
-// This file is located at src/server/index.ts, so the base dir is two levels up.
+/** The repository root directory, containing package.json. */
 const baseDir =
+    // This file is located at src/server/index.ts, so the base dir is two levels up.
     path.resolve(`${__dirname}/../..`);
+/** The server data directory, containing the SQLite cache and JSON workspace/cache dumps. */
 const dataDir =
     path.resolve(`${baseDir}/target/data`);
 
-console.log(`baseDir: ${baseDir.replaceAll("\\", "/")}`);
-console.log(`dataDir: ${dataDir.replaceAll("\\", "/")}`);
-
-// == HTTP Cache Initialization ==
-
-import { HttpCache } from "./cache";
+console.log(`baseDir: ${formatPath(baseDir)}`);
+console.log(`dataDir: ${formatPath(dataDir)}`);
 
 const httpCachePath =
-    path.resolve(`${dataDir}/http-cache.sqlite`);
-const httpCache =
-    new HttpCache(httpCachePath);
-
-console.log(`httpCache: ${httpCachePath.replaceAll("\\", "/")} (${httpCache.size} entries)`);
-
-// == Hono Server for API + Proxy ==
-
-import { Hono } from "hono";
-import { z } from "zod";
-import { zValidator } from "@hono/zod-validator"
-import { createProxyRoute } from "./proxy";
-
+    path.resolve(`${dataDir}/cache.sqlite`);
 const workspacePath =
     path.resolve(`${dataDir}/workspace.json`);
 const cachePath =
     path.resolve(`${dataDir}/cache.json`);
 
+console.log(`httpCache: ${formatPath(httpCachePath)}`);
+console.log(`workspace: ${formatPath(workspacePath)}`);
+console.log(`cache: ${formatPath(cachePath)}`);
+
+// == Hono Server for API + Proxy ==
+
+import type { Context as HonoContext } from "hono";
+import { Hono } from "hono";
+
+import { HttpCache } from "@/server/cache";
+import { createProxyRoute } from "@/server/proxy";
+
+async function loadDataAsJson(c: HonoContext, dataPath: string) {
+    return c.body(await Bun.file(path.resolve(dataPath)).arrayBuffer(), {
+        headers: { "Content-Type": "application/json" },
+    });
+}
+
+async function saveDataAsJson(c: HonoContext, dataPath: string) {
+    const data = await c.req.json<unknown>();
+    await Bun.write(path.resolve(dataPath), JSON.stringify(data, undefined, 4));
+    return c.json({ success: true });
+}
+
+const honoApi =
+    new Hono()
+        .use(async (c, next) => {
+            await next();
+            console.log(
+                `${c.req.method} ` +
+                `${c.req.url.replace(baseUrl, "")} ` +
+                `-> ${c.res.status} (${c.res.headers.get("Content-Type") || ""})`);
+        })
+        .get("/workspace", async c => loadDataAsJson(c, `${dataDir}/workspace.json`))
+        .put("/workspace", async c => saveDataAsJson(c, `${dataDir}/workspace.json`))
+        .get("/cache", async c => loadDataAsJson(c, `${dataDir}/cache.json`))
+        .put("/cache", async c => saveDataAsJson(c, `${dataDir}/cache.json`));
+
+const honoProxy =
+    createProxyRoute(new HttpCache(httpCachePath));
 const honoApp =
     new Hono()
-        .get("/api/v1/workspace", async c => {
-            console.log(`Reading workspace from ${workspacePath}`);
-            return c.body(await Bun.file(workspacePath).text(), {
-                headers: { "Content-Type": "application/json" },
-            });
-        })
-        .put("/api/v1/workspace", zValidator("json", z.unknown()), async c => {
-            console.log(`Writing workspace to ${workspacePath}`);
-            await Bun.write(workspacePath, JSON.stringify(await c.req.valid("json")));
-            return c.json({ success: true });
-        })
-        .get("/api/v1/cache", async c => {
-            console.log(`Reading cache from ${cachePath}`);
-            return c.body(await Bun.file(cachePath).text(), {
-                headers: { "Content-Type": "application/json" },
-            });
-        })
-        .put("/api/v1/cache", zValidator("json", z.unknown()), async c => {
-            console.log(`Writing cache to ${cachePath}`);
-            await Bun.write(cachePath, JSON.stringify(await c.req.valid("json")));
-            return c.json({ success: true });
-        })
-        .route("/", createProxyRoute(httpCache));
+        .route("/api/v1", honoApi)
+        .route("/proxy", honoProxy);
 
 export type HonoApp = typeof honoApp;
 
@@ -108,5 +118,5 @@ const httpServer =
     });
 
 httpServer.listen(port, () => {
-    console.log(`Server running at http://localhost:${port}`);
+    console.log(`Server running at ${baseUrl}`);
 });

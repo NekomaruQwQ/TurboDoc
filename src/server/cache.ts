@@ -3,22 +3,23 @@
 // Uses `bun:sqlite` (built-in, zero dependency) for storage and
 // `http-cache-semantics` for RFC 7234 cache policy evaluation.
 //
-// The cache stores clean upstream responses — dark mode injection is applied
-// at serve time by the proxy route, not here.
+// The cache stores clean upstream responses — code injection is
+// applied at serve time by the proxy route.
 
 import { Database } from "bun:sqlite";
 import CachePolicy from "http-cache-semantics";
 
-/// Maximum number of cached responses. When the cache is full, the least
-/// recently accessed entry is evicted before inserting a new one.
+/** Maximum number of cached responses. When the cache is full, the least
+ *  recently accessed entry is evicted before inserting a new one. */
 const MAX_CACHE_ENTRIES = 2000;
-
-// == Types ==
 
 /** A cached HTTP response with its associated cache policy. */
 export interface CacheEntry {
+    /** Cache policy for the response, used to determine freshness and staleness. */
     policy: CachePolicy;
+    /** HTTP status code of the response. */
     statusCode: number;
+    /** Content-Type header of the response. Empty string if not present. */
     contentType: string;
     /** Redirect target URL. Empty string for non-redirect responses. */
     location: string;
@@ -33,9 +34,9 @@ interface CacheRow {
     status_code: number;
     content_type: string;
     location: string;
-    body: Buffer | null;
-    last_accessed_at: number;
-    cached_at: number;
+    body: Uint8Array | null;
+    last_accessed: number;
+    last_fetched: number;
 }
 
 // == HttpCache ==
@@ -56,37 +57,37 @@ export class HttpCache {
         this.db.run("PRAGMA journal_mode = WAL");
         this.db.run(`
             CREATE TABLE IF NOT EXISTS http_cache (
-                url              TEXT PRIMARY KEY,
-                policy           TEXT NOT NULL,
-                status_code      INTEGER NOT NULL,
-                content_type     TEXT NOT NULL DEFAULT '',
-                location         TEXT NOT NULL DEFAULT '',
-                body             BLOB,
-                last_accessed_at INTEGER NOT NULL,
-                cached_at        INTEGER NOT NULL
+                url             TEXT PRIMARY KEY,
+                policy          TEXT NOT NULL,
+                status_code     INTEGER NOT NULL,
+                content_type    TEXT NOT NULL DEFAULT '',
+                location        TEXT NOT NULL DEFAULT '',
+                body            BLOB,
+                last_accessed   INTEGER NOT NULL,
+                last_fetched    INTEGER NOT NULL
             )
         `);
 
         this.stmtGet = this.db.prepare(
             "SELECT * FROM http_cache WHERE url = ?");
         this.stmtTouch = this.db.prepare(
-            "UPDATE http_cache SET last_accessed_at = ?2 WHERE url = ?1");
+            "UPDATE http_cache SET last_accessed = ?2 WHERE url = ?1");
         this.stmtUpsert = this.db.prepare(`
             INSERT OR REPLACE INTO http_cache
-                (url, policy, status_code, content_type, location, body, last_accessed_at, cached_at)
+                (url, policy, status_code, content_type, location, body, last_accessed, last_fetched)
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
         `);
         this.stmtCount = this.db.prepare(
             "SELECT COUNT(*) as count FROM http_cache");
         this.stmtEvict = this.db.prepare(
-            "DELETE FROM http_cache WHERE url = (SELECT url FROM http_cache ORDER BY last_accessed_at ASC LIMIT 1)");
+            "DELETE FROM http_cache WHERE url = (SELECT url FROM http_cache ORDER BY last_accessed ASC LIMIT 1)");
         this.stmtDelete = this.db.prepare(
             "DELETE FROM http_cache WHERE url = ?");
     }
 
     /**
      * Look up a cached response by URL. Returns null on miss.
-     * On hit, updates `last_accessed_at` for LRU tracking.
+     * On hit, updates `last_accessed` for LRU tracking.
      */
     get(url: string): CacheEntry | null {
         const row = this.stmtGet.get(url) as CacheRow | null;
@@ -100,7 +101,11 @@ export class HttpCache {
             statusCode: row.status_code,
             contentType: row.content_type,
             location: row.location,
-            body: row.body,
+            // bun:sqlite returns BLOB as Uint8Array, not Buffer. Wrap it so
+            // downstream code can use Buffer.toString("utf-8") correctly —
+            // Uint8Array.toString() ignores the encoding and returns
+            // comma-separated byte values instead.
+            body: row.body ? Buffer.from(row.body) : null,
         };
     }
 
@@ -129,7 +134,7 @@ export class HttpCache {
             entry.location,
             entry.body,
             now,
-            existing ? (existing.cached_at) : now);
+            existing ? (existing.last_fetched) : now);
     }
 
     /** Delete a cache entry by URL. No-op if the entry doesn't exist. */

@@ -86,7 +86,7 @@ async function fetchUpstream(
 export function createProxyRoute(cache: HttpCache) {
     const app = new Hono();
 
-    app.get("/proxy", async c => {
+    app.get("/", async c => {
         const url = c.req.query("url");
         if (!url) {
             return c.text("Missing 'url' query parameter", 400);
@@ -94,7 +94,7 @@ export function createProxyRoute(cache: HttpCache) {
 
         try {
             const result = await handleProxy(cache, url);
-            return new Response(result.body?.buffer, {
+            return new Response(result.body, {
                 status: result.status,
                 headers: result.headers,
             });
