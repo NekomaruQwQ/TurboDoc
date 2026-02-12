@@ -1,7 +1,5 @@
 import type { ReadonlyDeep } from "type-fest";
 
-import * as _ from "remeda";
-
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
     faArrowUpRightFromSquare,

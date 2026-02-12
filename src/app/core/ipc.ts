@@ -34,11 +34,22 @@ window.chrome?.webview?.addEventListener("message", ({ data }) => {
 });
 
 // == Wrapper functions for API endpoints ==
-
-import type { HonoApp } from "@/server";
 import { hc } from "hono/client";
 
-const client = hc<HonoApp>("/");
+import { throwError } from "@/core";
+import type apiRoute from "@/server/api";
+
+const api = hc<typeof apiRoute>("/api/v1");
+
+function getJsonFromResponse<T = unknown>(response: {
+    ok: boolean,
+    statusText: string,
+    json(): Promise<T>,
+}): Promise<T> {
+    return response.ok
+        ? response.json()
+        : throwError(`API request failed: ${response.statusText}`);
+}
 
 /**
  * Request to load workspace from the host. Throws an error if the file doesn't
@@ -48,19 +59,15 @@ const client = hc<HonoApp>("/");
  * and as such, it resolves to `unknown`.
  */
 export async function loadWorkspace(): Promise<unknown> {
-    const response = await client.api.v1.workspace.$get();
-    if (!response.ok) {
-        throw new Error(`Failed to load workspace: ${response.statusText}`);
-    }
-
-    return await response.json();
+    const response = await api.workspace.$get();
+    return getJsonFromResponse(response);
 }
 
 /**
  * Request to save workspace to the host. Throws an error if save fails or times out.
  */
 export async function saveWorkspace(workspace: {}): Promise<void> {
-    const response = await client.api.v1.workspace.$put({
+    const response = await api.workspace.$put({
         json: workspace,
     });
     if (!response.ok) {
@@ -78,13 +85,8 @@ export async function saveWorkspace(workspace: {}): Promise<void> {
  * returned. Network errors and malformed JSON will throw.
  */
 export async function loadCache(): Promise<unknown> {
-    const response = await client.api.v1.cache.$get();
-    if (!response.ok) {
-        console.error(`Failed to load cache: ${response.statusText}`);
-        return null;
-    }
-
-    return await response.json();
+    const response = await api.cache.$get();
+    return getJsonFromResponse(response);
 }
 
 /**
@@ -93,7 +95,7 @@ export async function loadCache(): Promise<unknown> {
  * HTTP errors during cache saving are non-fatal. Network errors will throw.
  */
 export async function saveCache(cache: ReadonlyDeep<{}>): Promise<void> {
-    const response = await client.api.v1.cache.$put({
+    const response = await api.cache.$put({
         json: cache,
     });
     if (!response.ok) {

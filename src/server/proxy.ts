@@ -10,7 +10,9 @@
 
 import { Hono } from "hono";
 import CachePolicy from "http-cache-semantics";
-import type { HttpCache, CacheEntry } from "./cache";
+
+import * as httpCache from "@/server/http-cache";
+import type { CacheEntry as HttpCacheEntry } from "@/server/http-cache";
 
 // == Known rustdoc domains ==
 //
@@ -75,37 +77,24 @@ async function fetchUpstream(
     });
 }
 
-// == Route factory ==
+// == Route definition ==
+export default new Hono().get("/", async c => {
+    const url = c.req.query("url");
+    if (!url) {
+        return c.text("Missing 'url' query parameter", 400);
+    }
 
-/**
- * Create the `/proxy` Hono route.
- *
- * Accepts the `HttpCache` instance as a parameter so the cache lifecycle is
- * managed by the server entry point (not by this module).
- */
-export function createProxyRoute(cache: HttpCache) {
-    const app = new Hono();
-
-    app.get("/", async c => {
-        const url = c.req.query("url");
-        if (!url) {
-            return c.text("Missing 'url' query parameter", 400);
-        }
-
-        try {
-            const result = await handleProxy(cache, url);
-            return new Response(result.body, {
-                status: result.status,
-                headers: result.headers,
-            });
-        } catch (err) {
-            console.error(`[proxy] Error fetching ${url}:`, err);
-            return c.text("Bad Gateway", 502);
-        }
-    });
-
-    return app;
-}
+    try {
+        const result = await handleProxy(url);
+        return new Response(result.body as any, {
+            status: result.status,
+            headers: result.headers,
+        });
+    } catch (err) {
+        console.error(`[proxy] Error fetching ${url}:`, err);
+        return c.text("Bad Gateway", 502);
+    }
+});
 
 // == Core proxy logic ==
 
@@ -115,11 +104,11 @@ interface ProxyResult {
     body: Buffer | null;
 }
 
-async function handleProxy(cache: HttpCache, url: string): Promise<ProxyResult> {
+async function handleProxy(url: string): Promise<ProxyResult> {
     const req = policyRequest(url);
 
     // 1. Check cache
-    const cached = cache.get(url);
+    const cached = httpCache.get(url);
     if (cached) {
         // Check if the cached response is still fresh.
         if (cached.policy.satisfiesWithoutRevalidation(req)) {
@@ -139,23 +128,27 @@ async function handleProxy(cache: HttpCache, url: string): Promise<ProxyResult> 
                 headers: headersToRecord(revalResponse.headers),
             };
             const { policy: updatedPolicy } =
-                cached.policy.revalidatedPolicy(revalHeaders, policyResponse);
+                cached.policy.revalidatedPolicy( {
+                    url: url,
+                    method: "GET",
+                    headers: revalHeaders,
+                }, policyResponse);
 
-            const updatedEntry: CacheEntry = { ...cached, policy: updatedPolicy };
-            cache.set(url, updatedEntry);
+            const updatedEntry: HttpCacheEntry = { ...cached, policy: updatedPolicy };
+            httpCache.set(url, updatedEntry);
 
             console.log(`[proxy] REVALIDATED (304) ${url}`);
             return serveCacheEntry(url, updatedEntry);
         }
 
         // Upstream returned a new response — fall through to cache-and-serve.
-        return await cacheAndServe(cache, url, req, revalResponse);
+        return await cacheAndServe(url, req, revalResponse);
     }
 
     // 2. Cache miss — fetch upstream.
     console.log(`[proxy] MISS ${url}`);
     const response = await fetchUpstream(url);
-    return await cacheAndServe(cache, url, req, response);
+    return await cacheAndServe(url, req, response);
 }
 
 /**
@@ -163,7 +156,6 @@ async function handleProxy(cache: HttpCache, url: string): Promise<ProxyResult> 
  * Handles both 2xx (content) and 3xx (redirect) responses.
  */
 async function cacheAndServe(
-    cache: HttpCache,
     url: string,
     req: CachePolicy.Request,
     response: Response,
@@ -183,15 +175,15 @@ async function cacheAndServe(
 
     // Only cache storable and successful/redirect responses.
     if (policy.storable() && (status === 200 || isRedirect)) {
-        const entry: CacheEntry = { policy, statusCode: status, contentType, location, body };
-        cache.set(url, entry);
+        const entry: HttpCacheEntry = { policy, statusCode: status, contentType, location, body };
+        httpCache.set(url, entry);
     }
 
     return serveResponse(url, status, contentType, location, body);
 }
 
 /** Build a ProxyResult from a cache entry, applying dark mode injection. */
-function serveCacheEntry(url: string, entry: CacheEntry): ProxyResult {
+function serveCacheEntry(url: string, entry: HttpCacheEntry): ProxyResult {
     return serveResponse(url, entry.statusCode, entry.contentType, entry.location, entry.body);
 }
 

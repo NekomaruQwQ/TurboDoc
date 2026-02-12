@@ -2,9 +2,6 @@
     "name": "turbodoc",
     "type": "module",
     "private": true,
-    "scripts": {
-        "dev": "bun --hot src/server/"
-    },
     "dependencies": {
         "@fortawesome/fontawesome-svg-core": "^7.1.0",
         "@fortawesome/free-solid-svg-icons": "^7.1.0",
