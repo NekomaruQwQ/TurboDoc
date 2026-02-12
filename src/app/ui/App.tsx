@@ -12,7 +12,7 @@ export default function App() {
     const ctx = useAppContext();
     return (
         <div className="w-full h-full flex flex-col">
-            <div>-</div>
+            <div className="h-12">-</div>
             <ResizablePanelGroup direction="horizontal">
                 <ResizablePanel defaultSize={20} className="px-2">
                     {/* Clip the content of explorer with rounded corners */}
@@ -26,7 +26,7 @@ export default function App() {
                     <iframe
                         ref={ctx.viewerRef}
                         src={ctx.workspace.app.currentUrl}
-                        className="w-full h-full rounded-tl-md"/>
+                        className="w-full h-full border border-white/25 rounded-tl-md"/>
                 </ResizablePanel>
             </ResizablePanelGroup>
         </div>);

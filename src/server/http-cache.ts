@@ -111,7 +111,7 @@ export function get(url: string): CacheEntry | null {
  * Store a response in the cache. If the cache is at capacity, the least
  * recently accessed entry is evicted first.
  *
- * If a entry with the same URL already exists, it is replaced (upsert).
+ * If an entry with the same URL already exists, it is replaced (upsert).
  */
 export function set(url: string, entry: CacheEntry): void {
     // Evict LRU entry if at capacity (only when inserting a genuinely new URL).

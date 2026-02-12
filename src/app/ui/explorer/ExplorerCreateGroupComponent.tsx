@@ -55,13 +55,8 @@ export default function ExplorerCreateGroupComponent() {
     }
 
     function ActionButton(props: ComponentProps<"button">) {
-        return (
-            <Button
-                variant="secondary"
-                // biome-ignore lint/suspicious/noExplicitAny: custom size workaround.
-                size={"custom" as any}
-                className={`border size-8 cursor-pointer ${props.className}`}
-                {...props} />);
+        // biome-ignore lint/suspicious/noExplicitAny: custom size workaround.
+        return <Button variant="secondary" size={"custom" as any} {...props} />;
     }
 
     return (
@@ -77,14 +72,14 @@ export default function ExplorerCreateGroupComponent() {
                     className="h-8"/>
                 {/* Use onMouseDown to prevent onBlur fired before onClick */}
                 <ActionButton
-                    className="size-8 cursor-pointer"
+                    className="size-8 border cursor-pointer"
                     onMouseDown={e => onOK(e)}>
                     <FontAwesomeIcon icon={faCheck}/>
                 </ActionButton>
             </> : <>
                 {/* Use onClick to avoid (what?) */}
                 <ActionButton
-                    className="w-full h-8 cursor-pointer"
+                    className="w-full h-8 border cursor-pointer"
                     onClick={() => setInputMode(true)}>
                     <FontAwesomeIcon icon={faPlus}/>
                     <span>Add Group</span>

@@ -37,7 +37,7 @@ const httpServer =
     http.createServer(async (req, res) => {
         if (req.url?.startsWith("/api") ||
             req.url?.startsWith("/proxy")) {
-            honoServer(req, res);
+            await honoServer(req, res);
         } else {
             viteServer.middlewares(req, res);
         }

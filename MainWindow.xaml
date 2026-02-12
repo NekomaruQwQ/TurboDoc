@@ -4,12 +4,12 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     x:Class="TurboDoc.MainWindow"
     Title="TurboDoc">
-    <Grid Background="#0A0A0A">
+    <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="40" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
-        <TitleBar x:Name="TitleBar" Grid.Row="0" Title="TurboDoc" />
-        <WebView2 x:Name="WebView2" Grid.Row="1" />
+        <TitleBar x:Name="TitleBar" Grid.Row="0" />
+        <WebView2 x:Name="WebView2" Grid.Row="0" Grid.RowSpan="2" />
     </Grid>
 </Window>

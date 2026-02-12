@@ -63,7 +63,7 @@ export function useCurrentUrl(): State<string> {
             })
         }
     ]
-};
+}
 
 export function useProviderData(): State<ProviderData> {
     const ctx = useAppContext();

@@ -24,13 +24,8 @@ export function getImportCratesAction(ctx: RustProviderContext): ProviderAction 
         type: "node",
         render() {
             function ActionButton(props: ComponentProps<"button">) {
-                return (
-                    <Button
-                        variant="secondary"
-                        // biome-ignore lint/suspicious/noExplicitAny: custom size workaround.
-                        size={"custom" as any}
-                        className={`border size-8 cursor-pointer ${props.className}`}
-                        {...props} />);
+                // biome-ignore lint/suspicious/noExplicitAny: custom size workaround.
+                return <Button variant="secondary" size={"custom" as any} {...props} />;
             }
 
             const [showDialog, setShowDialog] = useState(false);
@@ -110,7 +105,7 @@ export function getImportCratesAction(ctx: RustProviderContext): ProviderAction 
 
             return <>
                 <ActionButton
-                    className="w-full h-8 cursor-pointer"
+                    className="w-full h-8 border cursor-pointer"
                     onClick={() => setShowDialog(true)}>
                     <FontAwesomeIcon icon={faPlus}/>
                     <span>Import</span>
