@@ -434,6 +434,7 @@ Design decisions that shaped the current architecture. Organized by area.
 - Auto-save on every state change (no debouncing — files are small)
 - App data save failures are fatal (throw); provider data, UI state, and cache failures are non-fatal (log + return `{}`)
 - Server-side migration: on startup, if legacy `workspace.json` exists, auto-splits into new files and renames original to `.migrated`
+- **Provider data write guard**: the server rejects a PUT to `/workspace/:providerId` if the new JSON payload is less than 30% the size of the existing file on disk (HTTP 409). This prevents accidental data loss from frontend bugs or state resets. The check is skipped when the existing file is smaller than 256 bytes, since small files can legitimately shrink by large ratios. Future: a `?force=true` query parameter could bypass the guard for legitimate bulk deletions.
 
 **Preview Page (Derived State)**
 - Preview state derived from `workspace.app.currentUrl` (global) and per-item `pinnedPages`

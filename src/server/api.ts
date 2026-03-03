@@ -24,6 +24,38 @@ async function saveDataAsJson(c: HonoContext, dataPath: string) {
     return c.json({ success: true });
 }
 
+/** Minimum existing file size (bytes) below which the data loss guard is
+ *  skipped. Small files can legitimately shrink by large ratios (e.g.,
+ *  removing 2 of 3 crates), so the percentage check would cause false
+ *  positives. */
+const DATA_LOSS_MIN_SIZE = 256;
+/** If the new payload is smaller than this fraction of the existing file,
+ *  the write is rejected as likely accidental data loss. */
+const DATA_LOSS_RATIO = 0.3;
+
+/** Compare the size of `newJson` against the existing file at `filePath`.
+ *  Returns an error message if the write looks like accidental data loss,
+ *  or `null` if the write is safe.
+ *
+ *  Future: a `?force=true` query parameter could bypass this check for
+ *  legitimate bulk deletions. */
+async function guardAgainstDataLoss(
+    filePath: string, newJson: string,
+): Promise<string | null> {
+    const file = Bun.file(filePath);
+    if (!await file.exists()) return null;
+
+    const existingSize = file.size;
+    if (existingSize < DATA_LOSS_MIN_SIZE) return null;
+
+    const ratio = newJson.length / existingSize;
+    if (ratio < DATA_LOSS_RATIO)
+        return `Write rejected: new payload (${newJson.length} B) is ${(ratio * 100).toFixed(1)}% ` +
+            `of existing file (${existingSize} B), which is below the ${DATA_LOSS_RATIO * 100}% safety threshold.`;
+
+    return null;
+}
+
 // -- One-time migration from monolithic workspace.json to split files --
 
 /** Migrate legacy `workspace.json` into split files if it still exists.
@@ -100,7 +132,18 @@ export default new Hono()
     })
     .put("/workspace/:providerId", async c => {
         const { providerId } = c.req.param();
-        return saveDataAsJson(c, `${dataDir}/workspace.${providerId}.json`);
+        const filePath = path.resolve(`${dataDir}/workspace.${providerId}.json`);
+        const data = await c.req.json<unknown>();
+        const json = JSON.stringify(data, undefined, 4);
+
+        const rejection = await guardAgainstDataLoss(filePath, json);
+        if (rejection) {
+            console.warn(rejection);
+            return c.json({ success: false, error: rejection }, 409);
+        }
+
+        await Bun.write(filePath, json);
+        return c.json({ success: true });
     })
     // Per-provider cache (validated against provider cache schemas).
     .get("/cache/:providerId", async c => {

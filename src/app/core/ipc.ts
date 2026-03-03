@@ -78,7 +78,9 @@ export async function loadProviderData(providerId: string): Promise<unknown> {
     return response.ok ? response.json() : {};
 }
 
-/** Save a provider's workspace data. Non-fatal on HTTP errors. */
+/** Save a provider's workspace data. Non-fatal on HTTP errors.
+ *  The server may respond with 409 if the new data is suspiciously smaller
+ *  than the existing file (data loss guard). */
 export async function saveProviderData(
     providerId: string, data: object,
 ): Promise<void> {
@@ -86,7 +88,9 @@ export async function saveProviderData(
         param: { providerId },
         json: data,
     });
-    if (!response.ok)
+    if (response.status === 409)
+        console.warn(`Provider data save rejected for "${providerId}" (data loss guard). Next legitimate save will succeed.`);
+    else if (!response.ok)
         console.error(`Failed to save provider data for ${providerId}: ${response.statusText}`);
 }
 
