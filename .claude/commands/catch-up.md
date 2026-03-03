@@ -1,1 +1,0 @@
-Read @docs/README.md and @docs/Plan-v0.3.md to catch up.

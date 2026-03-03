@@ -98,6 +98,34 @@ TurboDoc is an "enhanced tabbed browser with inactive tab resources released" �
 5. **Progressive disclosure**: Collapses details by default, expands on demand
 6. **Performance**: Optimized for large workspaces (50+ crates)
 
+### Three-Layer Architecture
+
+| **Component** | **Tech Stack** | **Role** | **Key Responsibilities** |
+|---|---|---|---|
+| **Host** | C# WinUI 3 (.NET 10) + WebView2 | **The Shell** | Window management. Intercepts doc URL requests and forwards them to `http://localhost:9680/proxy?url=`. Sends `navigated` events to frontend via `PostWebMessageAsJson`. Opens external URLs in system browser. |
+| **Server** | TypeScript (Bun + Hono) | **The Brain** | REST endpoints for workspace/cache persistence (`/api/v1/*`). HTTP proxy with SQLite caching and LRU eviction (`/proxy?url=`). Dark mode injection at serve time. Serves frontend assets via Vite middleware. |
+| **Frontend** | React + Vite | **The Face** | UI rendering (Explorer, Navigation). Fetches data from `/api/v1/*` via `hono/client`. Provider-based architecture for multi-source docs. |
+
+### Request Flow
+
+```
+WebView2 iframe navigates to https://docs.rs/serde/latest/serde/
+  │
+  ├─ OnFrameNavigationStarting: post "navigated" event to frontend
+  │
+  └─ OnWebResourceRequested (GET, ProxiedUrls match):
+       │
+       │  C# host forwards to Bun:
+       │  GET http://localhost:9680/proxy?url=https%3A%2F%2Fdocs.rs%2Fserde%2Flatest%2Fserde%2F
+       │
+       └─ Bun /proxy handler:
+            ├─ Cache HIT + fresh?  → serve cached body + dark mode injection
+            ├─ Cache HIT + stale?  → conditional revalidation (If-None-Match / If-Modified-Since)
+            │    ├─ 304 Not Modified → update policy, serve cached body
+            │    └─ 2xx             → replace cache entry, serve new body
+            └─ Cache MISS          → fetch upstream, cache if storable, serve
+```
+
 ### Technology Stack
 
 - **Frontend**: React 19 + TypeScript (strict mode)
@@ -108,9 +136,9 @@ TurboDoc is an "enhanced tabbed browser with inactive tab resources released" �
 - **Styling**: Tailwind CSS v4 with OKLCH color space
 - **Icons**: Font Awesome
 - **Utilities**: remeda (functional), semver, zod
-- **Server**: Bun + Hono (API) + Vite (middleware mode) on port 9680
-- **Backend**: Rust (Winit + WebView2) — window management and HTTP proxy
-- **IPC**: Hono HTTP API for CRUD + WebView2 messages for navigation events
+- **Server**: Bun + Hono (API + HTTP proxy with SQLite cache) + Vite (middleware mode) on port 9680
+- **Host**: C# WinUI 3 (.NET 10) + WebView2 — window management and request forwarding
+- **IPC**: Hono HTTP API for CRUD + WebView2 `PostWebMessageAsJson` for navigation events
 
 ### Sidebar Layout
 
@@ -245,10 +273,11 @@ Currently handled within the unified `rust` provider (cross-crate). When multipl
 ### Running the Dev Server
 
 ```
-bun --hot src/server/
+just server    # Starts Bun + Hono API/proxy + Vite dev server on http://localhost:9680/
+just app       # Starts C# WinUI host (dotnet run), connects to server at localhost:9680
 ```
 
-This starts the combined Hono API + Vite dev server on `http://localhost:9680/`.
+The server and host are started separately. The server must be running before the host is launched.
 
 ### Mandatory Implementation Rules
 
@@ -365,6 +394,21 @@ Design decisions that shaped the current architecture. Organized by area.
 - No `serialize`/`deserialize` methods — view model callbacks operate data directly via Immer
 - No provider collapsing in sidebar — provider visibility controlled solely by preset
 
+**"Dumb Pipe" Delegate Pattern**
+- All proxy and caching logic lives in the Bun server, not in the WebView2 event loop
+- The C# host is a thin forwarding shim — intercepts doc URL requests and delegates to `localhost:9680/proxy?url=`
+- Decouples host (windowing) from logic (caching/parsing), improving maintainability and type safety
+
+**Architectural Constraints**
+- No URL Rewriting: the WebView still believes it is browsing `docs.rs` directly
+- No SSL Proxy: proxying happens after WebView2 intercepts the request intent
+- Fixed Port: combined server (Hono API + proxy + Vite dev server) at `9680`
+
+**Dark Mode Injection (Serve-Time)**
+- Cache stores clean upstream content; dark mode injection applied at serve time
+- Technique: insert `<script>window.localStorage.setItem('rustdoc-theme', 'dark');</script>` after `<meta charset="UTF-8">` in rustdoc HTML responses
+- Benefits: change injection logic without invalidating cache; could later make dark mode a user preference toggle
+
 ### Data Model
 
 **Workspace/Cache Split**
@@ -478,12 +522,20 @@ Workspace (React state) ──► provider.render() ──► React render
 
 ```
 TurboDoc/
-├── package.json                # Bun project, script: `bun --hot src/server/`
+├── package.json                # Bun project
+├── .justfile                   # Task runner (just server, just app)
 ├── vite.config.ts              # Root: src/, aliases: @/ → src/, @shadcn/ → 3rdparty/shadcn/
 ├── tsconfig.json               # ESNext, bundler mode, strict
-├── Cargo.toml                  # Rust workspace (edition 2024)
 ├── biome.json                  # Biome linter (formatter disabled)
 ├── components.json             # shadcn/ui config (new-york style)
+│
+│ # C# WinUI host (WebView2 shell)
+├── TurboDoc.csproj             # .NET 10, WinUI 3, x64
+├── TurboDoc.slnx               # Solution file
+├── App.xaml / App.xaml.cs       # WinUI application entry
+├── MainWindow.xaml / .xaml.cs   # WebView2 window, request interception, proxy forwarding
+├── WindowUtils.cs              # Window sizing and title bar customization
+├── App.manifest                # Application manifest
 │
 ├── src/
 │   ├── index.html              # Entry HTML
@@ -493,7 +545,7 @@ TurboDoc/
 │   │
 │   ├── app/                    # Frontend application code
 │   │   ├── core/
-│   │   │   ├── data.d.ts       # Type definitions (Workspace, Cache, Provider, Item, Page, etc.)
+│   │   │   ├── data.ts         # Zod schemas + inferred types (Workspace, Cache, Provider, Item, Page, etc.)
 │   │   │   ├── context.ts      # AppContext class, React context providers and hooks
 │   │   │   ├── ipc.ts          # Hono HTTP client (CRUD) + WebView2 event listener (navigated)
 │   │   │   └── prelude.ts      # State<T> type helper + cn() utility
@@ -524,27 +576,20 @@ TurboDoc/
 │   │       ├── version-group.ts      # Semver version grouping
 │   │       └── version-group.test.ts
 │   │
-│   ├── server/
-│   │   └── index.ts            # Hono API + Vite dev server (port 9680)
-│   │
-│   │ # Rust backend (co-located in src/)
-│   ├── main.rs                 # Entry point, constants (KNOWN_URL, DATA_DIR, CACHE_DIR)
-│   ├── app.rs                  # Window management (winit), WebView2, IPC handlers
-│   ├── server.rs               # HTTP proxy with memory+disk caching (24h expiry)
-│   └── webview.rs              # WebView2 COM wrapper
+│   └── server/
+│       ├── index.ts            # Hono router + Vite dev server (port 9680)
+│       ├── api.ts              # API endpoints (workspace/cache CRUD)
+│       ├── proxy.ts            # /proxy?url= route handler + dark mode injection
+│       ├── http-cache.ts       # SQLite HTTP cache (bun:sqlite, LRU eviction)
+│       └── common.ts           # Shared config, database setup, utilities
 │
 ├── 3rdparty/
 │   └── shadcn/                 # Vendored shadcn/ui components
 │       ├── components/ui/      # button, card, dialog, dropdown-menu, input, select, separator, etc.
 │       └── lib/utils.ts
 │
-├── crates/
-│   ├── nkcore/                 # Core Rust utilities
-│   └── nkcore-macros/          # Procedural macros
-│
 └── docs/
     ├── README.md               # This file
-    ├── Plan-v0.3.md            # Bun sidecar architecture plan
     └── Bug-v0.2-Migration.md   # Bug tracker for v0.2 migration
 ```
 
@@ -569,7 +614,8 @@ TurboDoc/
    - Providers without search support are skipped
 2. **Preset picker UI**: Not yet built — switching presets requires manual workspace edit
 3. **Loading/error states**: Not yet implemented — no skeletons, spinners, or error boundaries
-4. **Prod build**: Vite prod build not configured — dev mode only via `bun --hot src/server/`
+4. **Prod build**: Vite prod build not configured — dev mode only via `just server`
+5. **Bun as child process**: Dev server started manually via `just server`; auto-launch from host deferred
 
 ---
 
@@ -587,6 +633,8 @@ TurboDoc/
 - [x] Symbol parsing with One Dark color coding
 - [x] Automatic cross-crate navigation via `navigated` event
 - [x] Auto-save workspace and cache on every change
+- [x] HTTP proxy with SQLite cache and dark mode injection (v0.3)
+- [x] C# WinUI 3 host replacing Rust host (v0.3)
 
 ### Remaining
 - [ ] Unified search bar
@@ -599,6 +647,11 @@ TurboDoc/
 
 ## Change History
 
+- **2026-03**: Merged Plan-v0.3.md into README (three-layer architecture, request flow, server design decisions)
+- **2026-03**: Rust host removed entirely; replaced with C# WinUI 3 (.NET 10) + WebView2
+- **2026-03**: Bun server completed: HTTP proxy (`/proxy?url=`), SQLite cache with LRU eviction, dark mode injection
+- **2026-03**: `data.d.ts` migrated to `data.ts` with Zod-based schema definitions
+- **2026-03**: Build system: `.justfile` replaces Nushell scripts; `effect` package removed
 - **2026-02**: Merged Plan-v0.2.md into README (architecture decisions, identification scheme, provider details)
 - **2026-02**: Updated README to reflect v0.2 architecture (provider system, new component hierarchy, Hono server)
 - **2026-02**: Directory restructure: frontend code moved from `frontend/` to `src/app/`

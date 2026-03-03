@@ -1,7 +1,10 @@
 set shell := ["nu", "-c"]
 
-default:
+list:
     just --list
-
-run script:
-    nu scripts/{{script}}.nu
+app:
+    ./bin/Debug/TurboDoc.exe
+server:
+    TURBODOC_DATA=data bun --hot src/server
+backup:
+    cp -f data/workspace.json data/workspace.bak.json
