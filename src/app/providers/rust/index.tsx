@@ -17,6 +17,7 @@ import type {
     IdentType,
 } from "@/app/core/data";
 
+import type { RustProviderCache, CrateCache } from "./cache";
 import { parseUrl, buildUrl, getBaseUrlForCrate } from "./url";
 import { getImportCratesAction } from "./import";
 
@@ -42,9 +43,7 @@ export interface RustProviderData {
     crates: Record<string, CrateData>;
 }
 
-export interface RustProviderCache {
-    crates: Record<string, CrateCache>;
-}
+export type { RustProviderCache, CrateCache } from "./cache";
 
 export interface CrateData {
     /** Currently selected version */
@@ -58,23 +57,6 @@ export interface CrateData {
      * `https://docs.rs/{crate_name}/{version}/{path}`.
      **/
     pinnedPages: string[];
-}
-
-export interface CrateCache {
-    /** Timestamp when this cache entry was last updated */
-    lastFetched: number;
-    /** Name of the crate (for validation) */
-    name: string;
-    /** Full version list fetched from crates.io API */
-    versions: { num: string, yanked: boolean } [];
-    /** Grouped versions for display */
-    versionGroups: { versions: { num: string, yanked: boolean }[] }[];
-    /** Homepage URL */
-    homepage: string | null;
-    /** Repository URL */
-    repository: string | null;
-    /** Documentation URL (might differ from docs.rs) */
-    documentation: string | null;
 }
 
 function handleCurrentUrl(ctx: RustProviderContext) {

@@ -363,6 +363,14 @@ Design decisions that shaped the current architecture. Organized by area.
 - Adding a new provider is isolated work — no central type modifications
 - Separation of concerns is enforced by the type system, not just convention
 
+**Cache Schema Validation**
+- Each provider defines its cache shape as a Zod schema in a `.ts` file (no JSX — safe for server import)
+- Types are inferred via `z.infer<>` — Zod schema is the single source of truth (no hand-written interfaces)
+- Central registry (`providers/cache-schemas.ts`) maps provider ID → schema + empty default
+- Server validates on GET (`safeParse` + graceful fallback) and PUT (reject invalid with 400)
+- IPC layer validates as defense-in-depth (same schema, client side)
+- `useProviderCache()` return type stays `State<unknown>` — dynamic dispatch prevents compile-time narrowing; the cast is safe at runtime because data is validated before it reaches the provider
+
 **Data Model vs View Model**
 
 | Aspect | Data Model | View Model |
@@ -419,7 +427,8 @@ Design decisions that shaped the current architecture. Organized by area.
   - `workspace.<providerId>.json` — per-provider user data (groups, provider-specific data). Loaded lazily per-provider by `useProviderData` hook.
   - `workspace.ui.json` — UI expansion state (expandedItems, expandedGroups keyed by provider ID). Loaded eagerly in `index.tsx`.
 - Cache stored as per-provider files: `cache.<providerId>.json` (API data). Loaded lazily per-provider by `useProviderCache` hook.
-- Both provider data and cache use the same lifecycle pattern: `useImmer` + load on mount + auto-save on change.
+- Cache endpoints are **schema-validated**: each provider registers a Zod schema in `providers/cache-schemas.ts`. The server validates on GET (graceful fallback to empty default on failure) and PUT (rejects invalid data with 400). The IPC layer validates as defense-in-depth.
+- Both provider data and cache use the same lifecycle pattern: `useImmer` + async load on mount + auto-save on change, gated by a `loadedRef` flag to prevent the initial empty state from overwriting real data before load completes.
 - Persisted via Hono HTTP API (`/api/v1/workspace/app`, `/workspace/ui`, `/workspace/:providerId`, `/cache/:providerId`)
 - `"app"` and `"ui"` are reserved path segments — cannot be used as provider IDs
 - Auto-save on every state change (no debouncing — files are small)
@@ -473,7 +482,7 @@ AppData + ProviderData (React state) ──► provider.render() ──► React
 - App data CRUD via Hono HTTP API (`/api/v1/workspace/app`)
 - Per-provider data CRUD via Hono HTTP API (`/api/v1/workspace/:providerId`)
 - UI state CRUD via Hono HTTP API (`/api/v1/workspace/ui`)
-- Per-provider cache CRUD via Hono HTTP API (`/api/v1/cache/:providerId`)
+- Per-provider cache CRUD via Hono HTTP API (`/api/v1/cache/:providerId`) — validated against provider cache schemas
 - Navigation events via WebView2 `postMessage` (low-latency, event-driven)
 - All operations except app data are non-fatal (log errors, don't crash)
 
@@ -569,8 +578,10 @@ TurboDoc/
 │   │   │
 │   │   ├── providers/
 │   │   │   ├── index.ts        # Provider registry (Record<string, Provider>)
+│   │   │   ├── cache-schemas.ts # Cache schema registry (provider ID → Zod schema + empty default)
 │   │   │   └── rust/           # Unified Rust provider
 │   │   │       ├── index.tsx   # Provider implementation (render, URL handling, page parsing)
+│   │   │       ├── cache.ts    # Zod schemas for RustProviderCache/CrateCache (source of truth)
 │   │   │       ├── url.ts      # URL parsing/building (docs.rs, doc.rust-lang.org, windows-docs-rs)
 │   │   │       ├── url.test.ts
 │   │   │       ├── import.tsx  # Import dialog (ProviderAction with type: "node")
@@ -595,7 +606,7 @@ TurboDoc/
 │   │
 │   └── server/
 │       ├── index.ts            # Hono router + Vite dev server ($TURBODOC_PORT)
-│       ├── api.ts              # API endpoints (split workspace CRUD, per-provider cache CRUD, legacy migration)
+│       ├── api.ts              # API endpoints (split workspace CRUD, schema-validated cache CRUD, legacy migration)
 │       ├── proxy.ts            # /proxy?url= route handler + dark mode injection
 │       ├── http-cache.ts       # SQLite HTTP cache (bun:sqlite, LRU eviction)
 │       └── common.ts           # Shared config, database setup, utilities
@@ -664,6 +675,8 @@ TurboDoc/
 
 ## Change History
 
+- **2026-03**: Type-safe cache API: Zod schemas per provider (`cache.ts`), cache schema registry (`cache-schemas.ts`), server validates GET/PUT with `safeParse()`, IPC validates as defense-in-depth
+- **2026-03**: Fix auto-save race: `useProviderData`/`useProviderCache` now gate saves behind `loadedRef` flag; null-safe access to `ctx.data.crates` in Rust provider
 - **2026-03**: Split workspace persistence: `workspace.json` → `workspace.app.json` + `workspace.<providerId>.json` + `workspace.ui.json` with independent endpoints and auto-save; server-side auto-migration from legacy format
 - **2026-03**: Cache lifecycle lifted into `useProviderCache` hook in `context.ts`; cache files flattened to `cache.<providerId>.json`
 - **2026-03**: Per-provider cache: split `cache.json` into per-provider files; cache ownership moved from AppContext to shared hook
