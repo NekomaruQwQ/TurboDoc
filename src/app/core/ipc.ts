@@ -94,22 +94,6 @@ export async function saveProviderData(
         console.error(`Failed to save provider data for ${providerId}: ${response.statusText}`);
 }
 
-// -- UI State --
-
-/** Load UI expansion state. Returns `{}` on HTTP errors (non-fatal).
- *  No validation — resolves to `unknown`. */
-export async function loadUiState(): Promise<unknown> {
-    const response = await api.workspace.ui.$get();
-    return response.ok ? response.json() : {};
-}
-
-/** Save UI expansion state. Non-fatal on HTTP errors. */
-export async function saveUiState(state: object): Promise<void> {
-    const response = await api.workspace.ui.$put({ json: state });
-    if (!response.ok)
-        console.error(`Failed to save UI state: ${response.statusText}`);
-}
-
 // -- Provider Cache (validated against cache schemas) --
 
 /** Load a provider's cache. The response is validated against the provider's

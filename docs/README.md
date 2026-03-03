@@ -103,7 +103,7 @@ TurboDoc is an "enhanced tabbed browser with inactive tab resources released" �
 | **Component** | **Tech Stack** | **Role** | **Key Responsibilities** |
 |---|---|---|---|
 | **Host** | C# WinUI 3 (.NET 10) + WebView2 | **The Shell** | Window management. Intercepts doc URL requests and forwards them to the server's `/proxy?url=` endpoint. Sends `navigated` events to frontend via `PostWebMessageAsJson`. Opens external URLs in system browser. |
-| **Server** | TypeScript (Bun + Hono) | **The Brain** | REST endpoints for split workspace persistence (`/api/v1/workspace/app`, `/workspace/ui`, `/workspace/:providerId`) and per-provider cache (`/api/v1/cache/:providerId`). HTTP proxy with SQLite caching and LRU eviction (`/proxy?url=`). Dark mode injection at serve time. Serves frontend assets via Vite middleware. |
+| **Server** | TypeScript (Bun + Hono) | **The Brain** | REST endpoints for split workspace persistence (`/api/v1/workspace/app`, `/workspace/:providerId`) and per-provider cache (`/api/v1/cache/:providerId`). HTTP proxy with SQLite caching and LRU eviction (`/proxy?url=`). Dark mode injection at serve time. Serves frontend assets via Vite middleware. |
 | **Frontend** | React + Vite | **The Face** | UI rendering (Explorer, Navigation). Fetches data from `/api/v1/*` via `hono/client`. Provider-based architecture for multi-source docs. |
 
 ### Request Flow
@@ -158,7 +158,7 @@ WebView2 iframe navigates to https://docs.rs/serde/latest/serde/
 ### Component Hierarchy
 
 ```
-src/index.tsx (entry point, appData + uiState loading, auto-save)
+src/index.tsx (entry point, appData loading, uiState from localStorage, auto-save)
 └── AppContextProvider
     └── App (ResizablePanelGroup)
         ├── Explorer (left panel)
@@ -228,7 +228,7 @@ View models contain callbacks (e.g., `setPinned`, `setCurrentVersion`, `invoke`)
 [Disk/Storage]                         [Deserialization]         [Runtime]
 workspace.app.json ───────────────────► AppContext ──────────────► global state
 workspace.<providerId>.json ──────────► useProviderData ────────► ProviderOutput (View Model)
-workspace.ui.json ────────────────────► useProviderUiState ─────► expansion state
+localStorage (turbodoc:ui-state) ─────► useProviderUiState ─────► expansion state
 cache.<providerId>.json ──────────────► useProviderCache ───────► with behavior callbacks
 ```
 
@@ -396,9 +396,9 @@ Design decisions that shaped the current architecture. Organized by area.
 - More flexible than a standardized import method
 
 **Migration & Compatibility**
-- Server-side auto-migration: on startup, if legacy `workspace.json` exists, splits it into `workspace.app.json`, `workspace.<providerId>.json`, and `workspace.ui.json`, then renames the original to `workspace.json.migrated`
+- Server-side auto-migration: on startup, if legacy `workspace.json` exists, splits it into `workspace.app.json` and `workspace.<providerId>.json`, then renames the original to `workspace.json.migrated` (UI state is dropped — starts fresh from localStorage)
 - On startup, if workspace files don't exist or don't match expected format, initialize with empty defaults
-- Provider IDs `"app"` and `"ui"` are reserved (collide with static endpoint paths)
+- Provider ID `"app"` is reserved (collides with static endpoint path)
 
 **Provider API Surface**
 - No `serialize`/`deserialize` methods — view model callbacks operate data directly via Immer
@@ -422,17 +422,17 @@ Design decisions that shaped the current architecture. Organized by area.
 ### Data Model
 
 **Split Workspace Persistence**
-- Workspace split into three independent file categories:
+- Workspace split into two server-persisted file categories:
   - `workspace.app.json` — global app state (presets, current URL). Loaded eagerly in `index.tsx`.
   - `workspace.<providerId>.json` — per-provider user data (groups, provider-specific data). Loaded lazily per-provider by `useProviderData` hook.
-  - `workspace.ui.json` — UI expansion state (expandedItems, expandedGroups keyed by provider ID). Loaded eagerly in `index.tsx`.
+- UI expansion state (`expandedItems`, `expandedGroups`) stored in **localStorage** (`turbodoc:ui-state`), not on the server. Loaded synchronously on startup, auto-saved on every change. Validated with Zod `uiStateSchema` on load; invalid/missing data falls back to empty defaults (everything collapsed).
 - Cache stored as per-provider files: `cache.<providerId>.json` (API data). Loaded lazily per-provider by `useProviderCache` hook.
 - Cache endpoints are **schema-validated**: each provider registers a Zod schema in `providers/cache-schemas.ts`. The server validates on GET (graceful fallback to empty default on failure) and PUT (rejects invalid data with 400). The IPC layer validates as defense-in-depth.
 - Both provider data and cache use the same lifecycle pattern: `useImmer` + async load on mount + auto-save on change, gated by a `loadedRef` flag to prevent the initial empty state from overwriting real data before load completes.
-- Persisted via Hono HTTP API (`/api/v1/workspace/app`, `/workspace/ui`, `/workspace/:providerId`, `/cache/:providerId`)
-- `"app"` and `"ui"` are reserved path segments — cannot be used as provider IDs
+- Server-persisted via Hono HTTP API (`/api/v1/workspace/app`, `/workspace/:providerId`, `/cache/:providerId`)
+- `"app"` is a reserved path segment — cannot be used as a provider ID
 - Auto-save on every state change (no debouncing — files are small)
-- App data save failures are fatal (throw); provider data, UI state, and cache failures are non-fatal (log + return `{}`)
+- App data save failures are fatal (throw); provider data and cache failures are non-fatal (log + return `{}`)
 - Server-side migration: on startup, if legacy `workspace.json` exists, auto-splits into new files and renames original to `.migrated`
 - **Provider data write guard**: the server rejects a PUT to `/workspace/:providerId` if the new JSON payload is less than 30% the size of the existing file on disk (HTTP 409). This prevents accidental data loss from frontend bugs or state resets. The check is skipped when the existing file is smaller than 256 bytes, since small files can legitimately shrink by large ratios. Future: a `?force=true` query parameter could bypass the guard for legitimate bulk deletions.
 
@@ -475,14 +475,14 @@ AppData + ProviderData (React state) ──► provider.render() ──► React
 - `ProviderContext` constructed in `ExplorerProvider` using `useProviderData` and `useProviderCache` hooks from `context.ts`
 
 **Three State Atoms**
-- `index.tsx` owns two eagerly loaded atoms: `appData` (global app state) and `uiState` (expansion states)
+- `index.tsx` owns two atoms: `appData` (global app state, async from server) and `uiState` (expansion states, sync from localStorage)
 - Provider data is lazily loaded per-provider inside `ExplorerProvider` via `useProviderData` hook
 - Each atom has independent auto-save via `useEffect` — a change in one slice doesn't trigger writes to others
 
 **Hybrid IPC**
 - App data CRUD via Hono HTTP API (`/api/v1/workspace/app`)
 - Per-provider data CRUD via Hono HTTP API (`/api/v1/workspace/:providerId`)
-- UI state CRUD via Hono HTTP API (`/api/v1/workspace/ui`)
+- UI state via localStorage (`turbodoc:ui-state`) — no server round-trip
 - Per-provider cache CRUD via Hono HTTP API (`/api/v1/cache/:providerId`) — validated against provider cache schemas
 - Navigation events via WebView2 `postMessage` (low-latency, event-driven)
 - All operations except app data are non-fatal (log errors, don't crash)
@@ -574,7 +574,8 @@ TurboDoc/
 │   │   ├── core/
 │   │   │   ├── data.ts         # Zod schemas + inferred types (AppData, ProviderData, UiState, Provider, Item, Page, etc.)
 │   │   │   ├── context.ts      # AppContext class, React context providers and hooks (useProviderData, useProviderCache, useProviderUiState)
-│   │   │   ├── ipc.ts          # Hono HTTP client (split workspace + cache CRUD) + WebView2 event listener (navigated)
+│   │   │   ├── ipc.ts          # Hono HTTP client (workspace + cache CRUD) + WebView2 event listener (navigated)
+│   │   │   ├── ui-state-storage.ts # localStorage-based UI expansion state (load/save with Zod validation)
 │   │   │   └── prelude.ts      # State<T> type helper + cn() utility
 │   │   │
 │   │   ├── providers/
@@ -676,6 +677,7 @@ TurboDoc/
 
 ## Change History
 
+- **2026-03**: UI state moved to localStorage (`turbodoc:ui-state`): synchronous load on startup, no server round-trip; server `/workspace/ui` endpoint and `workspace.ui.json` file removed entirely
 - **2026-03**: Type-safe cache API: Zod schemas per provider (`cache.ts`), cache schema registry (`cache-schemas.ts`), server validates GET/PUT with `safeParse()`, IPC validates as defense-in-depth
 - **2026-03**: Fix auto-save race: `useProviderData`/`useProviderCache` now gate saves behind `loadedRef` flag; null-safe access to `ctx.data.crates` in Rust provider
 - **2026-03**: Split workspace persistence: `workspace.json` → `workspace.app.json` + `workspace.<providerId>.json` + `workspace.ui.json` with independent endpoints and auto-save; server-side auto-migration from legacy format

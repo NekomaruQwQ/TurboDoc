@@ -23,18 +23,19 @@ import { useImmer } from "use-immer";
 import type { AppData, UiState } from "@/app/core/data";
 import { AppContext, AppContextProvider } from "@/app/core/context";
 import * as IPC from "@/app/core/ipc";
+import * as UiStateStorage from "@/app/core/ui-state-storage";
 
 function useAppContext(): AppContext | null {
     const viewerRef = useRef<HTMLIFrameElement | null>(null);
     const lastAppDataRef = useRef<string>("");
-    const lastUiStateRef = useRef<string>("");
 
     const [appData, updateAppData] =
         useImmer<ReadonlyDeep<AppData> | null>(null);
+    // UI state is loaded synchronously from localStorage — always available.
     const [uiState, updateUiState] =
-        useImmer<ReadonlyDeep<UiState> | null>(null);
+        useImmer<ReadonlyDeep<UiState>>(() => UiStateStorage.loadUiState());
 
-    const app = (appData && uiState) ?
+    const app = appData ?
         new AppContext({
             viewerRef,
             appData,
@@ -45,11 +46,11 @@ function useAppContext(): AppContext | null {
             uiState,
             updateUiState:
                 updater => updateUiState(draft => {
-                    draft && updater(draft);
+                    updater(draft);
                 }),
         }) : null;
 
-    // Load app data and UI state from disk on first render.
+    // Load app data from server on first render.
     // biome-ignore lint/correctness/useExhaustiveDependencies: effect only run once.
     useEffect(() => {
         IPC.loadAppData()
@@ -60,16 +61,6 @@ function useAppContext(): AppContext | null {
                 data.presets ??= { "Empty": { providers: [] } };
                 lastAppDataRef.current = JSON.stringify(data);
                 updateAppData(() => data);
-            })
-            .catch(err => console.error(err));
-
-        IPC.loadUiState()
-            .then(loaded => {
-                const state = loaded as UiState ?? {};
-                state.expandedItems ??= {};
-                state.expandedGroups ??= {};
-                lastUiStateRef.current = JSON.stringify(state);
-                updateUiState(() => state);
             })
             .catch(err => console.error(err));
     }, []);
@@ -85,15 +76,9 @@ function useAppContext(): AppContext | null {
         }
     }, [appData]);
 
-    // Auto-save UI state.
+    // Persist UI state to localStorage on change.
     useEffect(() => {
-        if (!uiState) return;
-        const json = JSON.stringify(uiState);
-        if (lastUiStateRef.current !== json) {
-            lastUiStateRef.current = json;
-            IPC.saveUiState(uiState)
-                .catch(err => console.error(err));
-        }
+        UiStateStorage.saveUiState(uiState as UiState);
     }, [uiState]);
 
     // Listen to the "navigated" IPCEvent.
