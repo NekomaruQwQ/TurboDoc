@@ -8,6 +8,7 @@ import {
     ProviderProvider,
     useAppContext,
     useProvider,
+    useProviderCache,
     useProviderData,
 } from "@/app/core/context";
 
@@ -37,18 +38,16 @@ function ExplorerProvider() {
     const ctx = useAppContext();
     const provider = useProvider();
     const [providerData, updateProviderData] = useProviderData();
+    const [cache, updateCache] = useProviderCache();
 
     const providerContext = {
         data: providerData?.data ?? {},
         updateData: (updater: (draft: unknown) => void) => {
             updateProviderData(draft => updater(draft.data));
         },
-        cache: ctx.cache.providers[provider.id] ?? {},
+        cache,
         updateCache: (updater: (draft: unknown) => void) => {
-            ctx.updateCache(draft => {
-                draft.providers[provider.id] ??= {};
-                updater(draft.providers[provider.id]);
-            });
+            updateCache(draft => { updater(draft); });
         },
         currentUrl: ctx.workspace.app.currentUrl,
         setCurrentUrl: (url: string) => {

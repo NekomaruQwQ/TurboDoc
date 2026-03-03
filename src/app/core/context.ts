@@ -1,35 +1,30 @@
 import type { ReadonlyDeep } from "type-fest";
-import { createContext, useContext } from "react";
+import { createContext, useContext, useEffect, useRef } from "react";
+import { useImmer } from "use-immer";
 
 import type { State } from "@/app/core/prelude";
 
 import type {
     Workspace,
-    Cache,
     Provider,
     ProviderData,
 } from "@/app/core/data";
+import * as IPC from "@/app/core/ipc";
 
 export class AppContext {
     /** Reference to the viewer iframe for programmatic navigation */
     public readonly viewerRef: React.RefObject<HTMLIFrameElement | null>;
     public readonly workspace: ReadonlyDeep<Workspace>;
-    public readonly cache: ReadonlyDeep<Cache>;
     public readonly updateWorkspace: (updater: (draft: Workspace) => void) => void;
-    public readonly updateCache: (updater: (draft: Cache) => void) => void;
 
     public constructor(args: {
         viewerRef: React.RefObject<HTMLIFrameElement | null>,
         workspace: ReadonlyDeep<Workspace>,
-        cache: ReadonlyDeep<Cache>,
         updateWorkspace: (updater: (draft: Workspace) => void) => void,
-        updateCache: (updater: (draft: Cache) => void) => void,
     }) {
         this.viewerRef = args.viewerRef;
         this.workspace = args.workspace;
-        this.cache = args.cache;
         this.updateWorkspace = args.updateWorkspace;
-        this.updateCache = args.updateCache;
     }
 
     public onNavigated(url: string): void {
@@ -63,6 +58,35 @@ export function useCurrentUrl(): State<string> {
             })
         }
     ]
+}
+
+/** Per-provider cache: loaded from disk on mount, auto-saved on change. */
+export function useProviderCache(): State<unknown> {
+    const provider = useProvider();
+
+    const [cache, updateCache] = useImmer<unknown>({});
+    const lastCacheRef = useRef<string>("{}");
+
+    // biome-ignore lint/correctness/useExhaustiveDependencies: effect only run once per provider.
+    useEffect(() => {
+        IPC.loadProviderCache(provider.id)
+            .then(loaded => {
+                lastCacheRef.current = JSON.stringify(loaded);
+                updateCache(() => loaded);
+            })
+            .catch(err => console.error(err));
+    }, []);
+
+    useEffect(() => {
+        const json = JSON.stringify(cache);
+        if (lastCacheRef.current !== json) {
+            lastCacheRef.current = json;
+            IPC.saveProviderCache(provider.id, cache as object)
+                .catch(err => console.error(err));
+        }
+    }, [cache, provider.id]);
+
+    return [cache, updateCache];
 }
 
 export function useProviderData(): State<ProviderData> {

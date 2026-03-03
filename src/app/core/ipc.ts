@@ -14,7 +14,6 @@ declare global {
 }
 
 // == IPC event emitter setup ==
-import type { ReadonlyDeep } from "type-fest";
 import mitt from "mitt";
 
 const ipc = mitt<{
@@ -76,29 +75,34 @@ export async function saveWorkspace(workspace: {}): Promise<void> {
 }
 
 /**
- * Request to load cache from the host.
+ * Load a provider's cache from the host. Returns `{}` if no cache exists yet.
  *
  * This function does not perform any validation on the loaded cache object,
  * and as such, it resolves to `unknown`.
  *
- * HTTP errors during cache loading are non-fatal, in which case `null` is
+ * HTTP errors during cache loading are non-fatal, in which case `{}` is
  * returned. Network errors and malformed JSON will throw.
  */
-export async function loadCache(): Promise<unknown> {
-    const response = await api.cache.$get();
-    return getJsonFromResponse(response);
+export async function loadProviderCache(providerId: string): Promise<unknown> {
+    const response = await api.cache[":providerId"].$get({
+        param: { providerId },
+    });
+    return response.ok ? response.json() : {};
 }
 
 /**
- * Request to save cache to the host.
+ * Save a provider's cache to the host.
  *
  * HTTP errors during cache saving are non-fatal. Network errors will throw.
  */
-export async function saveCache(cache: ReadonlyDeep<{}>): Promise<void> {
-    const response = await api.cache.$put({
+export async function saveProviderCache(
+    providerId: string, cache: object,
+): Promise<void> {
+    const response = await api.cache[":providerId"].$put({
+        param: { providerId },
         json: cache,
     });
     if (!response.ok) {
-        console.error(`Failed to save cache: ${response.statusText}`);
+        console.error(`Failed to save cache for ${providerId}: ${response.statusText}`);
     }
 }

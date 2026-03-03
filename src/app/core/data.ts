@@ -84,17 +84,10 @@ export const workspaceSchema = z.object({
     providers: z.record(z.string(), providerDataSchema),
 });
 
-export const cacheSchema = z.object({
-    // Provider-specific cache storage. Keyed by provider ID.
-    providers: z.record(z.string(), z.unknown()),
-});
-
 export type ProviderData =
     z.infer<typeof providerDataSchema>;
 export type Workspace =
     z.infer<typeof workspaceSchema>;
-export type Cache =
-    z.infer<typeof cacheSchema>;
 
 // ============================================================================
 // View Model — Manual Interfaces
