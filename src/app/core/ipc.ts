@@ -37,7 +37,6 @@ import { hc } from "hono/client";
 
 import { throwError } from "@/core";
 import type apiRoute from "@/server/api";
-import { cacheSchemas } from "@/app/providers/cache-schemas";
 
 const api = hc<typeof apiRoute>("/api/v1");
 
@@ -94,51 +93,3 @@ export async function saveProviderData(
         console.error(`Failed to save provider data for ${providerId}: ${response.statusText}`);
 }
 
-// -- Provider Cache (validated against cache schemas) --
-
-/** Load a provider's cache. The response is validated against the provider's
- *  registered cache schema. Returns the schema's empty default on HTTP errors
- *  or validation failure (non-fatal). Network errors and malformed JSON throw. */
-export async function loadProviderCache(providerId: string): Promise<unknown> {
-    const entry = cacheSchemas[providerId];
-    const fallback = entry?.empty ?? {};
-
-    const response = await api.cache[":providerId"].$get({
-        param: { providerId },
-    });
-    if (!response.ok) return fallback;
-
-    const raw = await response.json();
-    if (!entry) return raw;
-
-    const result = entry.schema.safeParse(raw);
-    if (result.success) return result.data;
-
-    console.warn(`Cache validation failed for "${providerId}":`, result.error);
-    return fallback;
-}
-
-/** Save a provider's cache. Validates outgoing data against the provider's
- *  registered cache schema before sending. Skips the save (with a warning)
- *  if validation fails — catches provider bugs early. Non-fatal on HTTP errors. */
-export async function saveProviderCache(
-    providerId: string, cache: object,
-): Promise<void> {
-    const entry = cacheSchemas[providerId];
-    if (entry) {
-        const result = entry.schema.safeParse(cache);
-        if (!result.success) {
-            console.warn(
-                `Refusing to save invalid cache for "${providerId}":`,
-                result.error);
-            return;
-        }
-    }
-
-    const response = await api.cache[":providerId"].$put({
-        param: { providerId },
-        json: cache,
-    });
-    if (!response.ok)
-        console.error(`Failed to save cache for ${providerId}: ${response.statusText}`);
-}

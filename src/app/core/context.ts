@@ -124,37 +124,10 @@ export function useProviderDataLoader(): State<ProviderData> {
     return [providerData, updateProviderData];
 }
 
-/** Per-provider cache: loaded from disk on mount, auto-saved on change. */
+/** Per-provider in-memory cache for API responses. Not persisted — the HTTP
+ *  proxy's SQLite cache handles persistence and RFC 7234 freshness. */
 export function useProviderCache(): State<unknown> {
-    const provider = useProvider();
-
-    const [cache, updateCache] = useImmer<unknown>({});
-    const lastCacheRef = useRef<string>("{}");
-    const cacheLoadedRef = useRef(false);
-
-    // biome-ignore lint/correctness/useExhaustiveDependencies: effect only run once per provider.
-    useEffect(() => {
-        IPC.loadProviderCache(provider.id)
-            .then(loaded => {
-                lastCacheRef.current = JSON.stringify(loaded);
-                cacheLoadedRef.current = true;
-                updateCache(() => loaded);
-            })
-            .catch(err => console.error(err));
-    }, []);
-
-    // Auto-save on change (skipped until initial load completes).
-    useEffect(() => {
-        if (!cacheLoadedRef.current) return;
-        const json = JSON.stringify(cache);
-        if (lastCacheRef.current !== json) {
-            lastCacheRef.current = json;
-            IPC.saveProviderCache(provider.id, cache as object)
-                .catch(err => console.error(err));
-        }
-    }, [cache, provider.id]);
-
-    return [cache, updateCache];
+    return useImmer<unknown>({});
 }
 
 /** Per-provider UI expansion state, backed by the centralized UiState atom

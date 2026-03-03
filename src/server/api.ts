@@ -5,7 +5,6 @@ import path from "node:path";
 import fs from "node:fs/promises";
 
 import { dataDir, baseUrl } from "@/server/common";
-import { cacheSchemas } from "@/app/providers/cache-schemas";
 
 /** Load a JSON file and return it as the response body. Returns `{}` if the
  *  file doesn't exist (e.g., first launch). */
@@ -127,46 +126,5 @@ export default new Hono()
         }
 
         await Bun.write(filePath, json);
-        return c.json({ success: true });
-    })
-    // Per-provider cache (validated against provider cache schemas).
-    .get("/cache/:providerId", async c => {
-        const { providerId } = c.req.param();
-        const entry = cacheSchemas[providerId];
-        const filePath = path.resolve(`${dataDir}/cache.${providerId}.json`);
-        const file = Bun.file(filePath);
-
-        if (!await file.exists())
-            return c.json(entry?.empty ?? {});
-
-        const raw = await file.json();
-        if (!entry)
-            return c.json(raw);
-
-        const result = entry.schema.safeParse(raw);
-        if (result.success)
-            return c.json(result.data);
-
-        // Cache file is corrupt or from an incompatible version.
-        console.warn(
-            `Cache validation failed for "${providerId}":`,
-            result.error);
-        return c.json(entry.empty);
-    })
-    .put("/cache/:providerId", async c => {
-        const { providerId } = c.req.param();
-        const entry = cacheSchemas[providerId];
-        const data = await c.req.json<unknown>();
-        const filePath = path.resolve(`${dataDir}/cache.${providerId}.json`);
-
-        if (entry) {
-            const result = entry.schema.safeParse(data);
-            if (!result.success)
-                return c.json({ success: false, error: result.error }, 400);
-            await Bun.write(filePath, JSON.stringify(result.data, undefined, 4));
-        } else {
-            await Bun.write(filePath, JSON.stringify(data, undefined, 4));
-        }
-
         return c.json({ success: true });
     })

@@ -65,6 +65,10 @@ function policyRequest(url: string): CachePolicy.Request {
     return { url, method: "GET", headers: {} };
 }
 
+/** Default User-Agent for upstream requests. Required by crates.io crawler
+ *  policy and good practice for any upstream server. */
+const USER_AGENT = "TurboDoc/0.3 (documentation viewer)";
+
 /** Fetch the upstream URL and return the raw Response. */
 async function fetchUpstream(
     url: string,
@@ -72,7 +76,7 @@ async function fetchUpstream(
 ): Promise<Response> {
     return fetch(url, {
         method: "GET",
-        headers: extraHeaders,
+        headers: { "User-Agent": USER_AGENT, ...extraHeaders },
         redirect: "manual",
     });
 }
@@ -199,7 +203,7 @@ function serveResponse(
 
     if (status >= 300 && status < 400) {
         // Redirect — forward the Location header, no body.
-        headers["location"] = location;
+        headers.location = location;
         return { status, headers, body: null };
     }
 

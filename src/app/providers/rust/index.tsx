@@ -17,7 +17,6 @@ import type {
     IdentType,
 } from "@/app/core/data";
 
-import type { RustProviderCache, CrateCache } from "./cache";
 import { parseUrl, buildUrl, getBaseUrlForCrate } from "./url";
 import { getImportCratesAction } from "./import";
 
@@ -43,7 +42,22 @@ export interface RustProviderData {
     crates: Record<string, CrateData>;
 }
 
-export type { RustProviderCache, CrateCache } from "./cache";
+/** Cached metadata for a single crate, fetched from crates.io API via the
+ *  HTTP proxy. Stored in-memory only — the proxy's SQLite cache handles
+ *  persistence and freshness. */
+export interface CrateCache {
+    name: string;
+    versions: { num: string; yanked: boolean }[];
+    versionGroups: { versions: { num: string; yanked: boolean }[] }[];
+    homepage: string | null;
+    repository: string | null;
+    documentation: string | null;
+}
+
+/** In-memory cache shape for the Rust provider. */
+export interface RustProviderCache {
+    crates: Record<string, CrateCache>;
+}
 
 export interface CrateData {
     /** Currently selected version */
@@ -452,50 +466,48 @@ function getCratePages(
 import * as CratesAPI from "./crates-api";
 import * as Utils from "@/app/utils/version-group";
 
-/// Cache expiry time (24 hours in milliseconds)
-const CACHE_EXPIRY_MS = 24 * 60 * 60 * 1000;
-
+/** Return cached crate metadata, fetching through the HTTP proxy if not yet
+ *  in the in-memory cache. Returns null for std-library crates (not on
+ *  crates.io) or when the first fetch is still in flight. */
 function getCrateCache(
     ctx: RustProviderContext,
     crateName: string,
 ): ReadonlyDeep<CrateCache> | null {
-    // Standard library crates are not on crates.io - no cache needed.
+    // Standard library crates are not on crates.io — no cache needed.
     if (getBaseUrlForCrate(crateName) === "https://doc.rust-lang.org/")
         return null;
 
-    async function refetch(
-        crateName: string,
-        callback: (crateCache: CrateCache) => void,
-    ): Promise<void> {
-        console.log(`Refetching crate info for ${crateName}.`);
-        try {
-            const crateInfo = await CratesAPI.fetchCrateInfo(crateName);
-
-            const newCrateInfo = {
-                name: crateInfo.crate.name,
-                versions: crateInfo.versions,
-                versionGroups: Utils.computeVersionGroups(crateInfo.versions),
-                repository: crateInfo.crate.repository ?? null,
-                homepage: crateInfo.crate.homepage ?? null,
-                documentation: crateInfo.crate.documentation ?? null,
-                lastFetched: Date.now(),
-            } satisfies CrateCache;
-
-            callback(newCrateInfo);
-        } catch (err) {
-            console.error(`Failed to fetch crate info for ${crateName}:`, err);
-        }
-    }
-
     const existing = ctx.cache.crates?.[crateName] ?? null;
-    if (!existing || Date.now() - existing.lastFetched > CACHE_EXPIRY_MS) {
-        refetch(crateName, crateCache => {
-            ctx.updateCache(draft => {
-                draft.crates ??= {};
-                draft.crates[crateName] = crateCache;
-            });
-        });
+    if (!existing) {
+        // Fire async fetch; the proxy's SQLite cache handles freshness.
+        fetchCrateCache(ctx, crateName);
     }
 
     return existing;
+}
+
+/** Fetch crate metadata from crates.io (via HTTP proxy) and store in the
+ *  in-memory cache. Errors are logged but non-fatal. */
+async function fetchCrateCache(
+    ctx: RustProviderContext,
+    crateName: string,
+): Promise<void> {
+    console.log(`Fetching crate info for ${crateName}.`);
+    try {
+        const crateInfo = await CratesAPI.fetchCrateInfo(crateName);
+        const cache: CrateCache = {
+            name: crateInfo.crate.name,
+            versions: crateInfo.versions,
+            versionGroups: Utils.computeVersionGroups(crateInfo.versions),
+            repository: crateInfo.crate.repository ?? null,
+            homepage: crateInfo.crate.homepage ?? null,
+            documentation: crateInfo.crate.documentation ?? null,
+        };
+        ctx.updateCache(draft => {
+            draft.crates ??= {};
+            draft.crates[crateName] = cache;
+        });
+    } catch (err) {
+        console.error(`Failed to fetch crate info for ${crateName}:`, err);
+    }
 }

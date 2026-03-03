@@ -70,12 +70,9 @@ export async function fetchCrateInfo(crateName: string): Promise<CrateInfo> {
 
     return queueRequest(async () => {
         console.log(`[crates.io] Fetching crate info for ${crateName}.`);
+        const upstream = `https://crates.io/api/v1/crates/${crateName}`;
         const response =
-            await fetch(`https://crates.io/api/v1/crates/${crateName}`, {
-                headers: {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0",
-                },
-            });
+            await fetch(`/proxy?url=${encodeURIComponent(upstream)}`);
 
         if (response.status === 404) {
             throw new CrateNotFoundError(crateName);
@@ -115,12 +112,8 @@ export async function fetchCrateInfo(crateName: string): Promise<CrateInfo> {
 export async function searchCrates(query: string): Promise<{ name: string, description: string | null }[]> {
     return queueRequest(async () => {
         console.log(`[crates.io] Searching with query "${query}".`);
-        const response = await fetch(
-            `https://crates.io/api/v1/crates?q=${encodeURIComponent(query)}`, {
-                headers: {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0",
-                },
-            });
+        const upstream = `https://crates.io/api/v1/crates?q=${encodeURIComponent(query)}`;
+        const response = await fetch(`/proxy?url=${encodeURIComponent(upstream)}`);
 
         if (response.status === 429) {
             const retryAfter = response.headers.get("Retry-After");

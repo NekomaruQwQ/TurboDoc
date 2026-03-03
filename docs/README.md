@@ -103,7 +103,7 @@ TurboDoc is an "enhanced tabbed browser with inactive tab resources released" �
 | **Component** | **Tech Stack** | **Role** | **Key Responsibilities** |
 |---|---|---|---|
 | **Host** | C# WinUI 3 (.NET 10) + WebView2 | **The Shell** | Window management. Intercepts doc URL requests and forwards them to the server's `/proxy?url=` endpoint. Sends `navigated` events to frontend via `PostWebMessageAsJson`. Opens external URLs in system browser. |
-| **Server** | TypeScript (Bun + Hono) | **The Brain** | REST endpoints for split workspace persistence (`/api/v1/workspace/app`, `/workspace/:providerId`) and per-provider cache (`/api/v1/cache/:providerId`). HTTP proxy with SQLite caching and LRU eviction (`/proxy?url=`). Dark mode injection at serve time. Serves frontend assets via Vite middleware. |
+| **Server** | TypeScript (Bun + Hono) | **The Brain** | REST endpoints for split workspace persistence (`/api/v1/workspace/app`, `/workspace/:providerId`). HTTP proxy with SQLite caching and LRU eviction (`/proxy?url=`) — also caches crates.io API responses. Dark mode injection at serve time. Serves frontend assets via Vite middleware. |
 | **Frontend** | React + Vite | **The Face** | UI rendering (Explorer, Navigation). Fetches data from `/api/v1/*` via `hono/client`. Provider-based architecture for multi-source docs. |
 
 ### Request Flow
@@ -229,7 +229,7 @@ View models contain callbacks (e.g., `setPinned`, `setCurrentVersion`, `invoke`)
 workspace.app.json ───────────────────► AppContext ──────────────► global state
 workspace.<providerId>.json ──────────► useProviderData ────────► ProviderOutput (View Model)
 localStorage (turbodoc:ui-state) ─────► useProviderUiState ─────► expansion state
-cache.<providerId>.json ──────────────► useProviderCache ───────► with behavior callbacks
+HTTP proxy SQLite cache ──────────────► useProviderCache ───────► in-memory API response cache
 ```
 
 #### Unified Rust Provider
@@ -363,13 +363,11 @@ Design decisions that shaped the current architecture. Organized by area.
 - Adding a new provider is isolated work — no central type modifications
 - Separation of concerns is enforced by the type system, not just convention
 
-**Cache Schema Validation**
-- Each provider defines its cache shape as a Zod schema in a `.ts` file (no JSX — safe for server import)
-- Types are inferred via `z.infer<>` — Zod schema is the single source of truth (no hand-written interfaces)
-- Central registry (`providers/cache-schemas.ts`) maps provider ID → schema + empty default
-- Server validates on GET (`safeParse` + graceful fallback) and PUT (reject invalid with 400)
-- IPC layer validates as defense-in-depth (same schema, client side)
-- `useProviderCache()` return type stays `State<unknown>` — dynamic dispatch prevents compile-time narrowing; the cast is safe at runtime because data is validated before it reaches the provider
+**API Response Caching via HTTP Proxy**
+- Provider API calls (e.g., crates.io) are routed through the server's `/proxy?url=` endpoint
+- The proxy's SQLite cache handles persistence, RFC 7234 freshness, conditional revalidation, and LRU eviction
+- Frontend keeps an in-memory cache (`useProviderCache` → `useImmer({})`) for within-session state — not persisted, starts empty on each app launch
+- No separate cache files, endpoints, or schema validation needed — the proxy is the single caching layer
 
 **Data Model vs View Model**
 
@@ -426,13 +424,11 @@ Design decisions that shaped the current architecture. Organized by area.
   - `workspace.app.json` — global app state (presets, current URL). Loaded eagerly in `index.tsx`.
   - `workspace.<providerId>.json` — per-provider user data (groups, provider-specific data). Loaded lazily per-provider by `useProviderData` hook.
 - UI expansion state (`expandedItems`, `expandedGroups`) stored in **localStorage** (`turbodoc:ui-state`), not on the server. Loaded synchronously on startup, auto-saved on every change. Validated with Zod `uiStateSchema` on load; invalid/missing data falls back to empty defaults (everything collapsed).
-- Cache stored as per-provider files: `cache.<providerId>.json` (API data). Loaded lazily per-provider by `useProviderCache` hook.
-- Cache endpoints are **schema-validated**: each provider registers a Zod schema in `providers/cache-schemas.ts`. The server validates on GET (graceful fallback to empty default on failure) and PUT (rejects invalid data with 400). The IPC layer validates as defense-in-depth.
-- Both provider data and cache use the same lifecycle pattern: `useImmer` + async load on mount + auto-save on change, gated by a `loadedRef` flag to prevent the initial empty state from overwriting real data before load completes.
-- Server-persisted via Hono HTTP API (`/api/v1/workspace/app`, `/workspace/:providerId`, `/cache/:providerId`)
+- API response caching (e.g., crates.io metadata) handled by the HTTP proxy's SQLite cache — no separate cache files or endpoints. Provider keeps an in-memory cache (`useProviderCache` → `useImmer({})`) for within-session state, populated on demand from proxy responses.
+- Server-persisted via Hono HTTP API (`/api/v1/workspace/app`, `/workspace/:providerId`)
 - `"app"` is a reserved path segment — cannot be used as a provider ID
 - Auto-save on every state change (no debouncing — files are small)
-- App data save failures are fatal (throw); provider data and cache failures are non-fatal (log + return `{}`)
+- App data save failures are fatal (throw); provider data failures are non-fatal (log + return `{}`)
 - Server-side migration: on startup, if legacy `workspace.json` exists, auto-splits into new files and renames original to `.migrated`
 - **Provider data write guard**: the server rejects a PUT to `/workspace/:providerId` if the new JSON payload is less than 30% the size of the existing file on disk (HTTP 409). This prevents accidental data loss from frontend bugs or state resets. The check is skipped when the existing file is smaller than 256 bytes, since small files can legitimately shrink by large ratios. Future: a `?force=true` query parameter could bypass the guard for legitimate bulk deletions.
 
@@ -483,7 +479,7 @@ AppData + ProviderData (React state) ──► provider.render() ──► React
 - App data CRUD via Hono HTTP API (`/api/v1/workspace/app`)
 - Per-provider data CRUD via Hono HTTP API (`/api/v1/workspace/:providerId`)
 - UI state via localStorage (`turbodoc:ui-state`) — no server round-trip
-- Per-provider cache CRUD via Hono HTTP API (`/api/v1/cache/:providerId`) — validated against provider cache schemas
+- API response caching via HTTP proxy (`/proxy?url=`) — SQLite with RFC 7234 freshness and LRU eviction
 - Navigation events via WebView2 `postMessage` (low-latency, event-driven)
 - All operations except app data are non-fatal (log errors, don't crash)
 
@@ -494,9 +490,9 @@ AppData + ProviderData (React state) ──► provider.render() ──► React
 - Provider data is NOT stored in AppContext — each provider loads its own data lazily
 
 **Graceful Degradation**
-- Stale cache preferred over no data: if API refetch fails, existing cache is returned
-- App fully functional without cache (loads with empty data, fetches on demand)
-- Missing cache files return `{}` (non-fatal); cache save errors log but don't throw
+- Stale proxy cache preferred over no data: if upstream refetch fails, the proxy serves the cached response
+- App fully functional without cached API data (loads with empty in-memory cache, fetches on demand via proxy)
+- Fetch errors are logged but non-fatal — items render without version selectors or metadata links
 
 ### UI Patterns
 
@@ -580,14 +576,12 @@ TurboDoc/
 │   │   │
 │   │   ├── providers/
 │   │   │   ├── index.ts        # Provider registry (Record<string, Provider>)
-│   │   │   ├── cache-schemas.ts # Cache schema registry (provider ID → Zod schema + empty default)
 │   │   │   └── rust/           # Unified Rust provider
-│   │   │       ├── index.tsx   # Provider implementation (render, URL handling, page parsing)
-│   │   │       ├── cache.ts    # Zod schemas for RustProviderCache/CrateCache (source of truth)
+│   │   │       ├── index.tsx   # Provider implementation (render, URL handling, page parsing, cache types)
 │   │   │       ├── url.ts      # URL parsing/building (docs.rs, doc.rust-lang.org, windows-docs-rs)
 │   │   │       ├── url.test.ts
 │   │   │       ├── import.tsx  # Import dialog (ProviderAction with type: "node")
-│   │   │       ├── crates-api.ts                  # crates.io API client with rate limiting
+│   │   │       ├── crates-api.ts                  # crates.io API client (via HTTP proxy) with rate limiting
 │   │   │       └── crates-api.integration.test.ts
 │   │   │
 │   │   ├── ui/
@@ -608,7 +602,7 @@ TurboDoc/
 │   │
 │   └── server/
 │       ├── index.ts            # Hono router + Vite dev server ($TURBODOC_PORT)
-│       ├── api.ts              # API endpoints (split workspace CRUD, schema-validated cache CRUD, legacy migration)
+│       ├── api.ts              # API endpoints (split workspace CRUD, legacy migration)
 │       ├── proxy.ts            # /proxy?url= route handler + dark mode injection
 │       ├── http-cache.ts       # SQLite HTTP cache (bun:sqlite, LRU eviction)
 │       └── common.ts           # Shared config, database setup, utilities
@@ -677,12 +671,10 @@ TurboDoc/
 
 ## Change History
 
+- **2026-03**: Migrate provider cache to HTTP proxy: crates.io API calls routed through `/proxy?url=`, SQLite cache handles persistence and RFC 7234 freshness; removed `cache.<providerId>.json` files, server cache endpoints, cache schema registry (`cache-schemas.ts`), Zod cache schemas (`cache.ts`), and cache IPC functions; `useProviderCache` simplified to in-memory `useImmer({})`
 - **2026-03**: UI state moved to localStorage (`turbodoc:ui-state`): synchronous load on startup, no server round-trip; server `/workspace/ui` endpoint and `workspace.ui.json` file removed entirely
-- **2026-03**: Type-safe cache API: Zod schemas per provider (`cache.ts`), cache schema registry (`cache-schemas.ts`), server validates GET/PUT with `safeParse()`, IPC validates as defense-in-depth
 - **2026-03**: Fix auto-save race: `useProviderData`/`useProviderCache` now gate saves behind `loadedRef` flag; null-safe access to `ctx.data.crates` in Rust provider
 - **2026-03**: Split workspace persistence: `workspace.json` → `workspace.app.json` + `workspace.<providerId>.json` + `workspace.ui.json` with independent endpoints and auto-save; server-side auto-migration from legacy format
-- **2026-03**: Cache lifecycle lifted into `useProviderCache` hook in `context.ts`; cache files flattened to `cache.<providerId>.json`
-- **2026-03**: Per-provider cache: split `cache.json` into per-provider files; cache ownership moved from AppContext to shared hook
 - **2026-03**: Merged Plan-v0.3.md into README (three-layer architecture, request flow, server design decisions)
 - **2026-03**: Rust host removed entirely; replaced with C# WinUI 3 (.NET 10) + WebView2
 - **2026-03**: Bun server completed: HTTP proxy (`/proxy?url=`), SQLite cache with LRU eviction, dark mode injection
