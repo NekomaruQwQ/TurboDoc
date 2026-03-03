@@ -52,9 +52,9 @@ function ExplorerProvider() {
         updateCache: (updater: (draft: unknown) => void) => {
             updateCache(draft => { updater(draft); });
         },
-        currentUrl: ctx.appData.currentUrl,
+        currentUrl: ctx.uiState.currentUrl,
         setCurrentUrl: (url: string) => {
-            ctx.updateAppData(draft => {
+            ctx.updateUiState(draft => {
                 draft.currentUrl = url;
             });
         },

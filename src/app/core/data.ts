@@ -14,9 +14,9 @@ import * as z from "zod";
 // The types are inferred from the schemas via `z.infer<>`.
 //
 // Persistence is split into three independent files:
-//   - workspace.app.json      — global app state (presets, current URL)
+//   - workspace.app.json      — global app state (presets)
 //   - workspace.<provider>.json — per-provider user data (groups, provider data)
-//   - workspace.ui.json       — transient UI state (expansion states)
+//   - localStorage             — transient UI state (expansion states, current URL)
 // ============================================================================
 
 // Global app state. Persisted to `workspace.app.json`.
@@ -30,9 +30,6 @@ export const appDataSchema = z.object({
 
     // Currently active preset name.
     currentPreset: z.string(),
-
-    // Currently viewed URL. HTTPS protocol assumed.
-    currentUrl: z.string(),
 });
 
 // Per-provider user data. Persisted to `workspace.<providerId>.json`.
@@ -76,10 +73,13 @@ export const providerDataSchema = z.object({
     groupOrder: z.array(z.string()),
 });
 
-// UI expansion state. Persisted to `workspace.ui.json`.
+// Transient UI state. Persisted to localStorage (`turbodoc:ui-state`).
 // Keyed by provider ID — each provider's expansion arrays are stored here
 // rather than inside ProviderData, so UI state is saved independently.
 export const uiStateSchema = z.object({
+    // Currently viewed URL. HTTPS protocol assumed.
+    currentUrl: z.string(),
+
     // Per-provider list of item IDs that are expanded in the UI.
     expandedItems: z.record(z.string(), z.array(z.string())),
 

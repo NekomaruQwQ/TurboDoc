@@ -56,7 +56,6 @@ function useAppContext(): AppContext | null {
         IPC.loadAppData()
             .then(loaded => {
                 const data = loaded as AppData ?? {};
-                data.currentUrl ??= "https://docs.rs/";
                 data.currentPreset ??= "Empty";
                 data.presets ??= { "Empty": { providers: [] } };
                 lastAppDataRef.current = JSON.stringify(data);

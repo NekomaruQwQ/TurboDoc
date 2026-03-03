@@ -3,7 +3,11 @@ import { uiStateSchema } from "@/app/core/data";
 
 const STORAGE_KEY = "turbodoc:ui-state";
 
-const emptyUiState: UiState = { expandedItems: {}, expandedGroups: {} };
+const emptyUiState: UiState = {
+    currentUrl: "https://docs.rs/",
+    expandedItems: {},
+    expandedGroups: {},
+};
 
 /** Load UI expansion state from localStorage. Synchronous.
  *  Returns empty defaults on missing/corrupt/invalid data. */

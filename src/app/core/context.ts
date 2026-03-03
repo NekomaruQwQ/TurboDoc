@@ -16,7 +16,7 @@ export class AppContext {
     /** Reference to the viewer iframe for programmatic navigation. */
     public readonly viewerRef: React.RefObject<HTMLIFrameElement | null>;
 
-    /** Global app data (presets, current URL). */
+    /** Global app data (presets). */
     public readonly appData: ReadonlyDeep<AppData>;
     public readonly updateAppData: (updater: (draft: AppData) => void) => void;
 
@@ -43,7 +43,7 @@ export class AppContext {
         if (url === "https://docs.rs/-/storage-change-detection.html")
             return;
 
-        this.updateAppData(draft => {
+        this.updateUiState(draft => {
             draft.currentUrl = url;
         });
     }
@@ -69,9 +69,9 @@ export const useProviderData = () => useContext(providerDataContext);
 export function useCurrentUrl(): State<string> {
     const ctx = useAppContext();
     return [
-        ctx.appData.currentUrl,
+        ctx.uiState.currentUrl,
         (url: string) => {
-            ctx.updateAppData(draft => {
+            ctx.updateUiState(draft => {
                 draft.currentUrl = url;
             });
         },
