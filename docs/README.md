@@ -102,7 +102,7 @@ TurboDoc is an "enhanced tabbed browser with inactive tab resources released" �
 
 | **Component** | **Tech Stack** | **Role** | **Key Responsibilities** |
 |---|---|---|---|
-| **Host** | C# WinUI 3 (.NET 10) + WebView2 | **The Shell** | Window management. Intercepts doc URL requests and forwards them to `http://localhost:9680/proxy?url=`. Sends `navigated` events to frontend via `PostWebMessageAsJson`. Opens external URLs in system browser. |
+| **Host** | C# WinUI 3 (.NET 10) + WebView2 | **The Shell** | Window management. Intercepts doc URL requests and forwards them to the server's `/proxy?url=` endpoint. Sends `navigated` events to frontend via `PostWebMessageAsJson`. Opens external URLs in system browser. |
 | **Server** | TypeScript (Bun + Hono) | **The Brain** | REST endpoints for workspace/cache persistence (`/api/v1/*`). HTTP proxy with SQLite caching and LRU eviction (`/proxy?url=`). Dark mode injection at serve time. Serves frontend assets via Vite middleware. |
 | **Frontend** | React + Vite | **The Face** | UI rendering (Explorer, Navigation). Fetches data from `/api/v1/*` via `hono/client`. Provider-based architecture for multi-source docs. |
 
@@ -116,7 +116,7 @@ WebView2 iframe navigates to https://docs.rs/serde/latest/serde/
   └─ OnWebResourceRequested (GET, ProxiedUrls match):
        │
        │  C# host forwards to Bun:
-       │  GET http://localhost:9680/proxy?url=https%3A%2F%2Fdocs.rs%2Fserde%2Flatest%2Fserde%2F
+       │  GET http://localhost:$TURBODOC_PORT/proxy?url=https%3A%2F%2Fdocs.rs%2Fserde%2Flatest%2Fserde%2F
        │
        └─ Bun /proxy handler:
             ├─ Cache HIT + fresh?  → serve cached body + dark mode injection
@@ -136,7 +136,7 @@ WebView2 iframe navigates to https://docs.rs/serde/latest/serde/
 - **Styling**: Tailwind CSS v4 with OKLCH color space
 - **Icons**: Font Awesome
 - **Utilities**: remeda (functional), semver, zod
-- **Server**: Bun + Hono (API + HTTP proxy with SQLite cache) + Vite (middleware mode) on port 9680
+- **Server**: Bun + Hono (API + HTTP proxy with SQLite cache) + Vite (middleware mode) on `$TURBODOC_PORT`
 - **Host**: C# WinUI 3 (.NET 10) + WebView2 — window management and request forwarding
 - **IPC**: Hono HTTP API for CRUD + WebView2 `PostWebMessageAsJson` for navigation events
 
@@ -273,8 +273,8 @@ Currently handled within the unified `rust` provider (cross-crate). When multipl
 ### Running the Dev Server
 
 ```
-just server    # Starts Bun + Hono API/proxy + Vite dev server on http://localhost:9680/
-just app       # Starts C# WinUI host (dotnet run), connects to server at localhost:9680
+just server    # Starts Bun + Hono API/proxy + Vite dev server on $TURBODOC_PORT
+just app       # Starts C# WinUI host (dotnet run), connects to server at $TURBODOC_PORT
 ```
 
 The server and host are started separately. The server must be running before the host is launched.
@@ -396,13 +396,13 @@ Design decisions that shaped the current architecture. Organized by area.
 
 **"Dumb Pipe" Delegate Pattern**
 - All proxy and caching logic lives in the Bun server, not in the WebView2 event loop
-- The C# host is a thin forwarding shim — intercepts doc URL requests and delegates to `localhost:9680/proxy?url=`
+- The C# host is a thin forwarding shim — intercepts doc URL requests and delegates to the server's `/proxy?url=` endpoint
 - Decouples host (windowing) from logic (caching/parsing), improving maintainability and type safety
 
 **Architectural Constraints**
 - No URL Rewriting: the WebView still believes it is browsing `docs.rs` directly
 - No SSL Proxy: proxying happens after WebView2 intercepts the request intent
-- Fixed Port: combined server (Hono API + proxy + Vite dev server) at `9680`
+- Configurable Port: combined server (Hono API + proxy + Vite dev server) port set via `$TURBODOC_PORT` env var (required)
 
 **Dark Mode Injection (Serve-Time)**
 - Cache stores clean upstream content; dark mode injection applied at serve time
@@ -577,7 +577,7 @@ TurboDoc/
 │   │       └── version-group.test.ts
 │   │
 │   └── server/
-│       ├── index.ts            # Hono router + Vite dev server (port 9680)
+│       ├── index.ts            # Hono router + Vite dev server ($TURBODOC_PORT)
 │       ├── api.ts              # API endpoints (workspace/cache CRUD)
 │       ├── proxy.ts            # /proxy?url= route handler + dark mode injection
 │       ├── http-cache.ts       # SQLite HTTP cache (bun:sqlite, LRU eviction)

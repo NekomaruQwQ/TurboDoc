@@ -12,7 +12,12 @@ namespace TurboDoc;
 
 [SuppressMessage("ReSharper", "AsyncVoidMethod")]
 public sealed partial class MainWindow {
-    private const string ServerUrl = "http://localhost:9680/";
+    /// Server URL derived from the `TURBODOC_PORT` environment variable.
+    /// Validated at startup in the constructor — if unset, the app exits with an error.
+    private static readonly string ServerUrl =
+        Environment.GetEnvironmentVariable("TURBODOC_PORT") is { } port
+            ? $"http://localhost:{port}/"
+            : null!;
 
     /// URL prefixes for documentation domains that the host proxies and tracks.
     private static readonly string[] ProxiedUrls = [
@@ -30,6 +35,15 @@ public sealed partial class MainWindow {
         });
 
     public MainWindow() {
+        if (ServerUrl is null) {
+            MessageBox(
+                lpCaption: "TurboDoc",
+                lpText: "TURBODOC_PORT environment variable is not set.",
+                uType: MB_FLAGS.MB_ICONERROR);
+            Application.Current.Exit();
+            return;
+        }
+
         this.InitializeComponent();
 
         this.ExtendsContentIntoTitleBar = true;
@@ -91,9 +105,9 @@ public sealed partial class MainWindow {
         if (e.IsSuccess) {
             this.WebView2.Visibility = Visibility.Visible;
         } else {
-            const string errorMessage =
+            var errorMessage =
                 "Failed to load the TurboDoc frontend. " +
-                "Please ensure the TurboDoc server is running at http://localhost:9680/.";
+                $"Please ensure the TurboDoc server is running at {ServerUrl}.";
             MessageBox(
                 lpCaption: "TurboDoc",
                 lpText: errorMessage,
