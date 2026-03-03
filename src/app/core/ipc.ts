@@ -50,39 +50,65 @@ function getJsonFromResponse<T = unknown>(response: {
         : throwError(`API request failed: ${response.statusText}`);
 }
 
-/**
- * Request to load workspace from the host. Throws an error if the file doesn't
- * exist or any other error occurs.
- *
- * This function does not perform any validation on the loaded workspace object,
- * and as such, it resolves to `unknown`.
- */
-export async function loadWorkspace(): Promise<unknown> {
-    const response = await api.workspace.$get();
+// -- App Data --
+
+/** Load global app data. Throws on HTTP/network errors.
+ *  No validation — resolves to `unknown`. */
+export async function loadAppData(): Promise<unknown> {
+    const response = await api.workspace.app.$get();
     return getJsonFromResponse(response);
 }
 
-/**
- * Request to save workspace to the host. Throws an error if save fails or times out.
- */
-export async function saveWorkspace(workspace: {}): Promise<void> {
-    const response = await api.workspace.$put({
-        json: workspace,
-    });
-    if (!response.ok) {
-        throw new Error(`Failed to save workspace: ${response.statusText}`);
-    }
+/** Save global app data. Throws on failure. */
+export async function saveAppData(data: object): Promise<void> {
+    const response = await api.workspace.app.$put({ json: data });
+    if (!response.ok)
+        throw new Error(`Failed to save app data: ${response.statusText}`);
 }
 
-/**
- * Load a provider's cache from the host. Returns `{}` if no cache exists yet.
- *
- * This function does not perform any validation on the loaded cache object,
- * and as such, it resolves to `unknown`.
- *
- * HTTP errors during cache loading are non-fatal, in which case `{}` is
- * returned. Network errors and malformed JSON will throw.
- */
+// -- Provider Data --
+
+/** Load a provider's workspace data. Returns `{}` on HTTP errors (non-fatal).
+ *  No validation — resolves to `unknown`. */
+export async function loadProviderData(providerId: string): Promise<unknown> {
+    const response = await api.workspace[":providerId"].$get({
+        param: { providerId },
+    });
+    return response.ok ? response.json() : {};
+}
+
+/** Save a provider's workspace data. Non-fatal on HTTP errors. */
+export async function saveProviderData(
+    providerId: string, data: object,
+): Promise<void> {
+    const response = await api.workspace[":providerId"].$put({
+        param: { providerId },
+        json: data,
+    });
+    if (!response.ok)
+        console.error(`Failed to save provider data for ${providerId}: ${response.statusText}`);
+}
+
+// -- UI State --
+
+/** Load UI expansion state. Returns `{}` on HTTP errors (non-fatal).
+ *  No validation — resolves to `unknown`. */
+export async function loadUiState(): Promise<unknown> {
+    const response = await api.workspace.ui.$get();
+    return response.ok ? response.json() : {};
+}
+
+/** Save UI expansion state. Non-fatal on HTTP errors. */
+export async function saveUiState(state: object): Promise<void> {
+    const response = await api.workspace.ui.$put({ json: state });
+    if (!response.ok)
+        console.error(`Failed to save UI state: ${response.statusText}`);
+}
+
+// -- Provider Cache (unchanged) --
+
+/** Load a provider's cache. Returns `{}` on HTTP errors (non-fatal).
+ *  No validation — resolves to `unknown`. */
 export async function loadProviderCache(providerId: string): Promise<unknown> {
     const response = await api.cache[":providerId"].$get({
         param: { providerId },
@@ -90,11 +116,7 @@ export async function loadProviderCache(providerId: string): Promise<unknown> {
     return response.ok ? response.json() : {};
 }
 
-/**
- * Save a provider's cache to the host.
- *
- * HTTP errors during cache saving are non-fatal. Network errors will throw.
- */
+/** Save a provider's cache. Non-fatal on HTTP errors. */
 export async function saveProviderCache(
     providerId: string, cache: object,
 ): Promise<void> {
@@ -102,7 +124,6 @@ export async function saveProviderCache(
         param: { providerId },
         json: cache,
     });
-    if (!response.ok) {
+    if (!response.ok)
         console.error(`Failed to save cache for ${providerId}: ${response.statusText}`);
-    }
 }

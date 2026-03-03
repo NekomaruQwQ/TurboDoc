@@ -12,11 +12,33 @@ import * as z from "zod";
 //
 // These schemas define the serializable data model for the application.
 // The types are inferred from the schemas via `z.infer<>`.
+//
+// Persistence is split into three independent files:
+//   - workspace.app.json      — global app state (presets, current URL)
+//   - workspace.<provider>.json — per-provider user data (groups, provider data)
+//   - workspace.ui.json       — transient UI state (expansion states)
 // ============================================================================
 
-/** The root data model for the application. */
+// Global app state. Persisted to `workspace.app.json`.
+export const appDataSchema = z.object({
+    // Preset definitions. Each preset is a named collection of active
+    // providers.
+    presets: z.record(z.string(), z.object({
+        // List of active provider IDs in this preset.
+        providers: z.array(z.string()),
+    })),
 
-// Provider-specific data storage and UI state.
+    // Currently active preset name.
+    currentPreset: z.string(),
+
+    // Currently viewed URL. HTTPS protocol assumed.
+    currentUrl: z.string(),
+});
+
+// Per-provider user data. Persisted to `workspace.<providerId>.json`.
+//
+// Does NOT include UI state (expandedItems/expandedGroups) — those live in
+// `UiState` instead.
 export const providerDataSchema = z.object({
     // Provider-specific data storage. The schema of this field is defined by
     // each provider and is opaque to the app. The app only provides storage and
@@ -52,42 +74,25 @@ export const providerDataSchema = z.object({
 
     // Order of groups under this provider.
     groupOrder: z.array(z.string()),
-
-    // List of item IDs that are expanded in the UI.
-    expandedItems: z.array(z.string()),
-
-    // List of group names that are expanded in the UI.
-    expandedGroups: z.array(z.string()),
 });
 
-export const workspaceSchema = z.object({
-    // Top-level app data. This is where we store global app state such as
-    // the current URL and preset definitions.
-    app: z.object({
-        // Preset definitions. Each preset is a named collection of active
-        // providers.
-        presets: z.record(z.string(), z.object({
-            // List of active provider IDs in this preset.
-            providers: z.array(z.string()),
-        })),
+// UI expansion state. Persisted to `workspace.ui.json`.
+// Keyed by provider ID — each provider's expansion arrays are stored here
+// rather than inside ProviderData, so UI state is saved independently.
+export const uiStateSchema = z.object({
+    // Per-provider list of item IDs that are expanded in the UI.
+    expandedItems: z.record(z.string(), z.array(z.string())),
 
-        // Currently active preset name.
-        currentPreset: z.string(),
-
-        // Currently viewed URL. HTTPS protocol assumed.
-        currentUrl: z.string(),
-    }),
-
-    // Data storage for each provider. This is where we store item grouping
-    // and UI states, as well as provider-specific data defined by each
-    // provider.
-    providers: z.record(z.string(), providerDataSchema),
+    // Per-provider list of group names that are expanded in the UI.
+    expandedGroups: z.record(z.string(), z.array(z.string())),
 });
 
+export type AppData =
+    z.infer<typeof appDataSchema>;
 export type ProviderData =
     z.infer<typeof providerDataSchema>;
-export type Workspace =
-    z.infer<typeof workspaceSchema>;
+export type UiState =
+    z.infer<typeof uiStateSchema>;
 
 // ============================================================================
 // View Model — Manual Interfaces

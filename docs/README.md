@@ -103,7 +103,7 @@ TurboDoc is an "enhanced tabbed browser with inactive tab resources released" �
 | **Component** | **Tech Stack** | **Role** | **Key Responsibilities** |
 |---|---|---|---|
 | **Host** | C# WinUI 3 (.NET 10) + WebView2 | **The Shell** | Window management. Intercepts doc URL requests and forwards them to the server's `/proxy?url=` endpoint. Sends `navigated` events to frontend via `PostWebMessageAsJson`. Opens external URLs in system browser. |
-| **Server** | TypeScript (Bun + Hono) | **The Brain** | REST endpoints for workspace persistence (`/api/v1/workspace`) and per-provider cache (`/api/v1/cache/:providerId`). HTTP proxy with SQLite caching and LRU eviction (`/proxy?url=`). Dark mode injection at serve time. Serves frontend assets via Vite middleware. |
+| **Server** | TypeScript (Bun + Hono) | **The Brain** | REST endpoints for split workspace persistence (`/api/v1/workspace/app`, `/workspace/ui`, `/workspace/:providerId`) and per-provider cache (`/api/v1/cache/:providerId`). HTTP proxy with SQLite caching and LRU eviction (`/proxy?url=`). Dark mode injection at serve time. Serves frontend assets via Vite middleware. |
 | **Frontend** | React + Vite | **The Face** | UI rendering (Explorer, Navigation). Fetches data from `/api/v1/*` via `hono/client`. Provider-based architecture for multi-source docs. |
 
 ### Request Flow
@@ -158,11 +158,11 @@ WebView2 iframe navigates to https://docs.rs/serde/latest/serde/
 ### Component Hierarchy
 
 ```
-src/index.tsx (entry point, workspace loading, auto-save)
+src/index.tsx (entry point, appData + uiState loading, auto-save)
 └── AppContextProvider
     └── App (ResizablePanelGroup)
         ├── Explorer (left panel)
-        │   └── ExplorerProvider (per provider in preset)
+        │   └── ExplorerProvider (per provider in preset; owns provider data + cache)
         │       ├── ProviderAction nodes (e.g., Import dialog)
         │       ├── ExplorerGroup (variant="ungrouped")
         │       │   ├── ExplorerGroupHeader (variant="ungrouped")
@@ -190,11 +190,11 @@ ExplorerItem (Radix Collapsible)
 ### Component Responsibilities
 
 - **Explorer** (`ui/explorer/index.tsx`): Top-level container; iterates providers in current preset
-- **ExplorerProvider** (inline): Constructs `ProviderContext` (cache provided by `useProviderCache` hook), calls `provider.render()`, renders provider actions and groups
+- **ExplorerProvider** (inline): Owns per-provider data (`useProviderData`) and cache (`useProviderCache`), constructs `ProviderContext`, calls `provider.render()`, renders provider actions and groups
 - **ExplorerGroup** (inline): Renders group header + filtered/sorted items; handles ungrouped vs named variants
 - **ExplorerGroupHeader** (`ExplorerGroupHeader.tsx`): Chevron toggle, rename input, dropdown menu (expand/collapse all, move up/down/under, delete with confirmation)
 - **ExplorerCreateGroupComponent** (`ExplorerCreateGroupComponent.tsx`): Button that transforms to inline input for creating new groups
-- **ExplorerItem** (`ExplorerItem.tsx`): Collapsible card with name, version selector, menu; expansion state stored in `providerData.expandedItems`
+- **ExplorerItem** (`ExplorerItem.tsx`): Collapsible card with name, version selector, menu; expansion state via `useProviderUiState`
 - **ExplorerItemMenu** (`ExplorerItemMenu.tsx`): Move to group submenu, external links, custom actions
 - **ExplorerPageList** (`ExplorerPageList.tsx`): Sorted page list with symbol color coding and pinning buttons
 
@@ -215,7 +215,7 @@ ExplorerItem (Radix Collapsible)
 
 ### Provider System
 
-Providers register in `providers/index.ts` and implement the `Provider<T, TCache>` interface from `core/data.d.ts`. Each provider's `render()` returns a `ProviderOutput` containing:
+Providers register in `providers/index.ts` and implement the `Provider<T, TCache>` interface from `core/data.ts`. Each provider's `render()` returns a `ProviderOutput` containing:
 - `items: Record<string, Item>` — uniform view models with pages, links, actions, versions
 - `actions?: ProviderAction[]` — provider-level UI (e.g., import dialog)
 
@@ -225,9 +225,11 @@ View models contain callbacks (e.g., `setPinned`, `setCurrentVersion`, `invoke`)
 
 **Data flow:**
 ```
-[Disk/Storage]                    [Deserialization]         [Runtime]
-workspace.json ──────────────────► Providers ────────────► ProviderOutput (View Model)
-cache.<providerId>.json ─────────►   (cast unknown)  ─────► with behavior callbacks
+[Disk/Storage]                         [Deserialization]         [Runtime]
+workspace.app.json ───────────────────► AppContext ──────────────► global state
+workspace.<providerId>.json ──────────► useProviderData ────────► ProviderOutput (View Model)
+workspace.ui.json ────────────────────► useProviderUiState ─────► expansion state
+cache.<providerId>.json ──────────────► useProviderCache ───────► with behavior callbacks
 ```
 
 #### Unified Rust Provider
@@ -249,7 +251,7 @@ Supported domains:
 
 #### Preset System
 
-Users select a preset to determine which providers appear and their order. Presets are stored in `Workspace.app.presets`. Users can create custom presets. Switching presets doesn't delete provider data — it's preserved but hidden. The preset picker UI is not yet built.
+Users select a preset to determine which providers appear and their order. Presets are stored in `AppData.presets`. Users can create custom presets. Switching presets doesn't delete provider data — it's preserved but hidden. The preset picker UI is not yet built.
 
 ```typescript
 const presets = {
@@ -386,9 +388,9 @@ Design decisions that shaped the current architecture. Organized by area.
 - More flexible than a standardized import method
 
 **Migration & Compatibility**
-- No automatic workspace upgrade between versions (v0.2 format incompatible with v0.1)
-- On startup, if workspace structure doesn't match expected format, initialize with empty defaults
-- Clean break approach, acceptable at this stage of development
+- Server-side auto-migration: on startup, if legacy `workspace.json` exists, splits it into `workspace.app.json`, `workspace.<providerId>.json`, and `workspace.ui.json`, then renames the original to `workspace.json.migrated`
+- On startup, if workspace files don't exist or don't match expected format, initialize with empty defaults
+- Provider IDs `"app"` and `"ui"` are reserved (collide with static endpoint paths)
 
 **Provider API Surface**
 - No `serialize`/`deserialize` methods — view model callbacks operate data directly via Immer
@@ -411,13 +413,18 @@ Design decisions that shaped the current architecture. Organized by area.
 
 ### Data Model
 
-**Workspace/Cache Split**
-- Workspace stored as single `workspace.json` (user data)
-- Cache stored as per-provider files: `cache.<providerId>.json` (API data)
-- Cache lifecycle managed by `useProviderCache` hook in `context.ts` (load on mount, auto-save on change)
-- Persisted via Hono HTTP API (`/api/v1/workspace`, `/api/v1/cache/:providerId`)
+**Split Workspace Persistence**
+- Workspace split into three independent file categories:
+  - `workspace.app.json` — global app state (presets, current URL). Loaded eagerly in `index.tsx`.
+  - `workspace.<providerId>.json` — per-provider user data (groups, provider-specific data). Loaded lazily per-provider by `useProviderData` hook.
+  - `workspace.ui.json` — UI expansion state (expandedItems, expandedGroups keyed by provider ID). Loaded eagerly in `index.tsx`.
+- Cache stored as per-provider files: `cache.<providerId>.json` (API data). Loaded lazily per-provider by `useProviderCache` hook.
+- Both provider data and cache use the same lifecycle pattern: `useImmer` + load on mount + auto-save on change.
+- Persisted via Hono HTTP API (`/api/v1/workspace/app`, `/workspace/ui`, `/workspace/:providerId`, `/cache/:providerId`)
+- `"app"` and `"ui"` are reserved path segments — cannot be used as provider IDs
 - Auto-save on every state change (no debouncing — files are small)
-- Non-fatal cache failures: missing cache file returns `{}`; save errors logged but don't throw
+- App data save failures are fatal (throw); provider data, UI state, and cache failures are non-fatal (log + return `{}`)
+- Server-side migration: on startup, if legacy `workspace.json` exists, auto-splits into new files and renames original to `.migrated`
 
 **Preview Page (Derived State)**
 - Preview state derived from `workspace.app.currentUrl` (global) and per-item `pinnedPages`
@@ -445,9 +452,9 @@ Design decisions that shaped the current architecture. Organized by area.
 **View Model Derivation**
 
 ```
-Workspace (React state) ──► provider.render() ──► React render
-        │
-        └── Immer updates (new refs only for changed parts)
+AppData + ProviderData (React state) ──► provider.render() ──► React render
+              │
+              └── Immer updates (new refs only for changed parts)
 ```
 
 - `provider.render()` called on every React render — no memoization
@@ -457,16 +464,24 @@ Workspace (React state) ──► provider.render() ──► React render
 - View model derivation is a pure function of data model — easy to reason about
 - `ProviderContext` constructed in `ExplorerProvider` using `useProviderData` and `useProviderCache` hooks from `context.ts`
 
+**Three State Atoms**
+- `index.tsx` owns two eagerly loaded atoms: `appData` (global app state) and `uiState` (expansion states)
+- Provider data is lazily loaded per-provider inside `ExplorerProvider` via `useProviderData` hook
+- Each atom has independent auto-save via `useEffect` — a change in one slice doesn't trigger writes to others
+
 **Hybrid IPC**
-- Workspace CRUD via Hono HTTP API (`hono/client` for type safety)
+- App data CRUD via Hono HTTP API (`/api/v1/workspace/app`)
+- Per-provider data CRUD via Hono HTTP API (`/api/v1/workspace/:providerId`)
+- UI state CRUD via Hono HTTP API (`/api/v1/workspace/ui`)
 - Per-provider cache CRUD via Hono HTTP API (`/api/v1/cache/:providerId`)
 - Navigation events via WebView2 `postMessage` (low-latency, event-driven)
-- Cache operations are non-fatal (log errors, don't crash)
+- All operations except app data are non-fatal (log errors, don't crash)
 
 **Class-Based AppContext**
-- AppContext is a class (not a plain object) that owns the iframe ref (`viewerRef`)
+- AppContext is a class (not a plain object) that owns the iframe ref (`viewerRef`), `appData`, and `uiState`
 - Encapsulates navigation logic, hides React state management details from consumers
-- Recreated on every render (no memoization) — holds all app-level state, so re-renders only happen when state changes
+- Recreated on every render (no memoization) — holds app-level + UI state, so re-renders only happen when state changes
+- Provider data is NOT stored in AppContext — each provider loads its own data lazily
 
 **Graceful Degradation**
 - Stale cache preferred over no data: if API refetch fails, existing cache is returned
@@ -486,7 +501,7 @@ Workspace (React state) ──► provider.render() ──► React render
 
 **Collapsible Items**
 - Items use Radix Collapsible (not shadcn Card wrapper — simpler DOM)
-- Expansion state stored per-provider in `providerData.expandedItems` array
+- Expansion state stored in centralized `UiState` via `useProviderUiState` hook
 - Default: collapsed (both items and groups)
 - Toggled by clicking item name
 
@@ -547,9 +562,9 @@ TurboDoc/
 │   │
 │   ├── app/                    # Frontend application code
 │   │   ├── core/
-│   │   │   ├── data.ts         # Zod schemas + inferred types (Workspace, Provider, Item, Page, etc.)
-│   │   │   ├── context.ts      # AppContext class, React context providers and hooks (useProviderData, useProviderCache)
-│   │   │   ├── ipc.ts          # Hono HTTP client (workspace + per-provider cache CRUD) + WebView2 event listener (navigated)
+│   │   │   ├── data.ts         # Zod schemas + inferred types (AppData, ProviderData, UiState, Provider, Item, Page, etc.)
+│   │   │   ├── context.ts      # AppContext class, React context providers and hooks (useProviderData, useProviderCache, useProviderUiState)
+│   │   │   ├── ipc.ts          # Hono HTTP client (split workspace + cache CRUD) + WebView2 event listener (navigated)
 │   │   │   └── prelude.ts      # State<T> type helper + cn() utility
 │   │   │
 │   │   ├── providers/
@@ -580,7 +595,7 @@ TurboDoc/
 │   │
 │   └── server/
 │       ├── index.ts            # Hono router + Vite dev server ($TURBODOC_PORT)
-│       ├── api.ts              # API endpoints (workspace CRUD, per-provider cache CRUD)
+│       ├── api.ts              # API endpoints (split workspace CRUD, per-provider cache CRUD, legacy migration)
 │       ├── proxy.ts            # /proxy?url= route handler + dark mode injection
 │       ├── http-cache.ts       # SQLite HTTP cache (bun:sqlite, LRU eviction)
 │       └── common.ts           # Shared config, database setup, utilities
@@ -649,6 +664,7 @@ TurboDoc/
 
 ## Change History
 
+- **2026-03**: Split workspace persistence: `workspace.json` → `workspace.app.json` + `workspace.<providerId>.json` + `workspace.ui.json` with independent endpoints and auto-save; server-side auto-migration from legacy format
 - **2026-03**: Cache lifecycle lifted into `useProviderCache` hook in `context.ts`; cache files flattened to `cache.<providerId>.json`
 - **2026-03**: Per-provider cache: split `cache.json` into per-provider files; cache ownership moved from AppContext to shared hook
 - **2026-03**: Merged Plan-v0.3.md into README (three-layer architecture, request flow, server design decisions)

@@ -88,7 +88,7 @@ function handleCurrentUrl(ctx: RustProviderContext) {
     }
 
     const crateName = currentUrl.name;
-    const crate = ctx.data.crates[crateName];
+    const crate = ctx.data.crates?.[crateName];
     if (crate) {
         if (currentUrl.version !== crate.currentVersion) {
             // If version is specified in the URL, update the crate's
@@ -117,7 +117,7 @@ function render(ctx: RustProviderContext): ProviderOutput {
     handleCurrentUrl(ctx);
 
     const items =
-        _.mapToObj(_.entries(ctx.data.crates), pair => {
+        _.mapToObj(_.entries(ctx.data.crates ?? {}), pair => {
             const [crateName, crateData] = pair;
             const crateCache =
                 getCrateCache(ctx, crateName);

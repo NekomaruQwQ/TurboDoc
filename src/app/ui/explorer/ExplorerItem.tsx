@@ -21,7 +21,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faEllipsis } from "@fortawesome/free-solid-svg-icons";
 
 import type { Item, ItemVersions } from "@/app/core/data";
-import { useProviderData } from "@/app/core/context";
+import { useProviderUiState } from "@/app/core/context";
 
 import ExplorerItemMenu
     from "@/app/ui/explorer/ExplorerItemMenu";
@@ -32,20 +32,20 @@ export default function ExplorerItem({ item, itemGroupName }: ReadonlyDeep<{
     item: Item,
     itemGroupName: string,
 }>) {
-    const [providerData, updateProviderData] = useProviderData();
+    const { expandedItems, updateExpandedItems } = useProviderUiState();
 
-    const expanded = providerData.expandedItems.includes(item.id);
+    const expanded = expandedItems.includes(item.id);
 
     function toggleExpanded() {
-        updateProviderData(draft => {
+        updateExpandedItems(draft => {
             if (expanded) {
-                const index = draft.expandedItems.indexOf(item.id);
+                const index = draft.indexOf(item.id);
                 if (index !== -1)
-                    draft.expandedItems.splice(index, 1);
+                    draft.splice(index, 1);
                 else
                     console.warn(`Item "${item.id}" not found in expandedItems`);
             } else {
-                draft.expandedItems.push(item.id);
+                draft.push(item.id);
             }
         });
     }

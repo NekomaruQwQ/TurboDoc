@@ -40,7 +40,7 @@ import {
     DropdownMenuTrigger,
 } from "@shadcn/components/ui/dropdown-menu";
 
-import { useProviderData } from "@/app/core/context";
+import { useProviderData, useProviderUiState } from "@/app/core/context";
 
 export default function ExplorerGroupHeader(
     props:
@@ -48,44 +48,51 @@ export default function ExplorerGroupHeader(
         | { variant: "ungrouped" }) {
     const groupName = props.variant === "default" ? props.groupName : "";
     const [providerData, updateProviderData] = useProviderData();
+    const {
+        expandedGroups,
+        updateExpandedItems,
+        updateExpandedGroups,
+    } = useProviderUiState();
     const [DeleteDialog, showDeleteDialog] = useDeleteDialog();
     const [isRenaming, setIsRenaming] = useState(false);
     const [editedName, setEditedName] = useState(groupName);
 
     if (props.variant === "default") {
-        const groupExpanded = providerData.expandedGroups.includes(groupName);
+        const groupExpanded = expandedGroups.includes(groupName);
         const isFirstGroup =
             providerData.groupOrder[0] === groupName;
         const isLastGroup =
             providerData.groupOrder[providerData.groupOrder.length - 1] === groupName;
 
         function toggleGroupExpanded() {
-            updateProviderData(draft => {
+            updateExpandedGroups(draft => {
                 if (groupExpanded) {
-                    draft.expandedGroups =
-                        draft.expandedGroups.filter(name => name !== groupName);
+                    const index = draft.indexOf(groupName);
+                    if (index !== -1) draft.splice(index, 1);
                 } else {
-                    draft.expandedGroups.push(groupName);
+                    draft.push(groupName);
                 }
             });
         }
 
         function expandAll() {
-            updateProviderData(draft => {
-                const items = draft.groups[groupName]?.items || [];
+            const items = providerData.groups[groupName]?.items || [];
+            updateExpandedItems(draft => {
                 for (const itemId of items) {
-                    if (!draft.expandedItems.includes(itemId)) {
-                        draft.expandedItems.push(itemId);
-                    }
+                    if (!draft.includes(itemId))
+                        draft.push(itemId);
                 }
             });
         }
 
         function collapseAll() {
-            updateProviderData(draft => {
-                const items = draft.groups[groupName]?.items || [];
-                draft.expandedItems =
-                    draft.expandedItems.filter(id => !items.includes(id));
+            const items = providerData.groups[groupName]?.items || [];
+            updateExpandedItems(draft => {
+                // Remove all items belonging to this group.
+                for (let i = draft.length - 1; i >= 0; i--) {
+                    if (items.includes(draft[i]))
+                        draft.splice(i, 1);
+                }
             });
         }
 
@@ -141,23 +148,21 @@ export default function ExplorerGroupHeader(
             const trimmed = editedName.trim();
             if (trimmed && trimmed !== groupName) {
                 const newName = trimmed;
+                // Update provider data (groups + groupOrder).
                 updateProviderData(draft => {
-                    // Move group data to new name
                     const group = draft.groups[groupName] || { items: [] };
                     delete draft.groups[groupName];
                     draft.groups[newName] = group;
 
-                    // Update groupOrder to use new name
                     const orderIndex = draft.groupOrder.indexOf(groupName);
-                    if (orderIndex >= 0) {
+                    if (orderIndex >= 0)
                         draft.groupOrder[orderIndex] = newName;
-                    }
-
-                    // Preserve expansion state under new name
-                    const expandedIndex = draft.expandedGroups.indexOf(groupName);
-                    if (expandedIndex >= 0) {
-                        draft.expandedGroups[expandedIndex] = newName;
-                    }
+                });
+                // Preserve expansion state under new name.
+                updateExpandedGroups(draft => {
+                    const index = draft.indexOf(groupName);
+                    if (index >= 0)
+                        draft[index] = newName;
                 });
             }
         }

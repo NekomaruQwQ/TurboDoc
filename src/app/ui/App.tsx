@@ -25,7 +25,7 @@ export default function App() {
                     {/** biome-ignore lint/a11y/useIframeTitle: don't care */}
                     <iframe
                         ref={ctx.viewerRef}
-                        src={ctx.workspace.app.currentUrl}
+                        src={ctx.appData.currentUrl}
                         className="w-full h-full border border-white/25 rounded-tl-md"/>
                 </ResizablePanel>
             </ResizablePanelGroup>

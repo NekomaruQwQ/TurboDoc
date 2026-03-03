@@ -10,6 +10,7 @@ import {
     useProvider,
     useProviderCache,
     useProviderData,
+    useProviderUiState,
 } from "@/app/core/context";
 
 import ExplorerItem from "@/app/ui/explorer/ExplorerItem";
@@ -18,8 +19,7 @@ import ExplorerCreateGroupComponent from "@/app/ui/explorer/ExplorerCreateGroupC
 
 export default function Explorer() {
     const ctx = useAppContext();
-    const app = ctx.workspace.app;
-    const preset = app.presets[app.currentPreset];
+    const preset = ctx.appData.presets[ctx.appData.currentPreset];
     return (
         <div
             className="flex flex-col w-full h-full gap-1 rounded overflow-y-scroll"
@@ -49,10 +49,10 @@ function ExplorerProvider() {
         updateCache: (updater: (draft: unknown) => void) => {
             updateCache(draft => { updater(draft); });
         },
-        currentUrl: ctx.workspace.app.currentUrl,
+        currentUrl: ctx.appData.currentUrl,
         setCurrentUrl: (url: string) => {
-            ctx.updateWorkspace(draft => {
-                draft.app.currentUrl = url;
+            ctx.updateAppData(draft => {
+                draft.currentUrl = url;
             });
         },
     };
@@ -105,6 +105,7 @@ function ExplorerGroup(props: ReadonlyDeep<{
     }
 
     const [providerData, __] = useProviderData();
+    const { expandedGroups } = useProviderUiState();
     return props.variant === "ungrouped"
         ? <>
             <ExplorerGroupHeader variant="ungrouped"/>
@@ -119,7 +120,7 @@ function ExplorerGroup(props: ReadonlyDeep<{
         </>
         : <>
             <ExplorerGroupHeader variant="default" groupName={props.groupName} />
-            {providerData.expandedGroups.includes(props.groupName) &&
+            {expandedGroups.includes(props.groupName) &&
                 _.pipe(
                     _.entries(props.providerOutput.items),
                     _.filter(([itemId, __]) => (

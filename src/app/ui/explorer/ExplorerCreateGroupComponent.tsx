@@ -7,7 +7,7 @@ import { faCheck, faPlus } from "@fortawesome/free-solid-svg-icons";
 import { Button } from "@shadcn/components/ui/button";
 import { Input } from "@shadcn/components/ui/input";
 
-import { useProviderData } from "@/app/core/context";
+import { useProviderData, useProviderUiState } from "@/app/core/context";
 
 /**
  * Button that transforms into an inline input for creating a new group.
@@ -17,17 +17,21 @@ import { useProviderData } from "@/app/core/context";
  */
 export default function ExplorerCreateGroupComponent() {
     const [providerData, updateProviderData] = useProviderData();
+    const { updateExpandedGroups } = useProviderUiState();
     const [inputMode, setInputMode] = useState(false);
     const [inputText, setInputText] = useState("");
 
     function createGroup(groupName: string) {
-        updateProviderData(draft => {
-            if (groupName && !(groupName in providerData.groups)) {
+        if (groupName && !(groupName in providerData.groups)) {
+            updateProviderData(draft => {
                 draft.groups[groupName] = { items: [] };
                 draft.groupOrder.push(groupName);
-                draft.expandedGroups.push(groupName);
-            }
-        });
+            });
+            // Auto-expand newly created group.
+            updateExpandedGroups(draft => {
+                draft.push(groupName);
+            });
+        }
     }
 
     function onOK(e: { preventDefault(): void; }) {
