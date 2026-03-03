@@ -5,11 +5,13 @@ import * as _ from "remeda";
 import type { Item } from "@/app/core/data";
 import providers from "@/app/providers";
 import {
+    ProviderDataProvider,
     ProviderProvider,
     useAppContext,
     useProvider,
     useProviderCache,
     useProviderData,
+    useProviderDataLoader,
     useProviderUiState,
 } from "@/app/core/context";
 
@@ -37,7 +39,8 @@ export default function Explorer() {
 function ExplorerProvider() {
     const ctx = useAppContext();
     const provider = useProvider();
-    const [providerData, updateProviderData] = useProviderData();
+    const providerDataState = useProviderDataLoader();
+    const [providerData, updateProviderData] = providerDataState;
     const [cache, updateCache] = useProviderCache();
 
     const providerContext = {
@@ -63,6 +66,7 @@ function ExplorerProvider() {
             action.type === "node" ? action.render() : undefined
         )) ?? [];
     return provider &&
+        <ProviderDataProvider value={providerDataState}>
         <div className="flex flex-col gap-2 mb-2">
             {...providerActionNodes}
             {provider.enableItemGrouping ? <>
@@ -87,7 +91,8 @@ function ExplorerProvider() {
                             key={itemId}
                             item={item}
                             itemGroupName="" />))}
-        </div>;
+        </div>
+        </ProviderDataProvider>;
 }
 
 function ExplorerGroup(props: ReadonlyDeep<{
@@ -104,7 +109,7 @@ function ExplorerGroup(props: ReadonlyDeep<{
         );
     }
 
-    const [providerData, __] = useProviderData();
+    const [providerData] = useProviderData();
     const { expandedGroups } = useProviderUiState();
     return props.variant === "ungrouped"
         ? <>

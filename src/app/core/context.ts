@@ -59,6 +59,13 @@ const provider = createContext<Provider>(undefined!);
 export const ProviderProvider = provider.Provider;
 export const useProvider = () => useContext(provider);
 
+// biome-ignore lint/style/noNonNullAssertion: always assigned in the context provider.
+const providerDataContext = createContext<State<ProviderData>>(undefined!);
+export const ProviderDataProvider = providerDataContext.Provider;
+/** Reads per-provider workspace data from context. Must be a descendant of
+ *  `ProviderDataProvider` (set up in `ExplorerProvider`). */
+export const useProviderData = () => useContext(providerDataContext);
+
 export function useCurrentUrl(): State<string> {
     const ctx = useAppContext();
     return [
@@ -72,8 +79,9 @@ export function useCurrentUrl(): State<string> {
 }
 
 /** Per-provider workspace data: loaded from disk on mount, auto-saved on change.
- *  Follows the same pattern as `useProviderCache`. */
-export function useProviderData(): State<ProviderData> {
+ *  Only called once per provider in `ExplorerProvider`; children access the
+ *  data via `useProviderData()` (context consumer). */
+export function useProviderDataLoader(): State<ProviderData> {
     const provider = useProvider();
 
     const [providerData, updateProviderData] = useImmer<ProviderData>({
