@@ -44,22 +44,29 @@ export interface CrateInfo {
 // RateLimiter class (e.g., utils/rate-limiter.ts) to avoid code duplication.
 // For now, keeping it simple since we only rate-limit crates.io API.
 
-/** Timestamp of the last request made for rate limiting. */
-let lastRequest = 0;
-/** Minimum delay between requests in milliseconds according to crates.io crawler policy. */
+/** Timestamp of the last request dispatched, for inter-request delay. */
+let lastDispatch = 0;
+/** Minimum delay between requests in milliseconds per crates.io crawler policy. */
 const minDelay = 1000;
+/** Promise chain tail — each queued request appends here so they run serially. */
+let tail: Promise<void> = Promise.resolve();
 
-/** Queue a request with rate limiting. */
-async function queueRequest<T>(fn: () => Promise<T>): Promise<T> {
-    const now = Date.now();
-    const elapsed = now - lastRequest;
-
-    if (elapsed < minDelay) {
-        await new Promise(resolve => setTimeout(resolve, minDelay - elapsed));
-    }
-
-    lastRequest = Date.now();
-    return fn();
+/** Serialize requests into a FIFO queue with `minDelay` between dispatches.
+ *
+ *  The naïve approach (read `lastDispatch`, sleep, fire) breaks under
+ *  concurrency: N simultaneous callers all read the same timestamp and
+ *  all fire at once. Chaining onto `tail` ensures only one request is
+ *  in-flight at a time. */
+function queueRequest<T>(fn: () => Promise<T>): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+        tail = tail.then(async () => {
+            const elapsed = Date.now() - lastDispatch;
+            if (elapsed < minDelay)
+                await new Promise(r => setTimeout(r, minDelay - elapsed));
+            lastDispatch = Date.now();
+            await fn().then(resolve, reject);
+        });
+    });
 }
 
 /** Fetch crate information from crates.io API. */

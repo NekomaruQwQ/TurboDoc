@@ -466,6 +466,10 @@ function getCratePages(
 import * as CratesAPI from "./crates-api";
 import * as Utils from "@/app/utils/version-group";
 
+/** Crate names with a fetch currently in flight, preventing duplicate
+ *  requests when React re-renders before the first fetch completes. */
+const inFlight = new Set<string>();
+
 /** Return cached crate metadata, fetching through the HTTP proxy if not yet
  *  in the in-memory cache. Returns null for std-library crates (not on
  *  crates.io) or when the first fetch is still in flight. */
@@ -478,9 +482,10 @@ function getCrateCache(
         return null;
 
     const existing = ctx.cache.crates?.[crateName] ?? null;
-    if (!existing) {
-        // Fire async fetch; the proxy's SQLite cache handles freshness.
-        fetchCrateCache(ctx, crateName);
+    if (!existing && !inFlight.has(crateName)) {
+        inFlight.add(crateName);
+        fetchCrateCache(ctx, crateName)
+            .finally(() => inFlight.delete(crateName));
     }
 
     return existing;
