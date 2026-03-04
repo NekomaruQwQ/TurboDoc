@@ -120,9 +120,10 @@ WebView2 iframe navigates to https://docs.rs/serde/latest/serde/
        │
        └─ Bun /proxy handler:
             ├─ Cache HIT + fresh?  → serve cached body + dark mode injection
-            ├─ Cache HIT + stale?  → conditional revalidation (If-None-Match / If-Modified-Since)
-            │    ├─ 304 Not Modified → update policy, serve cached body
-            │    └─ 2xx             → replace cache entry, serve new body
+            ├─ Cache HIT + stale?  → serve cached body immediately
+            │    └─ background:      conditional revalidation (If-None-Match / If-Modified-Since)
+            │         ├─ 304 Not Modified → update policy in cache
+            │         └─ 2xx             → replace cache entry
             └─ Cache MISS          → fetch upstream, cache if storable, serve
 ```
 
@@ -673,6 +674,8 @@ TurboDoc/
 
 ## Change History
 
+- **2026-03**: Switch HTTP proxy cache to stale-while-revalidate: stale entries served immediately while background revalidation updates the cache; concurrent refetches for the same URL are deduplicated
+- **2026-03**: Remove client-side rate limiter from `crates-api.ts`: proxy cache (24h TTL) shields upstream, so the 1-second inter-request delay is unnecessary; requests now fire immediately
 - **2026-03**: Fix crates.io API cache staleness: inject synthetic `Cache-Control: max-age=86400` for crates.io API responses that lack cache directives; add `?cache=none` proxy parameter for on-demand refetch
 - **2026-03**: Move `currentUrl` from server-persisted `appData` to localStorage-backed `uiState`: eliminates HTTP PUT on every navigation, synchronous restore on startup; `appData` now contains only presets
 - **2026-03**: Migrate provider cache to HTTP proxy: crates.io API calls routed through `/proxy?url=`, SQLite cache handles persistence and RFC 7234 freshness; removed `cache.<providerId>.json` files, server cache endpoints, cache schema registry (`cache-schemas.ts`), Zod cache schemas (`cache.ts`), and cache IPC functions; `useProviderCache` simplified to in-memory `useImmer({})`

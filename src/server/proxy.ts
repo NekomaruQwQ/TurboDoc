@@ -4,6 +4,10 @@
 // with http-cache-semantics for RFC 7234 caching and dark mode injection
 // at serve time.
 //
+// Uses stale-while-revalidate: stale cache entries are served immediately
+// while a background fetch updates the cache for the next request.
+// Cache misses and `?cache=none` bypass still block on upstream.
+//
 // The Rust host calls `GET /proxy?url={encoded_url}` for every intercepted
 // documentation request. This handler returns the response (possibly cached)
 // with dark mode script injected for rustdoc HTML pages.
@@ -112,51 +116,71 @@ interface ProxyResult {
     body: Buffer | null;
 }
 
+/** In-flight background refetches, keyed by URL. Prevents duplicate upstream
+ *  requests when multiple callers hit the same stale entry concurrently. */
+const pendingRefetches = new Map<string, Promise<void>>();
+
 async function handleProxy(url: string, noCache = false): Promise<ProxyResult> {
     const req = policyRequest(url);
 
     // 1. Check cache (skip when caller requests a fresh fetch)
     const cached = noCache ? null : httpCache.get(url);
     if (cached) {
-        // Check if the cached response is still fresh.
         if (cached.policy.satisfiesWithoutRevalidation(req)) {
             console.log(`[proxy] HIT (fresh) ${url}`);
             return serveCacheEntry(url, cached);
         }
 
-        // Stale — attempt conditional revalidation.
-        console.log(`[proxy] STALE (revalidating) ${url}`);
-        const revalHeaders = cached.policy.revalidationHeaders(req);
-        const revalResponse = await fetchUpstream(url, revalHeaders as Record<string, string>);
-
-        if (revalResponse.status === 304) {
-            // Not modified — update the policy and serve the cached body.
-            const policyResponse: CachePolicy.Response = {
-                status: revalResponse.status,
-                headers: headersToRecord(revalResponse.headers),
-            };
-            const { policy: updatedPolicy } =
-                cached.policy.revalidatedPolicy( {
-                    url: url,
-                    method: "GET",
-                    headers: revalHeaders,
-                }, policyResponse);
-
-            const updatedEntry: HttpCacheEntry = { ...cached, policy: updatedPolicy };
-            httpCache.set(url, updatedEntry);
-
-            console.log(`[proxy] REVALIDATED (304) ${url}`);
-            return serveCacheEntry(url, updatedEntry);
-        }
-
-        // Upstream returned a new response — fall through to cache-and-serve.
-        return await cacheAndServe(url, req, revalResponse);
+        // Stale — serve immediately, revalidate in background.
+        console.log(`[proxy] HIT (stale, revalidating in background) ${url}`);
+        enqueueRevalidation(url, cached);
+        return serveCacheEntry(url, cached);
     }
 
     // 2. Cache miss (or bypassed) — fetch upstream.
     console.log(`[proxy] ${noCache ? "BYPASS" : "MISS"} ${url}`);
     const response = await fetchUpstream(url);
     return await cacheAndServe(url, req, response);
+}
+
+// == Stale-while-revalidate ==
+
+/** Enqueue a background revalidation for a stale cache entry.
+ *  No-op if a refetch for the same URL is already in flight. */
+function enqueueRevalidation(url: string, cached: HttpCacheEntry): void {
+    if (pendingRefetches.has(url)) return;
+
+    const task = revalidateInBackground(url, cached)
+        .catch(err => console.error(`[proxy] Background revalidation failed for ${url}:`, err))
+        .finally(() => pendingRefetches.delete(url));
+
+    pendingRefetches.set(url, task);
+}
+
+/** Perform conditional revalidation against upstream without blocking the
+ *  caller. Updates the cache entry on success (304 or new response). */
+async function revalidateInBackground(url: string, cached: HttpCacheEntry): Promise<void> {
+    const req = policyRequest(url);
+    const revalHeaders = cached.policy.revalidationHeaders(req);
+    const response = await fetchUpstream(url, revalHeaders as Record<string, string>);
+
+    if (response.status === 304) {
+        // Not modified — update the policy to extend freshness.
+        const policyResponse: CachePolicy.Response = {
+            status: response.status,
+            headers: headersToRecord(response.headers),
+        };
+        const { policy: updatedPolicy } = cached.policy.revalidatedPolicy(
+            { url, method: "GET", headers: revalHeaders },
+            policyResponse);
+
+        httpCache.set(url, { ...cached, policy: updatedPolicy });
+        console.log(`[proxy] REVALIDATED (304, background) ${url}`);
+    } else {
+        // Upstream returned new content — cache it.
+        await cacheAndServe(url, req, response);
+        console.log(`[proxy] REVALIDATED (new response, background) ${url}`);
+    }
 }
 
 /**
