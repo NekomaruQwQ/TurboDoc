@@ -1,7 +1,7 @@
 {
+    "extends": "../tsconfig.json",
     "compilerOptions": {
         "baseUrl": ".",
-
         "paths": {
             "@/*": ["*"],
             "@server/*": ["../server/*"],
@@ -17,18 +17,5 @@
 
         "jsx": "react-jsx",
         "jsxImportSource": "react",
-
-        "module": "preserve",
-        "moduleResolution": "bundler",
-        "noEmit": true,
-        "allowImportingTsExtensions": true,
-        "verbatimModuleSyntax": true,
-
-        "skipLibCheck": true,
-        "strict": true,
-        "noUnusedLocals": true,
-        "noUnusedParameters": true,
-        "noUncheckedIndexedAccess": true,
-        "noImplicitOverride": true
     }
 }
