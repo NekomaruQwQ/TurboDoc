@@ -38,14 +38,12 @@ export class AppContext {
         this.updateUiState = args.updateUiState;
     }
 
-    public onNavigated(url: string): void {
-        // Ignore false navigation.
-        if (url === "https://docs.rs/-/storage-change-detection.html")
-            return;
-
-        this.updateUiState(draft => {
-            draft.currentUrl = url;
-        });
+    /** Navigate the viewer iframe to a URL and record it as the current URL.
+     *  Use `updateUiState` directly when only recording is needed (e.g.,
+     *  when the iframe already navigated via a WebView2 event). */
+    public navigateTo(url: string): void {
+        this.updateUiState(draft => { draft.currentUrl = url; });
+        if (this.viewerRef.current) this.viewerRef.current.src = url;
     }
 }
 
@@ -70,11 +68,7 @@ export function useCurrentUrl(): State<string> {
     const ctx = useAppContext();
     return [
         ctx.uiState.currentUrl,
-        (url: string) => {
-            ctx.updateUiState(draft => {
-                draft.currentUrl = url;
-            });
-        },
+        (url: string) => ctx.navigateTo(url),
     ];
 }
 

@@ -4,12 +4,17 @@ import {
     ResizablePanelGroup,
 } from "@/ui/common/Resizable";
 
+import { useRef } from "react";
+
 import { useAppContext } from "@/core/context";
 
 import Explorer from "@/ui/explorer";
 
 export default function App() {
     const ctx = useAppContext();
+    // Capture the initial URL once — React never re-sets the `src` attribute
+    // after this. All subsequent navigation is imperative via navigateTo().
+    const initialUrl = useRef(ctx.uiState.currentUrl);
     return (
         <div className="w-full h-full flex flex-col">
             <div className="h-12">-</div>
@@ -25,7 +30,7 @@ export default function App() {
                     {/** biome-ignore lint/a11y/useIframeTitle: don't care */}
                     <iframe
                         ref={ctx.viewerRef}
-                        src={ctx.uiState.currentUrl}
+                        src={initialUrl.current}
                         className="w-full h-full border border-white/25 rounded-tl-lg"/>
                 </ResizablePanel>
             </ResizablePanelGroup>

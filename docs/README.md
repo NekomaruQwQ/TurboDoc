@@ -304,11 +304,11 @@ The server and host are started separately. The server must be running before th
 ## Visual Design System
 
 ### Colors
-- Based on existing Tailwind theme in `frontend/global.css`
+- All styling consolidated in `frontend/global.css` (Tailwind + HeroUI imports, theme tokens, component overrides)
 - OKLCH color space for perceptual uniformity
 - Dark background with high-contrast text
-- Accent color for active/selected states
-- Muted colors for secondary information
+- HeroUI semantic tokens overridden for dark-only OKLCH palette (surface, overlay, default, muted, accent, danger, border, etc.)
+- Custom `--color-input` token (15% transparent white) for interactive element highlights — no HeroUI equivalent
 
 ### One Dark Symbol Colors (CSS variables in `frontend/global.css`)
 - Yellow (`--color-yellow`): type (struct, enum)
@@ -569,8 +569,7 @@ TurboDoc/
 │   ├── core.ts                 # Shared utility (throwError)
 │   ├── index.html              # Entry HTML
 │   ├── index.tsx               # React entry point (workspace loading, auto-save, IPC listener)
-│   ├── global.css              # Global styles + One Dark color palette
-│   ├── global.tailwind.css     # Tailwind CSS + HeroUI styles entry point
+│   ├── global.css              # Tailwind + HeroUI imports, OKLCH theme, One Dark palette, HeroUI component overrides
 │   │
 │   ├── core/
 │   │   ├── data.ts             # Zod schemas + inferred types (AppData, ProviderData, UiState, Provider, Item, Page, etc.)
@@ -681,6 +680,8 @@ TurboDoc/
 
 ## Change History
 
+- **2026-03**: Optimize frontend styling: merge `global.tailwind.css` into `global.css` (single CSS entry point); override HeroUI's default bubbly look with sharper corners (`--field-radius`, `rounded-md` buttons) and compact menu items; fix HeroUI bug where `--color-accent-soft-foreground` was set to `--accent` (invisible text on accent buttons); simplify HeroUI semantic token overrides (remove redundant `*-foreground` tokens that match HeroUI defaults)
+- **2026-03**: Remove unused dependencies: drop `@hono/zod-validator`, `http-cache-semantics`, `ts-pattern`, `use-debounce` from frontend; drop `@hono/zod-validator`, `http-cache-semantics`, `immer`, `lucide-react`, `mitt`, `remeda` from server
 - **2026-03**: Migrate UI component library from shadcn/ui (vendored Radix primitives) to HeroUI v3 (beta, React Aria-based): replace Button, Input, Select, Dialog, DropdownMenu, Separator with HeroUI equivalents; move Resizable wrapper to `ui/common/Resizable.tsx`; delete `3rdparty/shadcn/` directory, `components.json`, and `@shadcn/*` path alias; remove 7 unused dependencies (`@radix-ui/react-dialog`, `@radix-ui/react-dropdown-menu`, `@radix-ui/react-select`, `@radix-ui/react-separator`, `@radix-ui/react-slot`, `class-variance-authority`, `lucide-react`); keep `@radix-ui/react-collapsible` and `react-resizable-panels` (no HeroUI equivalent); preserve dark-only OKLCH color palette via HeroUI semantic token overrides in `:root`
 - **2026-03**: Add batch crate metadata endpoint (`POST /api/v1/crates`): reads cached crates.io API responses from the SQLite HTTP cache in bulk; frontend batch-fetches all uncached crates on provider load, falling back to individual `/proxy` calls for cache misses; reduces 100+ browser↔server roundtrips to one on warm cache
 - **2026-03**: Restructure project into `app/`, `frontend/`, `server/` top-level directories: each TypeScript package has its own `package.json` and `tsconfig.json`; C# host moved to `app/`; `.NET` build output directed to `out/` via `Directory.Build.props`; `data/` directory holds runtime workspace and cache files; Vite config moved to `frontend/vite.config.ts` with `@server` alias for cross-package imports

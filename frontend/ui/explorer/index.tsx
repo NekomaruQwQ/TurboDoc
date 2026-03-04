@@ -58,6 +58,7 @@ function ExplorerProvider() {
                 draft.currentUrl = url;
             });
         },
+        navigateTo: (url: string) => ctx.navigateTo(url),
     };
 
     const providerOutput = provider.render(providerContext);

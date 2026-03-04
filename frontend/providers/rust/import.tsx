@@ -98,29 +98,30 @@ export function getImportCratesAction(ctx: RustProviderContext): ProviderAction 
                     <span>Import</span>
                 </Button>
                 <Modal state={dialogState}>
-                    <Modal.Backdrop />
-                    <Modal.Container>
-                        <Modal.Dialog>
-                            <Modal.Header>
-                                <Modal.Heading>Import from URLs</Modal.Heading>
-                            </Modal.Header>
-                            <Modal.Body>
-                                <p className="text-sm text-muted">
-                                    Paste crate names or docs.rs or doc.rust-lang.org URLs (one per line) to add crates and pages.
-                                </p>
-                                <textarea
-                                    value={importText}
-                                    onChange={e => setImportText(e.target.value)}
-                                    placeholder="https://docs.rs/tokio/latest/tokio/..."
-                                    rows={8}
-                                    className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus" />
-                            </Modal.Body>
-                            <Modal.Footer>
-                                <Button variant="outline" onPress={dialogState.close}>Cancel</Button>
-                                <Button onPress={handleImport}>Import</Button>
-                            </Modal.Footer>
-                        </Modal.Dialog>
-                    </Modal.Container>
+                    <Modal.Backdrop>
+                        <Modal.Container>
+                            <Modal.Dialog>
+                                <Modal.Header>
+                                    <Modal.Heading>Import from URLs</Modal.Heading>
+                                </Modal.Header>
+                                <Modal.Body>
+                                    <p className="text-sm text-muted">
+                                        Paste crate names or docs.rs or doc.rust-lang.org URLs (one per line) to add crates and pages.
+                                    </p>
+                                    <textarea
+                                        value={importText}
+                                        onChange={e => setImportText(e.target.value)}
+                                        placeholder="https://docs.rs/tokio/latest/tokio/..."
+                                        rows={8}
+                                        className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus" />
+                                </Modal.Body>
+                                <Modal.Footer>
+                                    <Button variant="outline" onPress={dialogState.close}>Cancel</Button>
+                                    <Button onPress={handleImport}>Import</Button>
+                                </Modal.Footer>
+                            </Modal.Dialog>
+                        </Modal.Container>
+                    </Modal.Backdrop>
                 </Modal>
             </>
         }

@@ -80,12 +80,18 @@ function useAppContext(): AppContext | null {
         UiStateStorage.saveUiState(uiState as UiState);
     }, [uiState]);
 
-    // Listen to the "navigated" IPCEvent.
+    // Listen to the "navigated" IPCEvent. Only records the URL in state
+    // (the iframe already navigated); `updateUiState` from useImmer is
+    // referentially stable, so this effect subscribes once.
+    // biome-ignore lint/correctness/useExhaustiveDependencies: updateUiState is stable.
     useEffect(() => {
-        return app
-            ? IPC.on("navigated", event => app?.onNavigated(event.url))
-            : undefined;
-    }, [app]);
+        return IPC.on("navigated", event => {
+            // Ignore false navigation.
+            if (event.url === "https://docs.rs/-/storage-change-detection.html")
+                return;
+            updateUiState(draft => { draft.currentUrl = event.url; });
+        });
+    }, []);
 
     return app;
 }

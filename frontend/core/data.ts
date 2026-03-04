@@ -139,8 +139,14 @@ export interface ProviderContext<T = unknown, TCache = unknown> {
     /** The current URL being viewed in the app. HTTPS protocol assumed. */
     readonly currentUrl: string,
 
-    /** Set the current URL being viewed in the app. HTTPS protocol assumed. */
+    /** Record a URL as the current URL without navigating the iframe.
+     *  Use for state-only updates (e.g., URL normalization, WebView2 events). */
     setCurrentUrl(url: string): void,
+
+    /** Navigate the viewer iframe to a URL and record it as the current URL.
+     *  Use when the iframe should actually load new content (e.g., version
+     *  change, sidebar page click). */
+    navigateTo(url: string): void,
 }
 
 export type ProviderOutput = ReadonlyDeep<{

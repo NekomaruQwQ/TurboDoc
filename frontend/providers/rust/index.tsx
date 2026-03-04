@@ -191,7 +191,7 @@ function renderItem(
     function setCurrentVersion(newVersion: string) {
         const currentUrl = parseUrl(ctx.currentUrl);
         if (currentUrl && currentUrl.name === crateName) {
-            ctx.setCurrentUrl(buildUrl({
+            ctx.navigateTo(buildUrl({
                 baseUrl: getBaseUrlForCrate(crateName),
                 name: crateName,
                 version: newVersion,

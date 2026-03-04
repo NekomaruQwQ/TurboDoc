@@ -283,29 +283,30 @@ export default function ExplorerGroupHeader(
                 </Dropdown>
                 {/* Delete confirmation dialog */}
                 <Modal state={deleteDialogState}>
-                    <Modal.Backdrop />
-                    <Modal.Container>
-                        <Modal.Dialog>
-                            <Modal.Header>
-                                <Modal.Heading>Delete Group?</Modal.Heading>
-                            </Modal.Header>
-                            <Modal.Body>
-                                Are you sure you want to delete group "{props.groupName}"?
-                                This action cannot be undone.
-                            </Modal.Body>
-                            <Modal.Footer>
-                                <Button
-                                    variant="outline"
-                                    onPress={deleteDialogState.close}>Cancel</Button>
-                                <Button
-                                    variant="danger"
-                                    onPress={() => {
-                                        removeGroup();
-                                        deleteDialogState.close();
-                                    }}>Delete</Button>
-                            </Modal.Footer>
-                        </Modal.Dialog>
-                    </Modal.Container>
+                    <Modal.Backdrop>
+                        <Modal.Container>
+                            <Modal.Dialog>
+                                <Modal.Header>
+                                    <Modal.Heading>Delete Group?</Modal.Heading>
+                                </Modal.Header>
+                                <Modal.Body>
+                                    Are you sure you want to delete group "{props.groupName}"?
+                                    This action cannot be undone.
+                                </Modal.Body>
+                                <Modal.Footer>
+                                    <Button
+                                        variant="outline"
+                                        onPress={deleteDialogState.close}>Cancel</Button>
+                                    <Button
+                                        variant="danger"
+                                        onPress={() => {
+                                            removeGroup();
+                                            deleteDialogState.close();
+                                        }}>Delete</Button>
+                                </Modal.Footer>
+                            </Modal.Dialog>
+                        </Modal.Container>
+                    </Modal.Backdrop>
                 </Modal>
             </div>);
     } else {
