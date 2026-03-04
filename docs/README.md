@@ -103,7 +103,7 @@ TurboDoc is an "enhanced tabbed browser with inactive tab resources released" �
 | **Component** | **Tech Stack** | **Role** | **Key Responsibilities** |
 |---|---|---|---|
 | **Host** | C# WinUI 3 (.NET 10) + WebView2 | **The Shell** | Window management. Intercepts doc URL requests and forwards them to the server's `/proxy?url=` endpoint. Sends `navigated` events to frontend via `PostWebMessageAsJson`. Opens external URLs in system browser. |
-| **Server** | TypeScript (Bun + Hono) | **The Brain** | REST endpoints for split workspace persistence (`/api/v1/workspace/app`, `/workspace/:providerId`). HTTP proxy with SQLite caching and LRU eviction (`/proxy?url=`). Dark mode injection at serve time. Serves frontend assets via Vite middleware. |
+| **Server** | TypeScript (Bun + Hono) | **The Brain** | REST endpoints for split workspace persistence (`/api/v1/workspace/app`, `/workspace/:providerId`). Batch crate metadata lookup from cache (`POST /api/v1/crates`). HTTP proxy with SQLite caching and LRU eviction (`/proxy?url=`). Dark mode injection at serve time. Serves frontend assets via Vite middleware. |
 | **Frontend** | React + Vite | **The Face** | UI rendering (Explorer, Navigation). Fetches data from `/api/v1/*` via `hono/client`. Provider-based architecture for multi-source docs. |
 
 ### Request Flow
@@ -371,7 +371,8 @@ Design decisions that shaped the current architecture. Organized by area.
 - Upstreams that lack cache directives (e.g., crates.io API) get synthetic `Cache-Control` headers injected before policy evaluation — currently `max-age=86400` (24 hours) for `https://crates.io/api/` URLs
 - `?cache=none` query parameter on `/proxy` bypasses the cache for on-demand refetch; the fresh response is still stored for future requests
 - Frontend keeps an in-memory cache (`useProviderCache` → `useImmer({})`) for within-session state — not persisted, starts empty on each app launch
-- No separate cache files, endpoints, or schema validation needed — the proxy is the single caching layer
+- On provider load, the frontend batch-fetches all uncached crate metadata via `POST /api/v1/crates` — the server reads directly from the SQLite HTTP cache (no upstream requests). Cache misses are returned as null and fetched individually via the proxy. This reduces 100+ browser↔server roundtrips to one on warm cache
+- No separate cache files or schema validation needed — the proxy is the single caching layer
 
 **Data Model vs View Model**
 
@@ -685,6 +686,7 @@ TurboDoc/
 
 ## Change History
 
+- **2026-03**: Add batch crate metadata endpoint (`POST /api/v1/crates`): reads cached crates.io API responses from the SQLite HTTP cache in bulk; frontend batch-fetches all uncached crates on provider load, falling back to individual `/proxy` calls for cache misses; reduces 100+ browser↔server roundtrips to one on warm cache
 - **2026-03**: Restructure project into `app/`, `frontend/`, `server/` top-level directories: each TypeScript package has its own `package.json` and `tsconfig.json`; C# host moved to `app/`; `.NET` build output directed to `out/` via `Directory.Build.props`; `data/` directory holds runtime workspace and cache files; Vite config moved to `frontend/vite.config.ts` with `@server` alias for cross-package imports
 - **2026-03**: Switch HTTP proxy cache to stale-while-revalidate: stale entries served immediately while background revalidation updates the cache; concurrent refetches for the same URL are deduplicated
 - **2026-03**: Remove client-side rate limiter from `crates-api.ts`: proxy cache (24h TTL) shields upstream, so the 1-second inter-request delay is unnecessary; requests now fire immediately

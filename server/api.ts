@@ -5,6 +5,7 @@ import path from "node:path";
 import fs from "node:fs/promises";
 
 import { dataDir, baseUrl } from "@/common";
+import * as httpCache from "@/http-cache";
 
 /** Load a JSON file and return it as the response body. Returns `{}` if the
  *  file doesn't exist (e.g., first launch). */
@@ -127,4 +128,29 @@ export default new Hono()
 
         await Bun.write(filePath, json);
         return c.json({ success: true });
+    })
+    // Batch crate metadata lookup from the HTTP proxy cache.
+    // Returns cached crates.io API responses without fetching upstream —
+    // cache misses are returned as null for the frontend to handle individually.
+    .post("/crates", async c => {
+        const body = await c.req.json<{ names?: unknown }>();
+        const names = body?.names;
+        if (!Array.isArray(names) || !names.every(n => typeof n === "string"))
+            return c.json({ error: "Expected { names: string[] }" }, 400);
+
+        const results: Record<string, unknown> = {};
+        for (const name of names as string[]) {
+            const url = `https://crates.io/api/v1/crates/${name}`;
+            const cached = httpCache.get(url);
+            if (cached?.body) {
+                try {
+                    results[name] = JSON.parse(cached.body.toString("utf-8"));
+                } catch {
+                    results[name] = null;
+                }
+            } else {
+                results[name] = null;
+            }
+        }
+        return c.json(results);
     })

@@ -112,6 +112,18 @@ function handleCurrentUrl(ctx: RustProviderContext) {
 function render(ctx: RustProviderContext): ProviderOutput {
     handleCurrentUrl(ctx);
 
+    // Batch-fetch metadata for all uncached crates in a single request.
+    // Individual getCrateCache() calls below will skip crates already
+    // covered by this batch (they're in inFlight).
+    const uncached = Object.keys(ctx.data.crates ?? {}).filter(name =>
+        !ctx.cache.crates?.[name]
+        && !inFlight.has(name)
+        && getBaseUrlForCrate(name) !== "https://doc.rust-lang.org/");
+    if (uncached.length > 1) {
+        for (const name of uncached) inFlight.add(name);
+        batchFetchCrateCache(ctx, uncached);
+    }
+
     const items =
         _.mapToObj(_.entries(ctx.data.crates ?? {}), pair => {
             const [crateName, crateData] = pair;
@@ -491,6 +503,18 @@ function getCrateCache(
     return existing;
 }
 
+/** Convert a CrateInfo response into a CrateCache entry. */
+function crateInfoToCache(crateInfo: CratesAPI.CrateInfo): CrateCache {
+    return {
+        name: crateInfo.crate.name,
+        versions: crateInfo.versions,
+        versionGroups: Utils.computeVersionGroups(crateInfo.versions),
+        repository: crateInfo.crate.repository ?? null,
+        homepage: crateInfo.crate.homepage ?? null,
+        documentation: crateInfo.crate.documentation ?? null,
+    };
+}
+
 /** Fetch crate metadata from crates.io (via HTTP proxy) and store in the
  *  in-memory cache. Errors are logged but non-fatal. */
 async function fetchCrateCache(
@@ -500,19 +524,44 @@ async function fetchCrateCache(
     console.log(`Fetching crate info for ${crateName}.`);
     try {
         const crateInfo = await CratesAPI.fetchCrateInfo(crateName);
-        const cache: CrateCache = {
-            name: crateInfo.crate.name,
-            versions: crateInfo.versions,
-            versionGroups: Utils.computeVersionGroups(crateInfo.versions),
-            repository: crateInfo.crate.repository ?? null,
-            homepage: crateInfo.crate.homepage ?? null,
-            documentation: crateInfo.crate.documentation ?? null,
-        };
         ctx.updateCache(draft => {
             draft.crates ??= {};
-            draft.crates[crateName] = cache;
+            draft.crates[crateName] = crateInfoToCache(crateInfo);
         });
     } catch (err) {
         console.error(`Failed to fetch crate info for ${crateName}:`, err);
+    }
+}
+
+/** Batch-fetch crate metadata from the server's HTTP cache, then fall back
+ *  to individual proxy requests for cache misses. Called once on provider
+ *  load when multiple crates need metadata. */
+async function batchFetchCrateCache(
+    ctx: RustProviderContext,
+    names: string[],
+): Promise<void> {
+    try {
+        const cached = await CratesAPI.fetchCratesInfo(names);
+
+        // Populate in-memory cache with hits.
+        const hits = Object.keys(cached);
+        if (hits.length > 0) {
+            ctx.updateCache(draft => {
+                draft.crates ??= {};
+                for (const name of hits)
+                    draft.crates[name] = crateInfoToCache(cached[name]);
+            });
+        }
+
+        // Fall back to individual proxy fetches for misses.
+        const misses = names.filter(n => !(n in cached));
+        if (misses.length > 0)
+            console.log(`[crates.io] ${hits.length} cache hits, ${misses.length} misses — fetching individually.`);
+        for (const name of misses)
+            fetchCrateCache(ctx, name).finally(() => inFlight.delete(name));
+    } catch (err) {
+        console.error("Batch crate fetch failed, falling back to individual fetches:", err);
+        for (const name of names)
+            fetchCrateCache(ctx, name).finally(() => inFlight.delete(name));
     }
 }

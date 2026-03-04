@@ -87,6 +87,44 @@ export async function fetchCrateInfo(crateName: string): Promise<CrateInfo> {
     };
 }
 
+/** Batch-fetch cached crate metadata from the server's HTTP cache.
+ *  Returns a record of crate name → CrateInfo for cache hits.
+ *  Cache misses are omitted from the result — the caller should fall back
+ *  to individual `fetchCrateInfo()` calls via the proxy for those. */
+export async function fetchCratesInfo(
+    names: string[],
+): Promise<Record<string, CrateInfo>> {
+    console.log(`[crates.io] Batch-fetching ${names.length} crates from cache.`);
+    const response = await fetch("/api/v1/crates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ names }),
+    });
+    if (!response.ok)
+        throw new Error(`Batch crate fetch failed: ${response.status}`);
+
+    const data = await response.json() as Record<string, PartialDeep<CrateInfo> | null>;
+    const results: Record<string, CrateInfo> = {};
+    for (const [name, info] of Object.entries(data)) {
+        // Skip cache misses and entries missing required fields.
+        if (!info?.crate?.id || !info.crate.name || !info.versions) continue;
+        results[name] = {
+            crate: {
+                id: info.crate.id,
+                name: info.crate.name,
+                description: info.crate.description,
+                homepage: info.crate.homepage,
+                repository: info.crate.repository,
+                documentation: info.crate.documentation,
+            },
+            versions: info.versions
+                .filter((v): v is { num: string; yanked: boolean } => !!v?.num)
+                .map(v => ({ num: v.num, yanked: v.yanked ?? false })),
+        };
+    }
+    return results;
+}
+
 /** Search for crates on crates.io */
 export async function searchCrates(query: string): Promise<{ name: string, description: string | null }[]> {
     console.log(`[crates.io] Searching with query "${query}".`);
