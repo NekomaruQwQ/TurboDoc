@@ -6,7 +6,8 @@ import { faCheck, faPlus } from "@fortawesome/free-solid-svg-icons";
 
 import { Button, Input } from "@heroui/react";
 
-import { useProviderData, useProviderUiState } from "@/core/context";
+import { useProvider, useProviderData } from "@/core/context";
+import { expandGroup } from "@/core/uiState";
 
 /**
  * Button that transforms into an inline input for creating a new group.
@@ -15,8 +16,8 @@ import { useProviderData, useProviderUiState } from "@/core/context";
  * - Escape or blur → cancels and resets
  */
 export default function ExplorerCreateGroupComponent() {
+    const providerId = useProvider().id;
     const [providerData, updateProviderData] = useProviderData();
-    const { updateExpandedGroups } = useProviderUiState();
     const [inputMode, setInputMode] = useState(false);
     const [inputText, setInputText] = useState("");
 
@@ -27,9 +28,7 @@ export default function ExplorerCreateGroupComponent() {
                 draft.groupOrder.push(groupName);
             });
             // Auto-expand newly created group.
-            updateExpandedGroups(draft => {
-                draft.push(groupName);
-            });
+            expandGroup(providerId, groupName);
         }
     }
 

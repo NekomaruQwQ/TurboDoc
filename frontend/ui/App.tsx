@@ -14,7 +14,7 @@ export default function App() {
     const ctx = useAppContext();
     // Capture the initial URL once — React never re-sets the `src` attribute
     // after this. All subsequent navigation is imperative via navigateTo().
-    const initialUrl = useRef(ctx.uiState.currentUrl);
+    const initialUrl = useRef(ctx.currentUrl);
     return (
         <div className="w-full h-full flex flex-col">
             <div className="h-12">-</div>

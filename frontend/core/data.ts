@@ -73,26 +73,10 @@ export const providerDataSchema = z.object({
     groupOrder: z.array(z.string()),
 });
 
-// Transient UI state. Persisted to localStorage (`turbodoc:ui-state`).
-// Keyed by provider ID — each provider's expansion arrays are stored here
-// rather than inside ProviderData, so UI state is saved independently.
-export const uiStateSchema = z.object({
-    // Currently viewed URL. HTTPS protocol assumed.
-    currentUrl: z.string(),
-
-    // Per-provider list of item IDs that are expanded in the UI.
-    expandedItems: z.record(z.string(), z.array(z.string())),
-
-    // Per-provider list of group names that are expanded in the UI.
-    expandedGroups: z.record(z.string(), z.array(z.string())),
-});
-
 export type AppData =
     z.infer<typeof appDataSchema>;
 export type ProviderData =
     z.infer<typeof providerDataSchema>;
-export type UiState =
-    z.infer<typeof uiStateSchema>;
 
 // ============================================================================
 // View Model — Manual Interfaces

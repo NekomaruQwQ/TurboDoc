@@ -20,60 +20,41 @@ import {
 import { Button, Dropdown, Input, Modal } from "@heroui/react";
 import { useOverlayState } from "@heroui/react";
 
-import { useProviderData, useProviderUiState } from "@/core/context";
+import { useProvider, useProviderData } from "@/core/context";
+import { expandItems, collapseItems, renameGroup } from "@/core/uiState";
 
 export default function ExplorerGroupHeader(
-    props:
+    props: {
+        expanded: boolean,
+        setExpanded(expanded: boolean): void,
+    } & (
         | { variant: "default", groupName: string }
-        | { variant: "ungrouped" }) {
+        | { variant: "ungrouped" })) {
     const groupName = props.variant === "default" ? props.groupName : "";
+    const providerId = useProvider().id;
     const [providerData, updateProviderData] = useProviderData();
-    const {
-        expandedGroups,
-        updateExpandedItems,
-        updateExpandedGroups,
-    } = useProviderUiState();
     const deleteDialogState = useOverlayState();
     const [isRenaming, setIsRenaming] = useState(false);
     const [editedName, setEditedName] = useState(groupName);
 
     if (props.variant === "default") {
-        const groupExpanded = expandedGroups.includes(groupName);
         const isFirstGroup =
             providerData.groupOrder[0] === groupName;
         const isLastGroup =
             providerData.groupOrder[providerData.groupOrder.length - 1] === groupName;
 
         function toggleGroupExpanded() {
-            updateExpandedGroups(draft => {
-                if (groupExpanded) {
-                    const index = draft.indexOf(groupName);
-                    if (index !== -1) draft.splice(index, 1);
-                } else {
-                    draft.push(groupName);
-                }
-            });
+            props.setExpanded(!props.expanded);
         }
 
-        function expandAll() {
+        function doExpandAll() {
             const items = providerData.groups[groupName]?.items || [];
-            updateExpandedItems(draft => {
-                for (const itemId of items) {
-                    if (!draft.includes(itemId))
-                        draft.push(itemId);
-                }
-            });
+            expandItems(providerId, items as string[]);
         }
 
-        function collapseAll() {
+        function doCollapseAll() {
             const items = providerData.groups[groupName]?.items || [];
-            updateExpandedItems(draft => {
-                // Remove all items belonging to this group.
-                for (let i = draft.length - 1; i >= 0; i--) {
-                    if (items.includes(draft[i]!))
-                        draft.splice(i, 1);
-                }
-            });
+            collapseItems(providerId, items as string[]);
         }
 
         function moveToTop() {
@@ -139,11 +120,7 @@ export default function ExplorerGroupHeader(
                         draft.groupOrder[orderIndex] = newName;
                 });
                 // Preserve expansion state under new name.
-                updateExpandedGroups(draft => {
-                    const index = draft.indexOf(groupName);
-                    if (index >= 0)
-                        draft[index] = newName;
-                });
+                renameGroup(providerId, groupName, newName);
             }
         }
 
@@ -183,7 +160,7 @@ export default function ExplorerGroupHeader(
                     className="flex flex-row flex-1 gap-2 items-center text-lg pl-1 font-semibold cursor-pointer truncate"
                     onClick={() => toggleGroupExpanded()}>
                     <FontAwesomeIcon
-                        icon={groupExpanded ? faChevronDown : faChevronRight}
+                        icon={props.expanded ? faChevronDown : faChevronRight}
                         size="sm" />
                     <span className="flex-1 truncate">{groupName}</span>
                 </p>
@@ -212,11 +189,11 @@ export default function ExplorerGroupHeader(
                     <Dropdown.Popover placement="bottom end">
                         <Dropdown.Menu>
                             <Dropdown.Section>
-                                <Dropdown.Item textValue="Expand All" onAction={expandAll}>
+                                <Dropdown.Item textValue="Expand All" onAction={doExpandAll}>
                                     <FontAwesomeIcon icon={faAnglesDown} />
                                     <span>Expand All</span>
                                 </Dropdown.Item>
-                                <Dropdown.Item textValue="Collapse All" onAction={collapseAll}>
+                                <Dropdown.Item textValue="Collapse All" onAction={doCollapseAll}>
                                     <FontAwesomeIcon icon={faAnglesUp} />
                                     <span>Collapse All</span>
                                 </Dropdown.Item>

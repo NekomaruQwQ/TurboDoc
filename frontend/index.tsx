@@ -20,10 +20,10 @@ import type { ReadonlyDeep } from "type-fest";
 import { useEffect, useRef } from "react";
 import { useImmer } from "use-immer";
 
-import type { AppData, UiState } from "@/core/data";
+import type { AppData } from "@/core/data";
 import { AppContext, AppContextProvider } from "@/core/context";
+import { useCurrentUrl } from "@/core/uiState";
 import * as IPC from "@/core/ipc";
-import * as UiStateStorage from "@/core/ui-state-storage";
 
 function useAppContext(): AppContext | null {
     const viewerRef = useRef<HTMLIFrameElement | null>(null);
@@ -31,24 +31,15 @@ function useAppContext(): AppContext | null {
 
     const [appData, updateAppData] =
         useImmer<ReadonlyDeep<AppData> | null>(null);
-    // UI state is loaded synchronously from localStorage — always available.
-    const [uiState, updateUiState] =
-        useImmer<ReadonlyDeep<UiState>>(() => UiStateStorage.loadUiState());
+    const currentUrl = useCurrentUrl();
 
     const app = appData ?
-        new AppContext({
+        new AppContext(
             viewerRef,
-            appData,
-            updateAppData:
-                updater => updateAppData(draft => {
-                    draft && updater(draft);
-                }),
-            uiState,
-            updateUiState:
-                updater => updateUiState(draft => {
-                    updater(draft);
-                }),
-        }) : null;
+            [appData, updater => updateAppData(draft => {
+                draft && updater(draft);
+            })],
+            currentUrl) : null;
 
     // Load app data from server on first render.
     // biome-ignore lint/correctness/useExhaustiveDependencies: effect only run once.
@@ -75,21 +66,16 @@ function useAppContext(): AppContext | null {
         }
     }, [appData]);
 
-    // Persist UI state to localStorage on change.
-    useEffect(() => {
-        UiStateStorage.saveUiState(uiState as UiState);
-    }, [uiState]);
-
     // Listen to the "navigated" IPCEvent. Only records the URL in state
-    // (the iframe already navigated); `updateUiState` from useImmer is
-    // referentially stable, so this effect subscribes once.
-    // biome-ignore lint/correctness/useExhaustiveDependencies: updateUiState is stable.
+    // (the iframe already navigated). `currentUrl[1]` (setState) from
+    // useState is referentially stable, so this effect subscribes once.
+    // biome-ignore lint/correctness/useExhaustiveDependencies: setCurrentUrl is stable.
     useEffect(() => {
         return IPC.on("navigated", event => {
             // Ignore false navigation.
             if (event.url === "https://docs.rs/-/storage-change-detection.html")
                 return;
-            updateUiState(draft => { draft.currentUrl = event.url; });
+            currentUrl[1](event.url);
         });
     }, []);
 

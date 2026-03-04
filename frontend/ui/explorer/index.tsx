@@ -12,8 +12,9 @@ import {
     useProviderCache,
     useProviderData,
     useProviderDataLoader,
-    useProviderUiState,
 } from "@/core/context";
+
+import { useGroupExpanded } from "@/core/uiState";
 
 import ExplorerItem from "@/ui/explorer/ExplorerItem";
 import ExplorerGroupHeader from "@/ui/explorer/ExplorerGroupHeader";
@@ -21,7 +22,7 @@ import ExplorerCreateGroupComponent from "@/ui/explorer/ExplorerCreateGroupCompo
 
 export default function Explorer() {
     const ctx = useAppContext();
-    const preset = ctx.appData.presets[ctx.appData.currentPreset];
+    const preset = ctx._appData[0].presets[ctx._appData[0].currentPreset];
     return (
         <div
             className="flex flex-col w-full h-full gap-1 rounded overflow-y-scroll"
@@ -52,12 +53,8 @@ function ExplorerProvider() {
         updateCache: (updater: (draft: unknown) => void) => {
             updateCache(draft => { updater(draft); });
         },
-        currentUrl: ctx.uiState.currentUrl,
-        setCurrentUrl: (url: string) => {
-            ctx.updateUiState(draft => {
-                draft.currentUrl = url;
-            });
-        },
+        currentUrl: ctx.currentUrl,
+        setCurrentUrl: (url: string) => ctx.setCurrentUrl(url),
         navigateTo: (url: string) => ctx.navigateTo(url),
     };
 
@@ -111,10 +108,15 @@ function ExplorerGroup(props: ReadonlyDeep<{
     }
 
     const [providerData] = useProviderData();
-    const { expandedGroups } = useProviderUiState();
+    const [expanded, setExpanded] = useGroupExpanded(
+        useProvider().id,
+        props.variant === "default" ? props.groupName : "__ungrouped__");
     return props.variant === "ungrouped"
         ? <>
-            <ExplorerGroupHeader variant="ungrouped"/>
+            <ExplorerGroupHeader
+                variant="ungrouped"
+                expanded={expanded}
+                setExpanded={setExpanded} />
             {_.pipe(
                 _.entries(props.providerOutput.items),
                 _.filter(([itemId, __]) => (
@@ -125,8 +127,12 @@ function ExplorerGroup(props: ReadonlyDeep<{
                 _.map(renderItem))}
         </>
         : <>
-            <ExplorerGroupHeader variant="default" groupName={props.groupName} />
-            {expandedGroups.includes(props.groupName) &&
+            <ExplorerGroupHeader
+                variant="default"
+                groupName={props.groupName}
+                expanded={expanded}
+                setExpanded={setExpanded} />
+            {expanded &&
                 _.pipe(
                     _.entries(props.providerOutput.items),
                     _.filter(([itemId, __]) => (

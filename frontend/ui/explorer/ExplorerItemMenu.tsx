@@ -12,7 +12,8 @@ import { Button, Dropdown } from "@heroui/react";
 import type { Item, ItemLink, ItemAction, ProviderData } from "@/core/data";
 import Icon from "@/ui/common/Icon";
 
-import { useCurrentUrl, useProviderData } from "@/core/context";
+import { useProviderData } from "@/core/context";
+import { useCurrentUrl } from "@/core/uiState";
 
 export default function ExplorerItemMenu({ item, itemGroupName }: ReadonlyDeep<{
     item: Item,

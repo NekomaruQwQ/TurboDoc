@@ -7,7 +7,7 @@ import { faThumbtack } from "@fortawesome/free-solid-svg-icons";
 
 import type { IdentType, Page, PageName } from "@/core/data";
 import { cn } from "@/core/prelude";
-import { useCurrentUrl } from "@/core/context";
+import { useCurrentUrl } from "@/core/uiState";
 
 function getIdentColor(type: IdentType): string | undefined {
     switch (type) {

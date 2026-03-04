@@ -6,7 +6,6 @@ import type { State } from "@/core/prelude";
 
 import type {
     AppData,
-    UiState,
     Provider,
     ProviderData,
 } from "@/core/data";
@@ -16,33 +15,39 @@ export class AppContext {
     /** Reference to the viewer iframe for programmatic navigation. */
     public readonly viewerRef: React.RefObject<HTMLIFrameElement | null>;
 
-    /** Global app data (presets). */
-    public readonly appData: ReadonlyDeep<AppData>;
-    public readonly updateAppData: (updater: (draft: AppData) => void) => void;
+    readonly _appData: State<AppData>;
+    readonly _currentUrl: State<string>;
 
-    /** UI expansion state (per-provider expandedItems/expandedGroups). */
-    public readonly uiState: ReadonlyDeep<UiState>;
-    public readonly updateUiState: (updater: (draft: UiState) => void) => void;
-
-    public constructor(args: {
+    public constructor(
         viewerRef: React.RefObject<HTMLIFrameElement | null>,
-        appData: ReadonlyDeep<AppData>,
-        updateAppData: (updater: (draft: AppData) => void) => void,
-        uiState: ReadonlyDeep<UiState>,
-        updateUiState: (updater: (draft: UiState) => void) => void,
-    }) {
-        this.viewerRef = args.viewerRef;
-        this.appData = args.appData;
-        this.updateAppData = args.updateAppData;
-        this.uiState = args.uiState;
-        this.updateUiState = args.updateUiState;
+        appData: State<AppData>,
+        currentUrl: State<string>) {
+        this.viewerRef = viewerRef;
+        this._appData = appData;
+        this._currentUrl = currentUrl;
     }
 
-    /** Navigate the viewer iframe to a URL and record it as the current URL.
-     *  Use `updateUiState` directly when only recording is needed (e.g.,
-     *  when the iframe already navigated via a WebView2 event). */
+    public get appData(): ReadonlyDeep<AppData> {
+        return this._appData[0];
+    }
+
+    public get currentUrl(): string {
+        return this._currentUrl[0];
+    }
+
+    public setCurrentUrl(url: string): void {
+        this._currentUrl[1](url);
+    }
+
+    public updateAppData(updater: (draft: AppData) => void): void {
+        this._appData[1](draft => {
+            updater(draft);
+        });
+    }
+
+    /** Navigate the viewer iframe to a URL and update currentUrl state. */
     public navigateTo(url: string): void {
-        this.updateUiState(draft => { draft.currentUrl = url; });
+        this._currentUrl[1](url);
         if (this.viewerRef.current) this.viewerRef.current.src = url;
     }
 }
@@ -63,14 +68,6 @@ export const ProviderDataProvider = providerDataContext.Provider;
 /** Reads per-provider workspace data from context. Must be a descendant of
  *  `ProviderDataProvider` (set up in `ExplorerProvider`). */
 export const useProviderData = () => useContext(providerDataContext);
-
-export function useCurrentUrl(): State<string> {
-    const ctx = useAppContext();
-    return [
-        ctx.uiState.currentUrl,
-        (url: string) => ctx.navigateTo(url),
-    ];
-}
 
 /** Per-provider workspace data: loaded from disk on mount, auto-saved on change.
  *  Only called once per provider in `ExplorerProvider`; children access the
@@ -122,28 +119,4 @@ export function useProviderDataLoader(): State<ProviderData> {
  *  proxy's SQLite cache handles persistence and RFC 7234 freshness. */
 export function useProviderCache(): State<unknown> {
     return useImmer<unknown>({});
-}
-
-/** Per-provider UI expansion state, backed by the centralized UiState atom
- *  in AppContext. Reads/writes the per-provider slice. */
-export function useProviderUiState() {
-    const ctx = useAppContext();
-    const provider = useProvider();
-    const pid = provider.id;
-    return {
-        expandedItems: ctx.uiState.expandedItems[pid] ?? [],
-        expandedGroups: ctx.uiState.expandedGroups[pid] ?? [],
-        updateExpandedItems: (updater: (draft: string[]) => void) => {
-            ctx.updateUiState(draft => {
-                draft.expandedItems[pid] ??= [];
-                updater(draft.expandedItems[pid]);
-            });
-        },
-        updateExpandedGroups: (updater: (draft: string[]) => void) => {
-            ctx.updateUiState(draft => {
-                draft.expandedGroups[pid] ??= [];
-                updater(draft.expandedGroups[pid]);
-            });
-        },
-    };
 }

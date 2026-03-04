@@ -229,7 +229,8 @@ View models contain callbacks (e.g., `setPinned`, `setCurrentVersion`, `invoke`)
 [Disk/Storage]                         [Deserialization]         [Runtime]
 workspace.app.json ───────────────────► AppContext ──────────────► global state (presets)
 workspace.<providerId>.json ──────────► useProviderData ────────► ProviderOutput (View Model)
-localStorage (turbodoc:ui-state) ─────► UiState ────────────────► current URL + expansion state
+localStorage (turbodoc:current-url) ──► useCurrentUrl ──────────► current URL
+localStorage (turbodoc:expanded) ────► useGroupExpanded/useItemExpanded ► expansion state
 HTTP proxy SQLite cache ──────────────► useProviderCache ───────► in-memory API response cache
 ```
 
@@ -428,7 +429,10 @@ Design decisions that shaped the current architecture. Organized by area.
 - Workspace split into two server-persisted file categories:
   - `workspace.app.json` — global app state (presets). Loaded eagerly in `frontend/index.tsx`.
   - `workspace.<providerId>.json` — per-provider user data (groups, provider-specific data). Loaded lazily per-provider by `useProviderData` hook.
-- Transient UI state (`currentUrl`, `expandedItems`, `expandedGroups`) stored in **localStorage** (`turbodoc:ui-state`), not on the server. Loaded synchronously on startup, auto-saved on every change. Validated with Zod `uiStateSchema` on load; invalid/missing data falls back to empty defaults (default URL `https://docs.rs/`, everything collapsed). See `frontend/core/ui-state-storage.ts`.
+- Transient UI state stored in **localStorage** as individual slots, not on the server. Two slot types managed by `frontend/core/localStorage.ts`:
+  - **Primitive** (`turbodoc:current-url`): current URL, simple get/set
+  - **Array** (`turbodoc:expanded`): flat string array of expanded item/group keys. Key format: `<providerId>:<itemId>` for items, `<providerId>:group:<groupId>` for groups. Membership-check hooks (`useGroupExpanded`, `useItemExpanded`) with selective re-rendering via mitt events — only hooks whose specific key changed re-render.
+  - Each slot validated with Zod on load; invalid/missing data falls back to empty defaults (default URL `https://docs.rs/`, nothing expanded). See `frontend/core/localStorage.ts` and `frontend/core/uiState.ts`.
 - API response caching (e.g., crates.io metadata) handled by the HTTP proxy's SQLite cache — no separate cache files or endpoints. Provider keeps an in-memory cache (`useProviderCache` → `useImmer({})`) for within-session state, populated on demand from proxy responses.
 - Server-persisted via Hono HTTP API (`/api/v1/workspace/app`, `/workspace/:providerId`)
 - `"app"` is a reserved path segment — cannot be used as a provider ID
@@ -438,7 +442,7 @@ Design decisions that shaped the current architecture. Organized by area.
 - **Provider data write guard**: the server rejects a PUT to `/workspace/:providerId` if the new JSON payload is less than 30% the size of the existing file on disk (HTTP 409). This prevents accidental data loss from frontend bugs or state resets. The check is skipped when the existing file is smaller than 256 bytes, since small files can legitimately shrink by large ratios. Future: a `?force=true` query parameter could bypass the guard for legitimate bulk deletions.
 
 **Preview Page (Derived State)**
-- Preview state derived from `uiState.currentUrl` (localStorage) and per-item `pinnedPages`
+- Preview state derived from `currentUrl` (localStorage) and per-item `pinnedPages`
 - A page is "preview" when it matches `currentUrl` but is NOT in `pinnedPages`
 - Preview pages render italic with outline pin icon (visible on hover)
 - Pinned pages render normal with filled pin icon
@@ -450,7 +454,7 @@ Design decisions that shaped the current architecture. Organized by area.
 - Enforced by the type system, not just convention
 
 **Eager Cleanup**
-- Orphaned UI state entries (`expandedItems`, `expandedGroups`) are removed when content changes
+- Orphaned UI state entries (expanded items/groups) are removed when content changes
 - Prevents stale references from accumulating across workspace mutations
 
 **"latest" as Literal String**
@@ -475,22 +479,23 @@ AppData + ProviderData (React state) ──► provider.render() ──► React
 - View model derivation is a pure function of data model — easy to reason about
 - `ProviderContext` constructed in `ExplorerProvider` using `useProviderData` and `useProviderCache` hooks from `frontend/core/context.ts`
 
-**Three State Atoms**
-- `frontend/index.tsx` owns two atoms: `appData` (presets, async from server) and `uiState` (current URL + expansion states, sync from localStorage)
+**Independent State Atoms**
+- `frontend/index.tsx` owns `appData` (presets, async from server) and `currentUrl` (sync from localStorage via `useCurrentUrl`)
+- Expansion state managed per-component via `useGroupExpanded`/`useItemExpanded` hooks — each hook reads/writes its own key in the `turbodoc:expanded` localStorage slot, synced across components via mitt events
 - Provider data is lazily loaded per-provider inside `ExplorerProvider` via `useProviderData` hook
-- Each atom has independent auto-save via `useEffect` — a change in one slice doesn't trigger writes to others
+- Each atom has independent auto-save — a change in one slice doesn't trigger writes to others
 
 **Hybrid IPC**
 - App data CRUD via Hono HTTP API (`/api/v1/workspace/app`)
 - Per-provider data CRUD via Hono HTTP API (`/api/v1/workspace/:providerId`)
-- UI state via localStorage (`turbodoc:ui-state`) — no server round-trip
+- UI state via localStorage (`turbodoc:current-url`, `turbodoc:expanded`) — no server round-trip
 - API response caching via HTTP proxy (`/proxy?url=`) — SQLite with RFC 7234 freshness and LRU eviction
 - Navigation events via WebView2 `postMessage` (low-latency, event-driven)
 - All operations except app data are non-fatal (log errors, don't crash)
 
 **Class-Based AppContext**
-- AppContext is a class (not a plain object) that owns the iframe ref (`viewerRef`), `appData`, and `uiState`
-- Encapsulates navigation logic, hides React state management details from consumers
+- AppContext is a class (not a plain object) that owns the iframe ref (`viewerRef`), `appData`, and `currentUrl`
+- Encapsulates navigation logic (`navigateTo`, `setCurrentUrl`), hides React state management details from consumers
 - Recreated on every render (no memoization) — holds app-level + UI state, so re-renders only happen when state changes
 - Provider data is NOT stored in AppContext — each provider loads its own data lazily
 
@@ -512,9 +517,11 @@ AppData + ProviderData (React state) ──► provider.render() ──► React
 
 **Collapsible Items**
 - Items use Radix Collapsible (simple DOM, no HeroUI equivalent)
-- Expansion state stored in centralized `UiState` via `useProviderUiState` hook
+- Expansion state managed per-component via `useItemExpanded(providerId, itemId)` hook from `frontend/core/uiState.ts`
+- Groups use `useGroupExpanded(providerId, groupId)` — same underlying `useExpanded` hook
 - Default: collapsed (both items and groups)
-- Toggled by clicking item name
+- Toggled by clicking item name (items) or group header (groups)
+- Bulk operations (Expand All / Collapse All) via imperative `expandItems()` / `collapseItems()` helpers
 
 **Group Management**
 - Groups stored as `Record<string, { items: string[] }>` with separate `groupOrder` array
@@ -572,10 +579,11 @@ TurboDoc/
 │   ├── global.css              # Tailwind + HeroUI imports, OKLCH theme, One Dark palette, HeroUI component overrides
 │   │
 │   ├── core/
-│   │   ├── data.ts             # Zod schemas + inferred types (AppData, ProviderData, UiState, Provider, Item, Page, etc.)
-│   │   ├── context.ts          # AppContext class, React context providers and hooks (useProviderData, useProviderCache, useProviderUiState)
+│   │   ├── data.ts             # Zod schemas + inferred types (AppData, ProviderData, Provider, Item, Page, etc.)
+│   │   ├── context.ts          # AppContext class, React context providers and hooks (useProviderData, useProviderCache)
 │   │   ├── ipc.ts              # Hono HTTP client (workspace + cache CRUD) + WebView2 event listener (navigated)
-│   │   ├── ui-state-storage.ts # localStorage-based UI expansion state (load/save with Zod validation)
+│   │   ├── localStorage.ts    # Typed localStorage abstraction (Zod validation, mitt events, primitive + array APIs)
+│   │   ├── uiState.ts         # Self-contained UI state hooks (useCurrentUrl, useGroupExpanded, useItemExpanded) + imperative helpers
 │   │   └── prelude.ts          # State<T> type helper + cn() utility
 │   │
 │   ├── providers/
@@ -680,6 +688,7 @@ TurboDoc/
 
 ## Change History
 
+- **2026-03**: Decompose monolithic UI state into self-contained localStorage hooks: replace single `turbodoc:ui-state` JSON blob with two individual slots (`turbodoc:current-url` primitive, `turbodoc:expanded` flat string array); typed localStorage abstraction in `localStorage.ts` with Zod validation and mitt events carrying per-element granularity (`{ element, present }`) for selective re-rendering; `uiState.ts` provides `useCurrentUrl`, `useGroupExpanded(providerId, groupId)`, `useItemExpanded(providerId, itemId)` hooks plus imperative helpers (`expandItems`, `collapseItems`, `renameGroup`, `expandGroup`) for bulk operations; key scheme: `<providerId>:<itemId>` for items, `<providerId>:group:<groupId>` for groups; removed `ui-state-storage.ts`, `UiState` type, `uiStateSchema`, and centralized `useProviderUiState` hook; fixed `State<boolean>` distributive conditional type issue in `prelude.ts`; fixed `AppContext` constructor calling hooks (moved to `index.tsx`)
 - **2026-03**: Optimize frontend styling: merge `global.tailwind.css` into `global.css` (single CSS entry point); override HeroUI's default bubbly look with sharper corners (`--field-radius`, `rounded-md` buttons) and compact menu items; fix HeroUI bug where `--color-accent-soft-foreground` was set to `--accent` (invisible text on accent buttons); simplify HeroUI semantic token overrides (remove redundant `*-foreground` tokens that match HeroUI defaults)
 - **2026-03**: Remove unused dependencies: drop `@hono/zod-validator`, `http-cache-semantics`, `ts-pattern`, `use-debounce` from frontend; drop `@hono/zod-validator`, `http-cache-semantics`, `immer`, `lucide-react`, `mitt`, `remeda` from server
 - **2026-03**: Migrate UI component library from shadcn/ui (vendored Radix primitives) to HeroUI v3 (beta, React Aria-based): replace Button, Input, Select, Dialog, DropdownMenu, Separator with HeroUI equivalents; move Resizable wrapper to `ui/common/Resizable.tsx`; delete `3rdparty/shadcn/` directory, `components.json`, and `@shadcn/*` path alias; remove 7 unused dependencies (`@radix-ui/react-dialog`, `@radix-ui/react-dropdown-menu`, `@radix-ui/react-select`, `@radix-ui/react-separator`, `@radix-ui/react-slot`, `class-variance-authority`, `lucide-react`); keep `@radix-ui/react-collapsible` and `react-resizable-panels` (no HeroUI equivalent); preserve dark-only OKLCH color palette via HeroUI semantic token overrides in `:root`

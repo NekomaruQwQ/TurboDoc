@@ -16,7 +16,8 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faEllipsis } from "@fortawesome/free-solid-svg-icons";
 
 import type { Item, ItemVersions } from "@/core/data";
-import { useProviderUiState } from "@/core/context";
+import { useProvider } from "@/core/context";
+import { useItemExpanded } from "@/core/uiState";
 
 import ExplorerItemMenu
     from "@/ui/explorer/ExplorerItemMenu";
@@ -27,22 +28,10 @@ export default function ExplorerItem({ item, itemGroupName }: ReadonlyDeep<{
     item: Item,
     itemGroupName: string,
 }>) {
-    const { expandedItems, updateExpandedItems } = useProviderUiState();
-
-    const expanded = expandedItems.includes(item.id);
+    const [expanded, setExpanded] = useItemExpanded(useProvider().id, item.id);
 
     function toggleExpanded() {
-        updateExpandedItems(draft => {
-            if (expanded) {
-                const index = draft.indexOf(item.id);
-                if (index !== -1)
-                    draft.splice(index, 1);
-                else
-                    console.warn(`Item "${item.id}" not found in expandedItems`);
-            } else {
-                draft.push(item.id);
-            }
-        });
+        setExpanded(!expanded);
     }
 
     return (
