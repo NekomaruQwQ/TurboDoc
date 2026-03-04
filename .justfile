@@ -1,5 +1,7 @@
 set shell := ["nu", "-c"]
 
+alias i := install
+
 list:
     just --list
 install:
