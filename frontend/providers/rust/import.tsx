@@ -92,7 +92,7 @@ export function getImportCratesAction(ctx: RustProviderContext): ProviderAction 
             return <>
                 <Button
                     variant="secondary"
-                    className="w-full h-8 border cursor-pointer"
+                    className="w-full h-8 border rounded-md cursor-pointer"
                     onPress={dialogState.open}>
                     <FontAwesomeIcon icon={faPlus}/>
                     <span>Import</span>
@@ -105,7 +105,7 @@ export function getImportCratesAction(ctx: RustProviderContext): ProviderAction 
                                 <Modal.Heading>Import from URLs</Modal.Heading>
                             </Modal.Header>
                             <Modal.Body>
-                                <p className="text-sm text-muted-foreground">
+                                <p className="text-sm text-muted">
                                     Paste crate names or docs.rs or doc.rust-lang.org URLs (one per line) to add crates and pages.
                                 </p>
                                 <textarea
@@ -113,7 +113,7 @@ export function getImportCratesAction(ctx: RustProviderContext): ProviderAction 
                                     onChange={e => setImportText(e.target.value)}
                                     placeholder="https://docs.rs/tokio/latest/tokio/..."
                                     rows={8}
-                                    className="w-full rounded-lg border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+                                    className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus" />
                             </Modal.Body>
                             <Modal.Footer>
                                 <Button variant="outline" onPress={dialogState.close}>Cancel</Button>

@@ -70,7 +70,7 @@ export default function ExplorerGroupHeader(
             updateExpandedItems(draft => {
                 // Remove all items belonging to this group.
                 for (let i = draft.length - 1; i >= 0; i--) {
-                    if (items.includes(draft[i]))
+                    if (items.includes(draft[i]!))
                         draft.splice(i, 1);
                 }
             });
@@ -165,11 +165,11 @@ export default function ExplorerGroupHeader(
                         onKeyDown={onRenameKeyDown}
                         onBlur={confirmRename}
                         autoFocus
-                        className="h-7 mx-1 rounded-md font-semibold" />
+                        className="flex-1 h-7 mx-1 font-semibold" />
                     <Button
                         variant="secondary"
                         isIconOnly
-                        className="size-7 min-w-0 rounded-md"
+                        className="size-7 min-w-0"
                         onPress={confirmRename}>
                         <FontAwesomeIcon icon={faCheck} />
                     </Button>
@@ -177,7 +177,7 @@ export default function ExplorerGroupHeader(
         }
 
         return (
-            <div className="group/header flex flex-row h-8 py-0.5 items-center gap-0.5 text-muted-foreground">
+            <div className="group/header flex flex-row h-8 py-0.5 items-center gap-0.5 text-muted">
                 {/* Group name */}
                 <p
                     className="flex flex-row flex-1 gap-2 items-center text-lg pl-1 font-semibold cursor-pointer truncate"
@@ -191,7 +191,7 @@ export default function ExplorerGroupHeader(
                 <Button
                     variant="ghost"
                     isIconOnly
-                    className="size-7 min-w-0 rounded-md invisible group-hover/header:visible"
+                    className="size-7 min-w-0 invisible group-hover/header:visible"
                     aria-label="Rename group"
                     onPress={() => {
                         setIsRenaming(true);
@@ -205,7 +205,7 @@ export default function ExplorerGroupHeader(
                         <Button
                             variant="ghost"
                             isIconOnly
-                            className="size-7 min-w-0 rounded-md">
+                            className="size-7 min-w-0">
                             <FontAwesomeIcon icon={faEllipsisVertical} />
                         </Button>
                     </Dropdown.Trigger>
@@ -310,7 +310,7 @@ export default function ExplorerGroupHeader(
             </div>);
     } else {
         return (
-            <div className="group/header flex flex-row h-8 py-0.5 items-center gap-0.5 text-muted-foreground">
+            <div className="group/header flex flex-row h-8 py-0.5 items-center gap-0.5 text-muted">
                 {/* Group name */}
                 <p className="flex flex-row flex-1 gap-2 items-center text-lg pl-1 font-semibold cursor-pointer truncate" >
                     <span className="flex-1 truncate">Ungrouped</span>

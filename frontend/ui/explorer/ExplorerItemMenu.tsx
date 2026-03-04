@@ -43,7 +43,7 @@ export default function ExplorerItemMenu({ item, itemGroupName }: ReadonlyDeep<{
                 <Button
                     variant="ghost"
                     isIconOnly
-                    className="size-6 min-w-0 border rounded-sm hover:bg-input/50 cursor-pointer">
+                    className="size-6 min-w-0 border hover:bg-input/50 cursor-pointer">
                     <FontAwesomeIcon icon={faEllipsisVertical} size="sm" />
                 </Button>
             </Dropdown.Trigger>

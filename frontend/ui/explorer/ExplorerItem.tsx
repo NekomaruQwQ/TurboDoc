@@ -47,7 +47,7 @@ export default function ExplorerItem({ item, itemGroupName }: ReadonlyDeep<{
 
     return (
         <Collapsible
-            className="flex flex-col p-1 gap-1 rounded-md bg-accent border shadow-sm truncate"
+            className="flex flex-col p-1 gap-1 rounded-lg bg-accent border shadow-sm truncate"
             open={expanded}
             onOpenChange={toggleExpanded}>
             <div className="flex flex-row gap-1">
@@ -78,7 +78,7 @@ function ExplorerItemVersionSelector(props: ReadonlyDeep<ItemVersions>) {
             selectedKey={props.current}
             onSelectionChange={key => props.setCurrentVersion(key as string)}
             className="w-24">
-            <Select.Trigger className="h-6 min-h-0 rounded-sm shadow-none text-xs text-foreground/60 cursor-pointer px-2">
+            <Select.Trigger className="h-6 px-2 min-h-0 border bg-transparent shadow-none text-xs text-foreground/60 cursor-pointer">
                 <Select.Value />
                 <Select.Indicator />
             </Select.Trigger>

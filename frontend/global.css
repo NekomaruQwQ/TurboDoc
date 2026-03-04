@@ -1,9 +1,31 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "@heroui/styles";
+
+@theme inline {
+    /* 15% transparent white for interactive element highlights.
+     * No HeroUI equivalent — HeroUI uses opaque colors for interactive states.
+     * Used as bg-input (active state), hover:bg-input/50 (hover), and
+     * border-input (field borders slightly more visible than --border at 10%). */
+    --color-input: oklch(1 0 0 / 15%);
+}
+
 :root {
-    /* font families (Ubuntu) */
+    /* Base font size: We use 14px instead of 16px to better fit more content
+     * in the UI, especially for the sidebar and explorer, as TurboDoc is a
+     * productivity tool rather than a general-purpose website. */
+    font-size: 14px;
+}
+
+:root {
+    /* Font families: We use Ubuntu as the default font for both sans and mono
+     * to give a more modern and sleek look. */
     --font-sans: 'Ubuntu Light', sans-serif;
     --font-mono: 'Ubuntu Mono', monospace;
 
-    /* color palette (One Dark) */
+    /* Extra color palette: We adopt the color palette from One Dark Pro, a
+     * popular VSCode theme, to provide a familiar and visually appealing
+     * experience for users who are accustomed to this theme. */
     --color-yellow: #E5C07B;
     --color-cyan: #56B6C2;
     --color-blue: #61AFEF;
@@ -11,10 +33,68 @@
     --color-purple: #C678DD;
     --color-green: #98C379;
     --color-red: #E06C75;
+}
 
-    /* force dark theme */
-    color-scheme: dark;
+:root {
+    /* Sharp corners: HeroUI defaults to a bubbly look with large border radii.
+     * Particularly, HeroUI defines --field-radius cal(var(--radius) * 1.5),
+     * which is too much for input fields. By setting --field-radius to
+     * --radius-md (0.375rem in Tailwind), we can achieve a more professional and
+     * consistent look across all form elements. */
+    --field-radius: var(--radius-md);
 
-    /* base font size */
-    font-size: 14px;
+    /* HeroUI defines --color-accent-soft-foreground  as --accent, which is
+     * obviously wrong and causes the text on accent colored buttons to be
+     * invisible.
+     *
+     * This seems to be a bug in HeroUI's styling and here we override it to
+     * with the correct value.
+     */
+    --color-accent-soft-foreground: var(--accent-foreground);
+}
+
+:root {
+    /* === Base palette === */
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
+
+    /* === HeroUI semantic overrides === */
+    --surface: oklch(0.205 0 0);
+    --surface-secondary: oklch(0.257 0 0);
+    --surface-tertiary: oklch(0.272 0 0);
+    --overlay: oklch(0.205 0 0);
+    --default: oklch(0.269 0 0);
+    --muted: oklch(0.708 0 0);
+    --accent: oklch(0.269 0 0);
+    --danger: oklch(0.704 0.191 22.216);
+    --border: oklch(1 0 0 / 10%);
+    --separator: oklch(1 0 0 / 10%);
+    --focus: oklch(0.556 0 0);
+    --scrollbar: oklch(0.708 0 0);
+    --segment: oklch(0.396 0 0);
+    --field-background: oklch(0.205 0 0);
+    --field-border: oklch(1 0 0 / 10%);
+}
+
+/* HeroUI defaults to a bubbly look with large border radii, but as TurboDoc
+ * is a productivity tool, we prefer a more professional and clean appearance
+ * with sharper corners and more compact spacing. */
+.button {
+    @apply rounded-md;
+}
+
+.menu-item,
+.list-box-item {
+    @apply rounded-md px-2 py-0;
+
+    min-height: calc(var(--spacing) * 7.5);
+}
+
+.select__popover,
+.dropdown__popover {
+    @apply rounded-lg;
+}
+
+.select__value {
+    @apply inline-flex items-center;
 }

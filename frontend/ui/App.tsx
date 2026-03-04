@@ -16,7 +16,7 @@ export default function App() {
             <ResizablePanelGroup direction="horizontal">
                 <ResizablePanel defaultSize={20} className="px-2">
                     {/* Clip the content of explorer with rounded corners */}
-                    <div className="w-full h-full rounded-md overflow-clip">
+                    <div className="w-full h-full rounded-t-lg overflow-clip">
                         <Explorer />
                     </div>
                 </ResizablePanel>
@@ -26,7 +26,7 @@ export default function App() {
                     <iframe
                         ref={ctx.viewerRef}
                         src={ctx.uiState.currentUrl}
-                        className="w-full h-full border border-white/25 rounded-tl-md"/>
+                        className="w-full h-full border border-white/25 rounded-tl-lg"/>
                 </ResizablePanel>
             </ResizablePanelGroup>
         </div>);

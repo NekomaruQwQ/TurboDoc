@@ -58,7 +58,7 @@ export default function ExplorerCreateGroupComponent() {
     }
 
     return (
-        <div className="flex flex-row items-center w-full gap-2">
+        <div className="flex flex-row items-center w-full gap-1">
             {inputMode ? <>
                 <Input
                     value={inputText}
@@ -67,7 +67,7 @@ export default function ExplorerCreateGroupComponent() {
                     onChange={e => setInputText(e.target.value)}
                     onKeyDown={onKeyDown}
                     onBlur={e => onCancel(e)}
-                    className="h-8"/>
+                    className="h-8 flex-1 ml-1"/>
                 {/* Use onMouseDown to prevent onBlur fired before onClick */}
                 <Button
                     variant="secondary"
