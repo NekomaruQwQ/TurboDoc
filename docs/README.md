@@ -133,7 +133,7 @@ WebView2 iframe navigates to https://docs.rs/serde/latest/serde/
 - **Build**: Vite 7 with React SWC plugin
 - **State Management**: Immer (`useImmer`) for immutable updates
 - **Type Utilities**: type-fest for `ReadonlyDeep` type-level immutability
-- **UI Components**: Radix UI primitives + shadcn/ui (vendored in `3rdparty/shadcn/`)
+- **UI Components**: Radix UI primitives + shadcn/ui (vendored in `frontend/3rdparty/shadcn/`)
 - **Styling**: Tailwind CSS v4 with OKLCH color space
 - **Icons**: Font Awesome
 - **Utilities**: remeda (functional), semver, zod
@@ -159,7 +159,7 @@ WebView2 iframe navigates to https://docs.rs/serde/latest/serde/
 ### Component Hierarchy
 
 ```
-src/index.tsx (entry point, appData loading, uiState from localStorage, auto-save)
+frontend/index.tsx (entry point, appData loading, uiState from localStorage, auto-save)
 └── AppContextProvider
     └── App (ResizablePanelGroup)
         ├── Explorer (left panel)
@@ -190,7 +190,7 @@ ExplorerItem (Radix Collapsible)
 
 ### Component Responsibilities
 
-- **Explorer** (`ui/explorer/index.tsx`): Top-level container; iterates providers in current preset
+- **Explorer** (`frontend/ui/explorer/index.tsx`): Top-level container; iterates providers in current preset
 - **ExplorerProvider** (inline): Owns per-provider data (`useProviderData`) and cache (`useProviderCache`), constructs `ProviderContext`, calls `provider.render()`, renders provider actions and groups
 - **ExplorerGroup** (inline): Renders group header + filtered/sorted items; handles ungrouped vs named variants
 - **ExplorerGroupHeader** (`ExplorerGroupHeader.tsx`): Chevron toggle, rename input, dropdown menu (expand/collapse all, move up/down/under, delete with confirmation)
@@ -216,11 +216,11 @@ ExplorerItem (Radix Collapsible)
 
 ### Provider System
 
-Providers register in `providers/index.ts` and implement the `Provider<T, TCache>` interface from `core/data.ts`. Each provider's `render()` returns a `ProviderOutput` containing:
+Providers register in `frontend/providers/index.ts` and implement the `Provider<T, TCache>` interface from `frontend/core/data.ts`. Each provider's `render()` returns a `ProviderOutput` containing:
 - `items: Record<string, Item>` — uniform view models with pages, links, actions, versions
 - `actions?: ProviderAction[]` — provider-level UI (e.g., import dialog)
 
-View models contain callbacks (e.g., `setPinned`, `setCurrentVersion`, `invoke`) that update provider data via Immer. View models are derived on every render — never memoized, never serialized. See `core/data.ts` for the full type definitions.
+View models contain callbacks (e.g., `setPinned`, `setCurrentVersion`, `invoke`) that update provider data via Immer. View models are derived on every render — never memoized, never serialized. See `frontend/core/data.ts` for the full type definitions.
 
 **Current:** `rust` (docs.rs + doc.rust-lang.org + windows-docs-rs). **Planned:** `rust.cargo`, `cpp.cppreference`, `cpp.msdocs`, etc.
 
@@ -235,7 +235,7 @@ HTTP proxy SQLite cache ──────────────► useProvide
 
 #### Unified Rust Provider
 
-The `rust` provider (`providers/rust/`) handles three documentation domains as a single provider. Originally planned as separate `rust.crate` and `rust.std` providers, merged for simplicity:
+The `rust` provider (`frontend/providers/rust/`) handles three documentation domains as a single provider. Originally planned as separate `rust.crate` and `rust.std` providers, merged for simplicity:
 - Both handle Rust documentation with identical page structure
 - Symbol parsing and color coding are the same
 - Simpler mental model for users (one "Rust" section in sidebar)
@@ -276,8 +276,9 @@ Currently handled within the unified `rust` provider (cross-crate). When multipl
 ### Running the Dev Server
 
 ```
+just install   # Installs dependencies for both server/ and frontend/
 just server    # Starts Bun + Hono API/proxy + Vite dev server on $TURBODOC_PORT
-just app       # Starts C# WinUI host (dotnet run), connects to server at $TURBODOC_PORT
+just app       # Starts C# WinUI host from out/bin/, connects to server at $TURBODOC_PORT
 ```
 
 The server and host are started separately. The server must be running before the host is launched.
@@ -303,13 +304,13 @@ The server and host are started separately. The server must be running before th
 ## Visual Design System
 
 ### Colors
-- Based on existing Tailwind theme in `global.css`
+- Based on existing Tailwind theme in `frontend/global.css`
 - OKLCH color space for perceptual uniformity
 - Dark background with high-contrast text
 - Accent color for active/selected states
 - Muted colors for secondary information
 
-### One Dark Symbol Colors (CSS variables in `global.css`)
+### One Dark Symbol Colors (CSS variables in `frontend/global.css`)
 - Yellow (`--color-yellow`): type (struct, enum)
 - Cyan (`--color-cyan`): interface (trait)
 - Blue (`--color-blue`): function
@@ -320,7 +321,7 @@ The server and host are started separately. The server must be running before th
 - Monospace font for item names and page links (`font-mono`)
 - Clear hierarchy: group names (`text-lg font-semibold`) > item names (`font-mono`) > page links (`font-mono font-light`)
 - Italic for preview pages (emphasis without weight)
-- Base font size: 14px (set in `:root` in `global.css`)
+- Base font size: 14px (set in `:root` in `frontend/global.css`)
 - Font families: Ubuntu Light (sans) and Ubuntu Mono (monospace)
 
 ### Spacing
@@ -424,9 +425,9 @@ Design decisions that shaped the current architecture. Organized by area.
 
 **Split Workspace Persistence**
 - Workspace split into two server-persisted file categories:
-  - `workspace.app.json` — global app state (presets). Loaded eagerly in `index.tsx`.
+  - `workspace.app.json` — global app state (presets). Loaded eagerly in `frontend/index.tsx`.
   - `workspace.<providerId>.json` — per-provider user data (groups, provider-specific data). Loaded lazily per-provider by `useProviderData` hook.
-- Transient UI state (`currentUrl`, `expandedItems`, `expandedGroups`) stored in **localStorage** (`turbodoc:ui-state`), not on the server. Loaded synchronously on startup, auto-saved on every change. Validated with Zod `uiStateSchema` on load; invalid/missing data falls back to empty defaults (default URL `https://docs.rs/`, everything collapsed).
+- Transient UI state (`currentUrl`, `expandedItems`, `expandedGroups`) stored in **localStorage** (`turbodoc:ui-state`), not on the server. Loaded synchronously on startup, auto-saved on every change. Validated with Zod `uiStateSchema` on load; invalid/missing data falls back to empty defaults (default URL `https://docs.rs/`, everything collapsed). See `frontend/core/ui-state-storage.ts`.
 - API response caching (e.g., crates.io metadata) handled by the HTTP proxy's SQLite cache — no separate cache files or endpoints. Provider keeps an in-memory cache (`useProviderCache` → `useImmer({})`) for within-session state, populated on demand from proxy responses.
 - Server-persisted via Hono HTTP API (`/api/v1/workspace/app`, `/workspace/:providerId`)
 - `"app"` is a reserved path segment — cannot be used as a provider ID
@@ -471,10 +472,10 @@ AppData + ProviderData (React state) ──► provider.render() ──► React
 - Immer ensures immutable updates with minimal reference changes
 - Object creation is fast; DOM updates are the bottleneck — no memoization needed yet
 - View model derivation is a pure function of data model — easy to reason about
-- `ProviderContext` constructed in `ExplorerProvider` using `useProviderData` and `useProviderCache` hooks from `context.ts`
+- `ProviderContext` constructed in `ExplorerProvider` using `useProviderData` and `useProviderCache` hooks from `frontend/core/context.ts`
 
 **Three State Atoms**
-- `index.tsx` owns two atoms: `appData` (presets, async from server) and `uiState` (current URL + expansion states, sync from localStorage)
+- `frontend/index.tsx` owns two atoms: `appData` (presets, async from server) and `uiState` (current URL + expansion states, sync from localStorage)
 - Provider data is lazily loaded per-provider inside `ExplorerProvider` via `useProviderData` hook
 - Each atom has independent auto-save via `useEffect` — a change in one slice doesn't trigger writes to others
 
@@ -548,72 +549,82 @@ AppData + ProviderData (React state) ──► provider.render() ──► React
 
 ```
 TurboDoc/
-├── package.json                # Bun project
-├── .justfile                   # Task runner (just server, just app)
-├── vite.config.ts              # Root: src/, aliases: @/ → src/, @shadcn/ → 3rdparty/shadcn/
-├── tsconfig.json               # ESNext, bundler mode, strict
+├── .justfile                   # Task runner (just install, just server, just app)
 ├── biome.json                  # Biome linter (formatter disabled)
-├── components.json             # shadcn/ui config (new-york style)
+├── TurboDoc.slnx               # .NET solution file (references app/)
+├── Directory.Build.props       # .NET build config (output to out/)
 │
-│ # C# WinUI host (WebView2 shell)
-├── TurboDoc.csproj             # .NET 10, WinUI 3, x64
-├── TurboDoc.slnx               # Solution file
-├── App.xaml / App.xaml.cs       # WinUI application entry
-├── MainWindow.xaml / .xaml.cs   # WebView2 window, request interception, proxy forwarding
-├── WindowUtils.cs              # Window sizing and title bar customization
-├── App.manifest                # Application manifest
+├── app/                        # C# WinUI host (WebView2 shell)
+│   ├── TurboDoc.csproj         # .NET 10, WinUI 3, x64
+│   ├── App.xaml / App.xaml.cs  # WinUI application entry
+│   ├── MainWindow.xaml / .cs   # WebView2 window, request interception, proxy forwarding
+│   ├── WindowUtils.cs          # Window sizing and title bar customization
+│   └── App.manifest            # Application manifest
 │
-├── src/
+├── frontend/                   # React frontend (own package.json + tsconfig.json)
+│   ├── package.json            # Frontend dependencies (React, Radix, Font Awesome, etc.)
+│   ├── tsconfig.json           # ESNext, bundler mode, strict; aliases: @/ @server/ @shadcn/
+│   ├── vite.config.ts          # Root: frontend/, aliases: @/ → frontend/, @server/ → server/
+│   ├── components.json         # shadcn/ui config (new-york style)
+│   ├── core.ts                 # Shared utility (throwError)
 │   ├── index.html              # Entry HTML
 │   ├── index.tsx               # React entry point (workspace loading, auto-save, IPC listener)
 │   ├── global.css              # Global styles + One Dark color palette
 │   ├── global.tailwind.css     # Tailwind CSS entry point
 │   │
-│   ├── app/                    # Frontend application code
-│   │   ├── core/
-│   │   │   ├── data.ts         # Zod schemas + inferred types (AppData, ProviderData, UiState, Provider, Item, Page, etc.)
-│   │   │   ├── context.ts      # AppContext class, React context providers and hooks (useProviderData, useProviderCache, useProviderUiState)
-│   │   │   ├── ipc.ts          # Hono HTTP client (workspace + cache CRUD) + WebView2 event listener (navigated)
-│   │   │   ├── ui-state-storage.ts # localStorage-based UI expansion state (load/save with Zod validation)
-│   │   │   └── prelude.ts      # State<T> type helper + cn() utility
-│   │   │
-│   │   ├── providers/
-│   │   │   ├── index.ts        # Provider registry (Record<string, Provider>)
-│   │   │   └── rust/           # Unified Rust provider
-│   │   │       ├── index.tsx   # Provider implementation (render, URL handling, page parsing, cache types)
-│   │   │       ├── url.ts      # URL parsing/building (docs.rs, doc.rust-lang.org, windows-docs-rs)
-│   │   │       ├── url.test.ts
-│   │   │       ├── import.tsx  # Import dialog (ProviderAction with type: "node")
-│   │   │       ├── crates-api.ts                  # crates.io API client (via HTTP proxy) with rate limiting
-│   │   │       └── crates-api.integration.test.ts
-│   │   │
-│   │   ├── ui/
-│   │   │   ├── App.tsx         # Main layout (ResizablePanelGroup: explorer + iframe viewer)
-│   │   │   ├── common/
-│   │   │   │   └── Icon.tsx    # Icon wrapper (FontAwesome)
-│   │   │   └── explorer/
-│   │   │       ├── index.tsx                       # Explorer, ExplorerProvider, ExplorerGroup
-│   │   │       ├── ExplorerGroupHeader.tsx         # Group header (collapse, rename, dropdown menu)
-│   │   │       ├── ExplorerCreateGroupComponent.tsx # Add group button/input
-│   │   │       ├── ExplorerItem.tsx                # Collapsible item card with version selector
-│   │   │       ├── ExplorerItemMenu.tsx            # Item menu (move to group, links, actions)
-│   │   │       └── ExplorerPageList.tsx            # Page list with symbol colors + pinning
-│   │   │
-│   │   └── utils/
-│   │       ├── version-group.ts      # Semver version grouping
-│   │       └── version-group.test.ts
+│   ├── core/
+│   │   ├── data.ts             # Zod schemas + inferred types (AppData, ProviderData, UiState, Provider, Item, Page, etc.)
+│   │   ├── context.ts          # AppContext class, React context providers and hooks (useProviderData, useProviderCache, useProviderUiState)
+│   │   ├── ipc.ts              # Hono HTTP client (workspace + cache CRUD) + WebView2 event listener (navigated)
+│   │   ├── ui-state-storage.ts # localStorage-based UI expansion state (load/save with Zod validation)
+│   │   └── prelude.ts          # State<T> type helper + cn() utility
 │   │
-│   └── server/
-│       ├── index.ts            # Hono router + Vite dev server ($TURBODOC_PORT)
-│       ├── api.ts              # API endpoints (split workspace CRUD, legacy migration)
-│       ├── proxy.ts            # /proxy?url= route handler + dark mode injection
-│       ├── http-cache.ts       # SQLite HTTP cache (bun:sqlite, LRU eviction)
-│       └── common.ts           # Shared config, database setup, utilities
+│   ├── providers/
+│   │   ├── index.ts            # Provider registry (Record<string, Provider>)
+│   │   └── rust/               # Unified Rust provider
+│   │       ├── index.tsx       # Provider implementation (render, URL handling, page parsing, cache types)
+│   │       ├── url.ts          # URL parsing/building (docs.rs, doc.rust-lang.org, windows-docs-rs)
+│   │       ├── url.test.ts
+│   │       ├── import.tsx      # Import dialog (ProviderAction with type: "node")
+│   │       ├── crates-api.ts                  # crates.io API client (via HTTP proxy)
+│   │       └── crates-api.integration.test.ts
+│   │
+│   ├── ui/
+│   │   ├── App.tsx             # Main layout (ResizablePanelGroup: explorer + iframe viewer)
+│   │   ├── common/
+│   │   │   └── Icon.tsx        # Icon wrapper (FontAwesome)
+│   │   └── explorer/
+│   │       ├── index.tsx                       # Explorer, ExplorerProvider, ExplorerGroup
+│   │       ├── ExplorerGroupHeader.tsx         # Group header (collapse, rename, dropdown menu)
+│   │       ├── ExplorerCreateGroupComponent.tsx # Add group button/input
+│   │       ├── ExplorerItem.tsx                # Collapsible item card with version selector
+│   │       ├── ExplorerItemMenu.tsx            # Item menu (move to group, links, actions)
+│   │       └── ExplorerPageList.tsx            # Page list with symbol colors + pinning
+│   │
+│   ├── utils/
+│   │   ├── version-group.ts    # Semver version grouping
+│   │   └── version-group.test.ts
+│   │
+│   └── 3rdparty/
+│       └── shadcn/             # Vendored shadcn/ui components
+│           ├── components/ui/  # button, card, dialog, dropdown-menu, input, select, separator, etc.
+│           └── lib/utils.ts
 │
-├── 3rdparty/
-│   └── shadcn/                 # Vendored shadcn/ui components
-│       ├── components/ui/      # button, card, dialog, dropdown-menu, input, select, separator, etc.
-│       └── lib/utils.ts
+├── server/                     # Bun + Hono server (own package.json + tsconfig.json)
+│   ├── package.json            # Server dependencies (Hono, bun:sqlite, etc.)
+│   ├── tsconfig.json           # ESNext, bundler mode, strict; alias: @/ → server/
+│   ├── index.ts                # Hono router + Vite dev server ($TURBODOC_PORT)
+│   ├── api.ts                  # API endpoints (split workspace CRUD, legacy migration)
+│   ├── proxy.ts                # /proxy?url= route handler + dark mode injection
+│   ├── http-cache.ts           # SQLite HTTP cache (bun:sqlite, LRU eviction)
+│   └── common.ts               # Shared config, database setup, utilities
+│
+├── data/                       # Runtime data directory ($TURBODOC_DATA)
+│   ├── cache.sqlite            # HTTP proxy cache (SQLite WAL mode)
+│   ├── workspace.app.json      # Global app state (presets)
+│   └── workspace.<id>.json     # Per-provider user data
+│
+├── out/                        # .NET build output (ArtifactsPath)
 │
 └── docs/
     ├── README.md               # This file
@@ -674,6 +685,7 @@ TurboDoc/
 
 ## Change History
 
+- **2026-03**: Restructure project into `app/`, `frontend/`, `server/` top-level directories: each TypeScript package has its own `package.json` and `tsconfig.json`; C# host moved to `app/`; `.NET` build output directed to `out/` via `Directory.Build.props`; `data/` directory holds runtime workspace and cache files; Vite config moved to `frontend/vite.config.ts` with `@server` alias for cross-package imports
 - **2026-03**: Switch HTTP proxy cache to stale-while-revalidate: stale entries served immediately while background revalidation updates the cache; concurrent refetches for the same URL are deduplicated
 - **2026-03**: Remove client-side rate limiter from `crates-api.ts`: proxy cache (24h TTL) shields upstream, so the 1-second inter-request delay is unnecessary; requests now fire immediately
 - **2026-03**: Fix crates.io API cache staleness: inject synthetic `Cache-Control: max-age=86400` for crates.io API responses that lack cache directives; add `?cache=none` proxy parameter for on-demand refetch
@@ -689,7 +701,7 @@ TurboDoc/
 - **2026-03**: Build system: `.justfile` replaces Nushell scripts; `effect` package removed
 - **2026-02**: Merged Plan-v0.2.md into README (architecture decisions, identification scheme, provider details)
 - **2026-02**: Updated README to reflect v0.2 architecture (provider system, new component hierarchy, Hono server)
-- **2026-02**: Directory restructure: frontend code moved from `frontend/` to `src/app/`
+- **2026-02**: Directory restructure: frontend code moved from `frontend/` to `src/app/` (later restructured again in 2026-03)
 - **2026-02**: IPC migrated from WebView2 postMessage to Hono HTTP API for workspace/cache CRUD
 - **2026-01**: Unified Rust provider: merged docs.rs + doc.rust-lang.org + windows-docs-rs
 - **2026-01**: Provider-based architecture (Plan-v0.2): dynamic dispatch, view model pattern
