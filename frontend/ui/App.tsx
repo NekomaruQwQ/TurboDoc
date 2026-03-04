@@ -2,7 +2,7 @@ import {
     ResizableHandle,
     ResizablePanel,
     ResizablePanelGroup,
-} from "@shadcn/components/ui/resizable";
+} from "@/ui/common/Resizable";
 
 import { useAppContext } from "@/core/context";
 

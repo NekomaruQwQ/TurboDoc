@@ -1,19 +1,10 @@
-import type { ComponentProps } from "react";
 import { useState } from "react";
 
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus } from "@fortawesome/free-solid-svg-icons";
 
-import { Button } from "@shadcn/components/ui/button";
-
-import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-} from "@shadcn/components/ui/dialog";
+import { Button, Modal } from "@heroui/react";
+import { useOverlayState } from "@heroui/react";
 
 import type { ProviderAction } from "@/core/data";
 import { parseUrl, getBaseUrlForCrate } from "./url";
@@ -23,12 +14,7 @@ export function getImportCratesAction(ctx: RustProviderContext): ProviderAction 
     return {
         type: "node",
         render() {
-            function ActionButton(props: ComponentProps<"button">) {
-                // biome-ignore lint/suspicious/noExplicitAny: custom size workaround.
-                return <Button variant="secondary" size={"custom" as any} {...props} />;
-            }
-
-            const [showDialog, setShowDialog] = useState(false);
+            const dialogState = useOverlayState();
             const [importText, setImportText] = useState("");
 
             function handleImport() {
@@ -100,36 +86,42 @@ export function getImportCratesAction(ctx: RustProviderContext): ProviderAction 
                 });
 
                 setImportText("");
-                setShowDialog(false);
+                dialogState.close();
             }
 
             return <>
-                <ActionButton
+                <Button
+                    variant="secondary"
                     className="w-full h-8 border cursor-pointer"
-                    onClick={() => setShowDialog(true)}>
+                    onPress={dialogState.open}>
                     <FontAwesomeIcon icon={faPlus}/>
                     <span>Import</span>
-                </ActionButton>
-                <Dialog open={showDialog} onOpenChange={setShowDialog}>
-                    <DialogContent>
-                        <DialogHeader>
-                            <DialogTitle>Import from URLs</DialogTitle>
-                            <DialogDescription>
-                                Paste crate names or docs.rs or doc.rust-lang.org URLs (one per line) to add crates and pages.
-                            </DialogDescription>
-                        </DialogHeader>
-                        <textarea
-                            value={importText}
-                            onChange={e => setImportText(e.target.value)}
-                            placeholder="https://docs.rs/tokio/latest/tokio/..."
-                            rows={8}
-                            className="w-full rounded-lg border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
-                        <DialogFooter>
-                            <Button variant="outline" onClick={() => setShowDialog(false)}>Cancel</Button>
-                            <Button onClick={handleImport}>Import</Button>
-                        </DialogFooter>
-                    </DialogContent>
-                </Dialog>
+                </Button>
+                <Modal state={dialogState}>
+                    <Modal.Backdrop />
+                    <Modal.Container>
+                        <Modal.Dialog>
+                            <Modal.Header>
+                                <Modal.Heading>Import from URLs</Modal.Heading>
+                            </Modal.Header>
+                            <Modal.Body>
+                                <p className="text-sm text-muted-foreground">
+                                    Paste crate names or docs.rs or doc.rust-lang.org URLs (one per line) to add crates and pages.
+                                </p>
+                                <textarea
+                                    value={importText}
+                                    onChange={e => setImportText(e.target.value)}
+                                    placeholder="https://docs.rs/tokio/latest/tokio/..."
+                                    rows={8}
+                                    className="w-full rounded-lg border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+                            </Modal.Body>
+                            <Modal.Footer>
+                                <Button variant="outline" onPress={dialogState.close}>Cancel</Button>
+                                <Button onPress={handleImport}>Import</Button>
+                            </Modal.Footer>
+                        </Modal.Dialog>
+                    </Modal.Container>
+                </Modal>
             </>
         }
     };

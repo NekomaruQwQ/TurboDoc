@@ -1,11 +1,10 @@
-import type { ComponentProps, KeyboardEvent } from "react";
+import type { KeyboardEvent } from "react";
 import { useState } from "react";
 
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheck, faPlus } from "@fortawesome/free-solid-svg-icons";
 
-import { Button } from "@shadcn/components/ui/button";
-import { Input } from "@shadcn/components/ui/input";
+import { Button, Input } from "@heroui/react";
 
 import { useProviderData, useProviderUiState } from "@/core/context";
 
@@ -58,11 +57,6 @@ export default function ExplorerCreateGroupComponent() {
         }
     }
 
-    function ActionButton(props: ComponentProps<"button">) {
-        // biome-ignore lint/suspicious/noExplicitAny: custom size workaround.
-        return <Button variant="secondary" size={"custom" as any} {...props} />;
-    }
-
     return (
         <div className="flex flex-row items-center w-full gap-2">
             {inputMode ? <>
@@ -75,19 +69,20 @@ export default function ExplorerCreateGroupComponent() {
                     onBlur={e => onCancel(e)}
                     className="h-8"/>
                 {/* Use onMouseDown to prevent onBlur fired before onClick */}
-                <ActionButton
-                    className="size-8 border cursor-pointer"
+                <Button
+                    variant="secondary"
+                    className="size-8 min-w-0 border cursor-pointer"
                     onMouseDown={e => onOK(e)}>
                     <FontAwesomeIcon icon={faCheck}/>
-                </ActionButton>
+                </Button>
             </> : <>
-                {/* Use onClick to avoid (what?) */}
-                <ActionButton
+                <Button
+                    variant="secondary"
                     className="w-full h-8 border cursor-pointer"
-                    onClick={() => setInputMode(true)}>
+                    onPress={() => setInputMode(true)}>
                     <FontAwesomeIcon icon={faPlus}/>
                     <span>Add Group</span>
-                </ActionButton>
+                </Button>
             </>}
         </div>);
 }

@@ -2,7 +2,7 @@
 .vite/
 .vs/
 
+data/
+dist/
 node_modules/
 out/
-
-data/

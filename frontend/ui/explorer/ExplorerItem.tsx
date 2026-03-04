@@ -1,21 +1,16 @@
 import type { ReadonlyDeep } from "type-fest";
 
-import { Separator } from "@shadcn/components/ui/separator";
+import {
+    Separator,
+    Select,
+    ListBox,
+} from "@heroui/react";
 
 import {
     Collapsible,
     CollapsibleTrigger,
     CollapsibleContent,
 } from "@radix-ui/react-collapsible";
-
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectSeparator,
-    SelectTrigger,
-    SelectValue,
-} from "@shadcn/components/ui/select";
 
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faEllipsis } from "@fortawesome/free-solid-svg-icons";
@@ -78,31 +73,36 @@ export default function ExplorerItem({ item, itemGroupName }: ReadonlyDeep<{
 
 function ExplorerItemVersionSelector(props: ReadonlyDeep<ItemVersions>) {
     return (
-        <Select value={props.current} onValueChange={props.setCurrentVersion}>
-            <SelectTrigger
-                // biome-ignore lint/suspicious/noExplicitAny: custom size workaround.
-                size={"custom" as any}
-                className={
-                    "pl-2 pr-1 py-0 w-24 h-6 rounded-sm shadow-none " +
-                    "text-xs text-foreground/60 cursor-pointer "}>
-                <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-                {props.recommended.map(
-                    version => (
-                        <SelectItem
-                            key={version}
-                            value={version}
-                            className="text-sm h-7 cursor-pointer">
-                            {version}
-                        </SelectItem>
-                    ))}
-                <SelectSeparator className="m-0.5" />
-                {/* Placeholder for future full version list popup */}
-                <SelectItem value="..." disabled className="h-7 px-2 text-sm">
-                    <FontAwesomeIcon icon={faEllipsis} className="mr-1 inline" />
-                    <span>More versions</span>
-                </SelectItem>
-            </SelectContent>
+        <Select
+            aria-label="Version"
+            selectedKey={props.current}
+            onSelectionChange={key => props.setCurrentVersion(key as string)}
+            className="w-24">
+            <Select.Trigger className="h-6 min-h-0 rounded-sm shadow-none text-xs text-foreground/60 cursor-pointer px-2">
+                <Select.Value />
+                <Select.Indicator />
+            </Select.Trigger>
+            <Select.Popover>
+                <ListBox>
+                    <ListBox.Section>
+                        {props.recommended.map(
+                            version => (
+                                <ListBox.Item
+                                    key={version}
+                                    id={version}
+                                    textValue={version}
+                                    className="text-sm h-7 cursor-pointer">
+                                    {version}
+                                </ListBox.Item>))}
+                    </ListBox.Section>
+                    <ListBox.Section>
+                        {/* Placeholder for future full version list popup */}
+                        <ListBox.Item id="..." textValue="More versions" className="h-7 px-2 text-sm opacity-50">
+                            <FontAwesomeIcon icon={faEllipsis} className="mr-1 inline" />
+                            <span>More versions</span>
+                        </ListBox.Item>
+                    </ListBox.Section>
+                </ListBox>
+            </Select.Popover>
         </Select>);
 }

@@ -133,7 +133,7 @@ WebView2 iframe navigates to https://docs.rs/serde/latest/serde/
 - **Build**: Vite 7 with React SWC plugin
 - **State Management**: Immer (`useImmer`) for immutable updates
 - **Type Utilities**: type-fest for `ReadonlyDeep` type-level immutability
-- **UI Components**: Radix UI primitives + shadcn/ui (vendored in `frontend/3rdparty/shadcn/`)
+- **UI Components**: HeroUI v3 (beta) — React Aria-based component library; `@radix-ui/react-collapsible` for item collapse
 - **Styling**: Tailwind CSS v4 with OKLCH color space
 - **Icons**: Font Awesome
 - **Utilities**: remeda (functional), semver, zod
@@ -179,8 +179,8 @@ frontend/index.tsx (entry point, appData loading, uiState from localStorage, aut
 ```
 ExplorerItem (Radix Collapsible)
 ├── Item name (clickable, toggles collapse)
-├── ExplorerItemVersionSelector (shadcn Select, if item.versions exists)
-├── ExplorerItemMenu (DropdownMenu: move to group, links, actions)
+├── ExplorerItemVersionSelector (HeroUI Select, if item.versions exists)
+├── ExplorerItemMenu (HeroUI Dropdown: move to group, links, actions)
 └── CollapsibleContent
     └── ExplorerPageList
         └── ExplorerPage[] (sorted by sortKey)
@@ -511,7 +511,7 @@ AppData + ProviderData (React state) ──► provider.render() ──► React
 - Separate types enforce different UI treatment
 
 **Collapsible Items**
-- Items use Radix Collapsible (not shadcn Card wrapper — simpler DOM)
+- Items use Radix Collapsible (simple DOM, no HeroUI equivalent)
 - Expansion state stored in centralized `UiState` via `useProviderUiState` hook
 - Default: collapsed (both items and groups)
 - Toggled by clicking item name
@@ -563,15 +563,14 @@ TurboDoc/
 │   └── App.manifest            # Application manifest
 │
 ├── frontend/                   # React frontend (own package.json + tsconfig.json)
-│   ├── package.json            # Frontend dependencies (React, Radix, Font Awesome, etc.)
-│   ├── tsconfig.json           # ESNext, bundler mode, strict; aliases: @/ @server/ @shadcn/
+│   ├── package.json            # Frontend dependencies (React, HeroUI, Font Awesome, etc.)
+│   ├── tsconfig.json           # ESNext, bundler mode, strict; aliases: @/ @server/
 │   ├── vite.config.ts          # Root: frontend/, aliases: @/ → frontend/, @server/ → server/
-│   ├── components.json         # shadcn/ui config (new-york style)
 │   ├── core.ts                 # Shared utility (throwError)
 │   ├── index.html              # Entry HTML
 │   ├── index.tsx               # React entry point (workspace loading, auto-save, IPC listener)
 │   ├── global.css              # Global styles + One Dark color palette
-│   ├── global.tailwind.css     # Tailwind CSS entry point
+│   ├── global.tailwind.css     # Tailwind CSS + HeroUI styles entry point
 │   │
 │   ├── core/
 │   │   ├── data.ts             # Zod schemas + inferred types (AppData, ProviderData, UiState, Provider, Item, Page, etc.)
@@ -593,7 +592,8 @@ TurboDoc/
 │   ├── ui/
 │   │   ├── App.tsx             # Main layout (ResizablePanelGroup: explorer + iframe viewer)
 │   │   ├── common/
-│   │   │   └── Icon.tsx        # Icon wrapper (FontAwesome)
+│   │   │   ├── Icon.tsx        # Icon wrapper (FontAwesome)
+│   │   │   └── Resizable.tsx   # Thin wrapper around react-resizable-panels
 │   │   └── explorer/
 │   │       ├── index.tsx                       # Explorer, ExplorerProvider, ExplorerGroup
 │   │       ├── ExplorerGroupHeader.tsx         # Group header (collapse, rename, dropdown menu)
@@ -605,11 +605,6 @@ TurboDoc/
 │   ├── utils/
 │   │   ├── version-group.ts    # Semver version grouping
 │   │   └── version-group.test.ts
-│   │
-│   └── 3rdparty/
-│       └── shadcn/             # Vendored shadcn/ui components
-│           ├── components/ui/  # button, card, dialog, dropdown-menu, input, select, separator, etc.
-│           └── lib/utils.ts
 │
 ├── server/                     # Bun + Hono server (own package.json + tsconfig.json)
 │   ├── package.json            # Server dependencies (Hono, bun:sqlite, etc.)
@@ -686,6 +681,7 @@ TurboDoc/
 
 ## Change History
 
+- **2026-03**: Migrate UI component library from shadcn/ui (vendored Radix primitives) to HeroUI v3 (beta, React Aria-based): replace Button, Input, Select, Dialog, DropdownMenu, Separator with HeroUI equivalents; move Resizable wrapper to `ui/common/Resizable.tsx`; delete `3rdparty/shadcn/` directory, `components.json`, and `@shadcn/*` path alias; remove 7 unused dependencies (`@radix-ui/react-dialog`, `@radix-ui/react-dropdown-menu`, `@radix-ui/react-select`, `@radix-ui/react-separator`, `@radix-ui/react-slot`, `class-variance-authority`, `lucide-react`); keep `@radix-ui/react-collapsible` and `react-resizable-panels` (no HeroUI equivalent); preserve dark-only OKLCH color palette via HeroUI semantic token overrides in `:root`
 - **2026-03**: Add batch crate metadata endpoint (`POST /api/v1/crates`): reads cached crates.io API responses from the SQLite HTTP cache in bulk; frontend batch-fetches all uncached crates on provider load, falling back to individual `/proxy` calls for cache misses; reduces 100+ browser↔server roundtrips to one on warm cache
 - **2026-03**: Restructure project into `app/`, `frontend/`, `server/` top-level directories: each TypeScript package has its own `package.json` and `tsconfig.json`; C# host moved to `app/`; `.NET` build output directed to `out/` via `Directory.Build.props`; `data/` directory holds runtime workspace and cache files; Vite config moved to `frontend/vite.config.ts` with `@server` alias for cross-package imports
 - **2026-03**: Switch HTTP proxy cache to stale-while-revalidate: stale entries served immediately while background revalidation updates the cache; concurrent refetches for the same URL are deduplicated
