@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+        <OutputType>winexe</OutputType>
+        <Platforms>x64</Platforms>
+        <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+        <WindowsPackageType>none</WindowsPackageType>
+        <ApplicationManifest>App.manifest</ApplicationManifest>
+    </PropertyGroup>
+    <PropertyGroup>
+        <RootNamespace>TurboDoc</RootNamespace>
+        <UseWinUI>true</UseWinUI>
+    </PropertyGroup>
+    <ItemGroup>
+        <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260101001" />
+        <PackageReference Include="Vanara.PInvoke.User32" Version="5.0.0" />
+    </ItemGroup>
+</Project>

@@ -2,9 +2,12 @@ set shell := ["nu", "-c"]
 
 list:
     just --list
+install:
+    cd server;   bun i
+    cd frontend; bun i
 app:
-    ./bin/Debug/TurboDoc.exe
+    out/bin/TurboDoc/debug_win-x64/TurboDoc.exe
 server:
-    TURBODOC_DATA=data bun --hot src/server
+    TURBODOC_DATA=data bun --hot server
 backup:
     cp -f data/workspace.json data/workspace.bak.json

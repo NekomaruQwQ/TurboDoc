@@ -1,9 +1,8 @@
 .idea/
+.vite/
 .vs/
 
 node_modules/
-target/
-bin/
-obj/
+out/
+
 data/
-dist/
