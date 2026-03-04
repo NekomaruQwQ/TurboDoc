@@ -366,6 +366,8 @@ Design decisions that shaped the current architecture. Organized by area.
 **API Response Caching via HTTP Proxy**
 - Provider API calls (e.g., crates.io) are routed through the server's `/proxy?url=` endpoint
 - The proxy's SQLite cache handles persistence, RFC 7234 freshness, conditional revalidation, and LRU eviction
+- Upstreams that lack cache directives (e.g., crates.io API) get synthetic `Cache-Control` headers injected before policy evaluation — currently `max-age=86400` (24 hours) for `https://crates.io/api/` URLs
+- `?cache=none` query parameter on `/proxy` bypasses the cache for on-demand refetch; the fresh response is still stored for future requests
 - Frontend keeps an in-memory cache (`useProviderCache` → `useImmer({})`) for within-session state — not persisted, starts empty on each app launch
 - No separate cache files, endpoints, or schema validation needed — the proxy is the single caching layer
 
@@ -671,6 +673,7 @@ TurboDoc/
 
 ## Change History
 
+- **2026-03**: Fix crates.io API cache staleness: inject synthetic `Cache-Control: max-age=86400` for crates.io API responses that lack cache directives; add `?cache=none` proxy parameter for on-demand refetch
 - **2026-03**: Move `currentUrl` from server-persisted `appData` to localStorage-backed `uiState`: eliminates HTTP PUT on every navigation, synchronous restore on startup; `appData` now contains only presets
 - **2026-03**: Migrate provider cache to HTTP proxy: crates.io API calls routed through `/proxy?url=`, SQLite cache handles persistence and RFC 7234 freshness; removed `cache.<providerId>.json` files, server cache endpoints, cache schema registry (`cache-schemas.ts`), Zod cache schemas (`cache.ts`), and cache IPC functions; `useProviderCache` simplified to in-memory `useImmer({})`
 - **2026-03**: UI state moved to localStorage (`turbodoc:ui-state`): synchronous load on startup, no server round-trip; server `/workspace/ui` endpoint and `workspace.ui.json` file removed entirely

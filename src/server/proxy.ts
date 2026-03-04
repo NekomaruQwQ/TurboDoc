@@ -88,8 +88,12 @@ export default new Hono().get("/", async c => {
         return c.text("Missing 'url' query parameter", 400);
     }
 
+    // `?cache=none` bypasses the cache and fetches fresh from upstream.
+    // The fresh response is still stored in cache for future requests.
+    const noCache = c.req.query("cache") === "none";
+
     try {
-        const result = await handleProxy(url);
+        const result = await handleProxy(url, noCache);
         return new Response(result.body as any, {
             status: result.status,
             headers: result.headers,
@@ -108,11 +112,11 @@ interface ProxyResult {
     body: Buffer | null;
 }
 
-async function handleProxy(url: string): Promise<ProxyResult> {
+async function handleProxy(url: string, noCache = false): Promise<ProxyResult> {
     const req = policyRequest(url);
 
-    // 1. Check cache
-    const cached = httpCache.get(url);
+    // 1. Check cache (skip when caller requests a fresh fetch)
+    const cached = noCache ? null : httpCache.get(url);
     if (cached) {
         // Check if the cached response is still fresh.
         if (cached.policy.satisfiesWithoutRevalidation(req)) {
@@ -149,8 +153,8 @@ async function handleProxy(url: string): Promise<ProxyResult> {
         return await cacheAndServe(url, req, revalResponse);
     }
 
-    // 2. Cache miss — fetch upstream.
-    console.log(`[proxy] MISS ${url}`);
+    // 2. Cache miss (or bypassed) — fetch upstream.
+    console.log(`[proxy] ${noCache ? "BYPASS" : "MISS"} ${url}`);
     const response = await fetchUpstream(url);
     return await cacheAndServe(url, req, response);
 }
@@ -172,6 +176,13 @@ async function cacheAndServe(
     // Read body for 2xx responses. Redirects have no meaningful body.
     const isRedirect = status >= 300 && status < 400;
     const body = isRedirect ? null : Buffer.from(await response.arrayBuffer());
+
+    // Crates.io API responses lack cache directives (no Cache-Control,
+    // Last-Modified, or ETag), making them immediately stale under RFC 7234.
+    // Inject a 24-hour TTL since crate metadata changes infrequently.
+    if (!responseHeaders["cache-control"] && url.startsWith("https://crates.io/api/")) {
+        responseHeaders["cache-control"] = "max-age=86400";
+    }
 
     // Build cache policy.
     const policyResponse: CachePolicy.Response = { status, headers: responseHeaders };
