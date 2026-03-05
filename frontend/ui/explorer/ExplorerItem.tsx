@@ -36,7 +36,7 @@ export default function ExplorerItem({ item, itemGroupName }: ReadonlyDeep<{
 
     return (
         <Collapsible
-            className="flex flex-col p-1 gap-1 rounded-lg bg-accent border shadow-sm truncate"
+            className="flex flex-col p-1 gap-0.5 rounded-lg bg-accent border shadow-sm truncate"
             open={expanded}
             onOpenChange={toggleExpanded}>
             <div className="flex flex-row gap-1">
@@ -53,8 +53,7 @@ export default function ExplorerItem({ item, itemGroupName }: ReadonlyDeep<{
                 <ExplorerItemMenu item={item} itemGroupName={itemGroupName} />
             </div>
             <CollapsibleContent className="collapsible-content flex flex-col">
-                <Separator />
-                <div className="h-1" />
+                <Separator className="my-1"/>
                 <ExplorerPageList pages={item.pages} />
             </CollapsibleContent>
         </Collapsible>);
