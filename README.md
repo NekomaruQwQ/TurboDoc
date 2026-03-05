@@ -35,6 +35,7 @@ TurboDoc is a dedicated viewer that proxies and caches docs.rs locally, lets you
 ### Build & Run
 
 ```sh
+dotnet build   # Build the host app
 just install   # Install dependencies for server/ and frontend/
 just server    # Start the dev server (API + proxy + Vite HMR)
 just app       # Launch the WinUI host (in a separate terminal)
