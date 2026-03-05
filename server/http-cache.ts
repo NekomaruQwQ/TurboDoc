@@ -6,7 +6,7 @@
 // The cache stores clean upstream responses — code injection is
 // applied at serve time by the proxy route.
 
-import { dbCache } from "@/common";
+import { dbCache } from "@server/common";
 
 // == HTTP Cache ==
 /** Maximum number of cached responses. When the cache is full, the least

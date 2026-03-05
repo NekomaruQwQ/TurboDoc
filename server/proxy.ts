@@ -15,8 +15,8 @@
 import { Hono } from "hono";
 import CachePolicy from "http-cache-semantics";
 
-import * as httpCache from "@/http-cache";
-import type { CacheEntry as HttpCacheEntry } from "@/http-cache";
+import * as httpCache from "@server/http-cache";
+import type { CacheEntry as HttpCacheEntry } from "@server/http-cache";
 
 // == Known rustdoc domains ==
 //

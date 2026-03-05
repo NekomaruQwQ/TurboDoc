@@ -20,9 +20,9 @@ import * as path from "node:path";
 import * as vite from "vite";
 import * as hono from "@hono/node-server";
 
-import { serverPort, baseUrl } from "@/common";
-import api from "@/api";
-import proxy from "@/proxy";
+import { serverPort, baseUrl } from "@server/common";
+import api from "@server/api";
+import proxy from "@server/proxy";
 
 const honoApp =
     new Hono()

@@ -4,9 +4,9 @@ import { Hono } from "hono";
 import path from "node:path";
 import fs from "node:fs/promises";
 
-import { dataDir, baseUrl } from "@/common";
-import * as httpCache from "@/http-cache";
-import { handleProxy } from "@/proxy";
+import { dataDir, baseUrl } from "@server/common";
+import * as httpCache from "@server/http-cache";
+import { handleProxy } from "@server/proxy";
 
 /** Load a JSON file and return it as the response body. Returns `{}` if the
  *  file doesn't exist (e.g., first launch). */
