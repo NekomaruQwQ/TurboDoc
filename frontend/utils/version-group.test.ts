@@ -15,7 +15,6 @@ describe("computeVersionGroups", () => {
 		const result = computeVersionGroups(versions);
 
 		expect(result).toHaveLength(1);
-		expect(result[0]!.latest).toBe("1.0.0");
 		expect(result[0]!.versions).toEqual([{ num: "1.0.0", yanked: false }]);
 	});
 
@@ -34,19 +33,17 @@ describe("computeVersionGroups", () => {
 		expect(result).toHaveLength(4);
 
 		// Group 1: 2.0.x (latest: 2.0.0)
-		expect(result[0]!.latest).toBe("2.0.0");
 		expect(result[0]!.versions).toEqual([{ num: "2.0.0", yanked: false }]);
 
 		// Group 2: 1.5.x (latest: 1.5.2, contains 1.5.2, 1.5.1, 1.5.0)
-		expect(result[1]!.latest).toBe("1.5.2");
 		expect(result[1]!.versions).toHaveLength(3);
 		expect(result[1]!.versions[0]!.num).toBe("1.5.2");
 
 		// Group 3: 1.4.x (latest: 1.4.3)
-		expect(result[2]!.latest).toBe("1.4.3");
+		expect(result[2]!.versions[0]!.num).toBe("1.4.3");
 
 		// Group 4: 1.0.x (latest: 1.0.0)
-		expect(result[3]!.latest).toBe("1.0.0");
+		expect(result[3]!.versions[0]!.num).toBe("1.0.0");
 	});
 
 	test("respects maxGroups parameter", () => {
@@ -60,9 +57,9 @@ describe("computeVersionGroups", () => {
 		const result = computeVersionGroups(versions, 3);
 
 		expect(result).toHaveLength(3);
-		expect(result[0]!.latest).toBe("5.0.0");
-		expect(result[1]!.latest).toBe("4.0.0");
-		expect(result[2]!.latest).toBe("3.0.0");
+		expect(result[0]!.versions[0]!.num).toBe("5.0.0");
+		expect(result[1]!.versions[0]!.num).toBe("4.0.0");
+		expect(result[2]!.versions[0]!.num).toBe("3.0.0");
 	});
 
 	test("handles pre-release versions", () => {
@@ -75,9 +72,9 @@ describe("computeVersionGroups", () => {
 
 		// 1.0.0-rc.1 and 1.0.0-beta.2 are in same group (1.0)
 		expect(result).toHaveLength(2);
-		expect(result[0]!.latest).toBe("1.0.0-rc.1");
+		expect(result[0]!.versions[0]!.num).toBe("1.0.0-rc.1");
 		expect(result[0]!.versions).toHaveLength(2);
-		expect(result[1]!.latest).toBe("0.9.0");
+		expect(result[1]!.versions[0]!.num).toBe("0.9.0");
 	});
 
 	test("handles yanked versions", () => {
@@ -87,7 +84,7 @@ describe("computeVersionGroups", () => {
 		];
 		const result = computeVersionGroups(versions);
 
-		expect(result[0]!.latest).toBe("2.0.0");
+		expect(result[0]!.versions[0]!.num).toBe("2.0.0");
 		expect(result[0]!.versions[0]!.yanked).toBe(true);
 		expect(result[1]!.versions[0]!.yanked).toBe(false);
 	});
@@ -102,10 +99,10 @@ describe("computeVersionGroups", () => {
 		const result = computeVersionGroups(versions);
 
 		// Should be: 2.0.0, 1.10.0, 1.5.0, 1.0.0
-		expect(result[0]!.latest).toBe("2.0.0");
-		expect(result[1]!.latest).toBe("1.10.0");
-		expect(result[2]!.latest).toBe("1.5.0");
-		expect(result[3]!.latest).toBe("1.0.0");
+		expect(result[0]!.versions[0]!.num).toBe("2.0.0");
+		expect(result[1]!.versions[0]!.num).toBe("1.10.0");
+		expect(result[2]!.versions[0]!.num).toBe("1.5.0");
+		expect(result[3]!.versions[0]!.num).toBe("1.0.0");
 	});
 
 	test("ignores invalid semver versions", () => {
@@ -118,8 +115,8 @@ describe("computeVersionGroups", () => {
 
 		// Should only include valid semver
 		expect(result).toHaveLength(2);
-		expect(result[0]!.latest).toBe("2.0.0");
-		expect(result[1]!.latest).toBe("1.0.0");
+		expect(result[0]!.versions[0]!.num).toBe("2.0.0");
+		expect(result[1]!.versions[0]!.num).toBe("1.0.0");
 	});
 
 	test("groups all patch versions together", () => {
@@ -133,7 +130,7 @@ describe("computeVersionGroups", () => {
 
 		// All should be in one group (1.5)
 		expect(result).toHaveLength(1);
-		expect(result[0]!.latest).toBe("1.5.3");
+		expect(result[0]!.versions[0]!.num).toBe("1.5.3");
 		expect(result[0]!.versions).toHaveLength(4);
 	});
 
@@ -151,11 +148,11 @@ describe("computeVersionGroups", () => {
 
 		// Should group by major.minor: 1.42, 1.41, 1.40, 1.0, 0.3
 		expect(result).toHaveLength(5);
-		expect(result[0]!.latest).toBe("1.42.0");
-		expect(result[1]!.latest).toBe("1.41.1");
+		expect(result[0]!.versions[0]!.num).toBe("1.42.0");
+		expect(result[1]!.versions[0]!.num).toBe("1.41.1");
 		expect(result[1]!.versions).toHaveLength(2); // 1.41.1 and 1.41.0
-		expect(result[2]!.latest).toBe("1.40.0");
-		expect(result[3]!.latest).toBe("1.0.0");
-		expect(result[4]!.latest).toBe("0.3.7");
+		expect(result[2]!.versions[0]!.num).toBe("1.40.0");
+		expect(result[3]!.versions[0]!.num).toBe("1.0.0");
+		expect(result[4]!.versions[0]!.num).toBe("0.3.7");
 	});
 });

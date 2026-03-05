@@ -28,11 +28,11 @@ export const useProvider = () => useContext(provider);
 // biome-ignore lint/style/noNonNullAssertion: always assigned in the context provider.
 const providerDataContext = createContext<State<ProviderData>>(undefined!);
 export const ProviderDataProvider = providerDataContext.Provider;
-/** Reads per-provider workspace data from context. Must be a descendant of
+/** Reads per-provider data from context. Must be a descendant of
  *  `ProviderDataProvider` (set up in `ExplorerProvider`). */
 export const useProviderData = () => useContext(providerDataContext);
 
-/** Per-provider workspace data: loaded from disk on mount, auto-saved on change.
+/** Per-provider data: loaded from disk on mount, auto-saved on change.
  *  Only called once per provider in `ExplorerProvider`; children access the
  *  data via `useProviderData()` (context consumer). */
 export function useProviderDataLoader(): State<ProviderData> {

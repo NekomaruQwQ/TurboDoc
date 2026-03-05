@@ -56,14 +56,14 @@ async function guardAgainstDataLoss(
     return null;
 }
 
-// -- One-time migration from monolithic workspace.json to split files --
+// -- One-time migrations (run before any requests are served) --
 
 /** Migrate legacy `workspace.json` into split files if it still exists.
  *  Extracts app data and per-provider data into separate files, then
  *  renames the original to `workspace.json.migrated`.
  *  UI state (expandedItems/expandedGroups) is dropped — it now lives
  *  in the frontend's localStorage and will start fresh. */
-async function migrateWorkspace(): Promise<void> {
+async function migrateFromMonolithic(): Promise<void> {
     const oldPath = path.resolve(`${dataDir}/workspace.json`);
     const oldFile = Bun.file(oldPath);
     if (!await oldFile.exists()) return;
@@ -71,10 +71,10 @@ async function migrateWorkspace(): Promise<void> {
     // biome-ignore lint/suspicious/noExplicitAny: migration deals with unknown legacy shape.
     const workspace = await oldFile.json() as any;
 
-    // Write app data.
+    // Write preset data.
     if (workspace.app) {
         await Bun.write(
-            path.resolve(`${dataDir}/workspace.app.json`),
+            path.resolve(`${dataDir}/preset.json`),
             JSON.stringify(workspace.app, undefined, 4));
     }
 
@@ -84,7 +84,7 @@ async function migrateWorkspace(): Promise<void> {
         // Strip UI-only fields before writing per-provider data.
         const { expandedItems, expandedGroups, ...providerData } = provider;
         await Bun.write(
-            path.resolve(`${dataDir}/workspace.${pid}.json`),
+            path.resolve(`${dataDir}/${pid}.json`),
             JSON.stringify(providerData, undefined, 4));
     }
 
@@ -93,8 +93,26 @@ async function migrateWorkspace(): Promise<void> {
     console.log("Migrated workspace.json → split files.");
 }
 
-// Run migration before any requests are served.
-await migrateWorkspace();
+/** Rename `workspace.*.json` files to drop the `workspace.` prefix.
+ *  Handles the transition from `workspace.preset.json` → `preset.json`
+ *  and `workspace.<providerId>.json` → `<providerId>.json`. */
+async function migrateFromWorkspacePrefix(): Promise<void> {
+    const dir = path.resolve(dataDir);
+    const entries = await fs.readdir(dir);
+    for (const entry of entries) {
+        if (!entry.startsWith("workspace.") || !entry.endsWith(".json"))
+            continue;
+        // Strip "workspace." prefix.
+        const newName = entry.slice("workspace.".length);
+        const oldPath = path.join(dir, entry);
+        const newPath = path.join(dir, newName);
+        await fs.rename(oldPath, newPath);
+        console.log(`Renamed ${entry} → ${newName}`);
+    }
+}
+
+await migrateFromMonolithic();
+await migrateFromWorkspacePrefix();
 
 export default new Hono()
     .use(async (c, next) => {
@@ -104,19 +122,19 @@ export default new Hono()
             `${c.req.url.replace(baseUrl, "")} ` +
             `-> ${c.res.status} (${c.res.headers.get("Content-Type") || ""})`);
     })
-    // Static workspace routes (registered before :providerId to avoid shadowing).
-    .get("/workspace/app", async c =>
-        loadDataAsJson(c, `${dataDir}/workspace.app.json`))
-    .put("/workspace/app", async c =>
-        saveDataAsJson(c, `${dataDir}/workspace.app.json`))
-    // Per-provider workspace data.
-    .get("/workspace/:providerId", async c => {
+    // Static data routes (registered before :providerId to avoid shadowing).
+    .get("/data/preset", async c =>
+        loadDataAsJson(c, `${dataDir}/preset.json`))
+    .put("/data/preset", async c =>
+        saveDataAsJson(c, `${dataDir}/preset.json`))
+    // Per-provider data.
+    .get("/data/:providerId", async c => {
         const { providerId } = c.req.param();
-        return loadDataAsJson(c, `${dataDir}/workspace.${providerId}.json`);
+        return loadDataAsJson(c, `${dataDir}/${providerId}.json`);
     })
-    .put("/workspace/:providerId", async c => {
+    .put("/data/:providerId", async c => {
         const { providerId } = c.req.param();
-        const filePath = path.resolve(`${dataDir}/workspace.${providerId}.json`);
+        const filePath = path.resolve(`${dataDir}/${providerId}.json`);
         const data = await c.req.json<unknown>();
         const json = JSON.stringify(data, undefined, 4);
 

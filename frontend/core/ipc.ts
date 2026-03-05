@@ -35,7 +35,6 @@ window.chrome?.webview?.addEventListener("message", ({ data }) => {
 // == Wrapper functions for API endpoints ==
 import { hc } from "hono/client";
 
-import { throwError } from "@/core";
 import type apiRoute from "@server/api";
 
 const api = hc<typeof apiRoute>("/api/v1");
@@ -45,45 +44,47 @@ function getJsonFromResponse<T = unknown>(response: {
     statusText: string,
     json(): Promise<T>,
 }): Promise<T> {
-    return response.ok
-        ? response.json()
-        : throwError(`API request failed: ${response.statusText}`);
+    if (response.ok) {
+        return response.json();
+    } else {
+        throw new Error(`API request failed: ${response.statusText}`);
+    }
 }
 
-// -- App Data --
+// -- Preset Data --
 
-/** Load global app data. Throws on HTTP/network errors.
+/** Load global preset data. Throws on HTTP/network errors.
  *  No validation — resolves to `unknown`. */
-export async function loadAppData(): Promise<unknown> {
-    const response = await api.workspace.app.$get();
+export async function loadPresetData(): Promise<unknown> {
+    const response = await api.data.preset.$get();
     return getJsonFromResponse(response);
 }
 
-/** Save global app data. Throws on failure. */
-export async function saveAppData(data: object): Promise<void> {
-    const response = await api.workspace.app.$put({ json: data });
+/** Save global preset data. Throws on failure. */
+export async function savePresetData(data: object): Promise<void> {
+    const response = await api.data.preset.$put({ json: data });
     if (!response.ok)
-        throw new Error(`Failed to save app data: ${response.statusText}`);
+        throw new Error(`Failed to save preset data: ${response.statusText}`);
 }
 
 // -- Provider Data --
 
-/** Load a provider's workspace data. Returns `{}` on HTTP errors (non-fatal).
+/** Load a provider's data. Returns `{}` on HTTP errors (non-fatal).
  *  No validation — resolves to `unknown`. */
 export async function loadProviderData(providerId: string): Promise<unknown> {
-    const response = await api.workspace[":providerId"].$get({
+    const response = await api.data[":providerId"].$get({
         param: { providerId },
     });
     return response.ok ? response.json() : {};
 }
 
-/** Save a provider's workspace data. Non-fatal on HTTP errors.
+/** Save a provider's data. Non-fatal on HTTP errors.
  *  The server may respond with 409 if the new data is suspiciously smaller
  *  than the existing file (data loss guard). */
 export async function saveProviderData(
     providerId: string, data: object,
 ): Promise<void> {
-    const response = await api.workspace[":providerId"].$put({
+    const response = await api.data[":providerId"].$put({
         param: { providerId },
         json: data,
     });

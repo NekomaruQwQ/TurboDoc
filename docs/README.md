@@ -12,7 +12,7 @@ The frontend uses a **multi-provider architecture** where each documentation sou
 - Version selection with intelligent grouping
 - Pin/unpin documentation pages (VS Code-style tabs)
 - Named groups for organizing items
-- Workspace persistence via Hono HTTP API
+- Data persistence via Hono HTTP API
 - Automatic cross-crate navigation
 - Symbol parsing with One Dark color coding
 
@@ -61,7 +61,7 @@ The frontend uses a **multi-provider architecture** where each documentation sou
 - Preview page system (VS Code-style)
 - Symbol type color coding (One Dark theme)
 - Named groups for organization
-- Workspace persistence across sessions
+- Data persistence across sessions
 - Automatic cross-crate navigation (navigated event)
 - Move items between groups via menu
 - Import crates from docs.rs URLs
@@ -103,7 +103,7 @@ TurboDoc is an "enhanced tabbed browser with inactive tab resources released" �
 | **Component** | **Tech Stack** | **Role** | **Key Responsibilities** |
 |---|---|---|---|
 | **Host** | C# WinUI 3 (.NET 10) + WebView2 | **The Shell** | Window management. Intercepts doc URL requests and forwards them to the server's `/proxy?url=` endpoint. Sends `navigated` events to frontend via `PostWebMessageAsJson`. Opens external URLs in system browser. |
-| **Server** | TypeScript (Bun + Hono) | **The Brain** | REST endpoints for split workspace persistence (`/api/v1/workspace/app`, `/workspace/:providerId`). Batch crate metadata lookup from cache (`POST /api/v1/crates`). HTTP proxy with SQLite caching and LRU eviction (`/proxy?url=`). Dark mode injection at serve time. Serves frontend assets via Vite middleware. |
+| **Server** | TypeScript (Bun + Hono) | **The Brain** | REST endpoints for split data persistence (`/api/v1/data/preset`, `/data/:providerId`). Batch crate metadata lookup from cache (`POST /api/v1/crates`). HTTP proxy with SQLite caching and LRU eviction (`/proxy?url=`). Dark mode injection at serve time. Serves frontend assets via Vite middleware. |
 | **Frontend** | React + Vite | **The Face** | UI rendering (Explorer, Navigation). Fetches data from `/api/v1/*` via `hono/client`. Provider-based architecture for multi-source docs. |
 
 ### Request Flow
@@ -227,8 +227,8 @@ View models contain callbacks (e.g., `setPinned`, `setCurrentVersion`, `invoke`)
 **Data flow:**
 ```
 [Disk/Storage]                         [Deserialization]         [Runtime]
-workspace.app.json ───────────────────► useAppRoot (index.tsx) ──► appDataState prop (presets)
-workspace.<providerId>.json ──────────► useProviderData ────────► ProviderOutput (View Model)
+preset.json ───────────────────► useAppRoot (index.tsx) ──► appDataState prop (presets)
+<providerId>.json ──────────► useProviderData ────────► ProviderOutput (View Model)
 localStorage (turbodoc:current-url) ──► useCurrentUrl ──────────► current URL (direct hook)
 localStorage (turbodoc:expanded) ────► useGroupExpanded/useItemExpanded ► expansion state
 HTTP proxy SQLite cache ──────────────► useSyncExternalStore ──► in-memory API response cache (per-provider)
@@ -411,9 +411,9 @@ Design decisions that shaped the current architecture. Organized by area.
 - More flexible than a standardized import method
 
 **Migration & Compatibility**
-- Server-side auto-migration: on startup, if legacy `workspace.json` exists, splits it into `workspace.app.json` and `workspace.<providerId>.json`, then renames the original to `workspace.json.migrated` (UI state is dropped — starts fresh from localStorage)
-- On startup, if workspace files don't exist or don't match expected format, initialize with empty defaults
-- Provider ID `"app"` is reserved (collides with static endpoint path)
+- Server-side auto-migration: on startup, if legacy `workspace.json` exists, splits it into `preset.json` and `<providerId>.json`, then renames the original to `workspace.json.migrated` (UI state is dropped — starts fresh from localStorage)
+- On startup, if data files don't exist or don't match expected format, initialize with empty defaults
+- Provider ID `"preset"` is reserved (collides with static endpoint path)
 
 **Provider API Surface**
 - No `serialize`/`deserialize` methods — view model callbacks operate data directly via Immer
@@ -436,21 +436,21 @@ Design decisions that shaped the current architecture. Organized by area.
 
 ### Data Model
 
-**Split Workspace Persistence**
+**Split Data Persistence**
 - Workspace split into two server-persisted file categories:
-  - `workspace.app.json` — global app state (presets). Loaded eagerly in `frontend/index.tsx`.
-  - `workspace.<providerId>.json` — per-provider user data (groups, provider-specific data). Loaded lazily per-provider by `useProviderData` hook.
+  - `preset.json` — global app state (presets). Loaded eagerly in `frontend/index.tsx`.
+  - `<providerId>.json` — per-provider user data (groups, provider-specific data). Loaded lazily per-provider by `useProviderData` hook.
 - Transient UI state stored in **localStorage** as individual slots, not on the server. Two slot types managed by `frontend/core/localStorage.ts`:
   - **Primitive** (`turbodoc:current-url`): current URL, simple get/set
   - **Array** (`turbodoc:expanded`): flat string array of expanded item/group keys. Key format: `<providerId>:<itemId>` for items, `<providerId>:group:<groupId>` for groups. Membership-check hooks (`useGroupExpanded`, `useItemExpanded`) with selective re-rendering via mitt events — only hooks whose specific key changed re-render.
   - Each slot validated with Zod on load; invalid/missing data falls back to empty defaults (default URL `https://docs.rs/`, nothing expanded). See `frontend/core/localStorage.ts` and `frontend/core/uiState.ts`.
 - API response caching (e.g., crates.io metadata) handled by the HTTP proxy's SQLite cache — no separate cache files or endpoints. Each provider manages its own in-memory cache for within-session state, populated on demand from proxy responses (e.g., Rust provider uses a module-level store with `useSyncExternalStore`).
-- Server-persisted via Hono HTTP API (`/api/v1/workspace/app`, `/workspace/:providerId`)
-- `"app"` is a reserved path segment — cannot be used as a provider ID
+- Server-persisted via Hono HTTP API (`/api/v1/data/preset`, `/data/:providerId`)
+- `"preset"` is a reserved path segment — cannot be used as a provider ID
 - Auto-save on every state change (no debouncing — files are small)
 - App data save failures are fatal (throw); provider data failures are non-fatal (log + return `{}`)
 - Server-side migration: on startup, if legacy `workspace.json` exists, auto-splits into new files and renames original to `.migrated`
-- **Provider data write guard**: the server rejects a PUT to `/workspace/:providerId` if the new JSON payload is less than 30% the size of the existing file on disk (HTTP 409). This prevents accidental data loss from frontend bugs or state resets. The check is skipped when the existing file is smaller than 256 bytes, since small files can legitimately shrink by large ratios. Future: a `?force=true` query parameter could bypass the guard for legitimate bulk deletions.
+- **Provider data write guard**: the server rejects a PUT to `/data/:providerId` if the new JSON payload is less than 30% the size of the existing file on disk (HTTP 409). This prevents accidental data loss from frontend bugs or state resets. The check is skipped when the existing file is smaller than 256 bytes, since small files can legitimately shrink by large ratios. Future: a `?force=true` query parameter could bypass the guard for legitimate bulk deletions.
 
 **Preview Page (Derived State)**
 - Preview state derived from `currentUrl` (localStorage) and per-item `pinnedPages`
@@ -466,7 +466,7 @@ Design decisions that shaped the current architecture. Organized by area.
 
 **Eager Cleanup**
 - Orphaned UI state entries (expanded items/groups) are removed when content changes
-- Prevents stale references from accumulating across workspace mutations
+- Prevents stale references from accumulating across data mutations
 
 **"latest" as Literal String**
 - Version selector stores the literal string `"latest"`, not a resolved version number
@@ -498,8 +498,8 @@ AppData + ProviderData (React state) ──► provider.render() ──► React
 - Each atom has independent auto-save — a change in one slice doesn't trigger writes to others
 
 **Hybrid IPC**
-- App data CRUD via Hono HTTP API (`/api/v1/workspace/app`)
-- Per-provider data CRUD via Hono HTTP API (`/api/v1/workspace/:providerId`)
+- App data CRUD via Hono HTTP API (`/api/v1/data/preset`)
+- Per-provider data CRUD via Hono HTTP API (`/api/v1/data/:providerId`)
 - UI state via localStorage (`turbodoc:current-url`, `turbodoc:expanded`) — no server round-trip
 - API response caching via HTTP proxy (`/proxy?url=`) — SQLite with RFC 7234 freshness and LRU eviction
 - Navigation events via WebView2 `postMessage` (low-latency, event-driven)
@@ -588,13 +588,13 @@ TurboDoc/
 │   ├── vite.config.ts          # Root: frontend/, aliases: @/ → frontend/, @server/ → server/
 │   ├── core.ts                 # Shared utility (throwError)
 │   ├── index.html              # Entry HTML
-│   ├── index.tsx               # React entry point (workspace loading, auto-save, IPC listener)
+│   ├── index.tsx               # React entry point (preset loading, auto-save, IPC listener)
 │   ├── global.css              # Tailwind + HeroUI imports, OKLCH theme, One Dark palette, HeroUI component overrides
 │   │
 │   ├── core/
 │   │   ├── data.ts             # Zod schemas + inferred types (AppData, ProviderData, Provider, Item, Page, etc.)
 │   │   ├── context.ts          # React context providers and hooks (useNavigateTo, useProvider, useProviderData)
-│   │   ├── ipc.ts              # Hono HTTP client (workspace + cache CRUD) + WebView2 event listener (navigated)
+│   │   ├── ipc.ts              # Hono HTTP client (data + cache CRUD) + WebView2 event listener (navigated)
 │   │   ├── localStorage.ts    # Typed localStorage abstraction (Zod validation, mitt events, primitive + array APIs)
 │   │   ├── uiState.ts         # Self-contained UI state hooks (useCurrentUrl, useGroupExpanded, useItemExpanded) + imperative helpers
 │   │   └── prelude.ts          # State<T> type helper + cn() utility
@@ -630,15 +630,15 @@ TurboDoc/
 │   ├── package.json            # Server dependencies (Hono, bun:sqlite, etc.)
 │   ├── tsconfig.json           # ESNext, bundler mode, strict; alias: @/ → server/
 │   ├── index.ts                # Hono router + Vite dev server ($TURBODOC_PORT)
-│   ├── api.ts                  # API endpoints (split workspace CRUD, legacy migration)
+│   ├── api.ts                  # API endpoints (split data CRUD, legacy migration)
 │   ├── proxy.ts                # /proxy?url= route handler + dark mode injection
 │   ├── http-cache.ts           # SQLite HTTP cache (bun:sqlite, LRU eviction)
 │   └── common.ts               # Shared config, database setup, utilities
 │
 ├── data/                       # Runtime data directory ($TURBODOC_DATA)
 │   ├── cache.sqlite            # HTTP proxy cache (SQLite WAL mode)
-│   ├── workspace.app.json      # Global app state (presets)
-│   └── workspace.<id>.json     # Per-provider user data
+│   ├── preset.json      # Global app state (presets)
+│   └── <id>.json               # Per-provider user data
 │
 ├── out/                        # .NET build output (ArtifactsPath)
 │
@@ -677,7 +677,7 @@ TurboDoc/
 
 ### Completed
 - [x] Multi-provider architecture with view model derivation
-- [x] Workspace/cache persistence via Hono HTTP API
+- [x] Data/cache persistence via Hono HTTP API
 - [x] Unified Rust provider (docs.rs + doc.rust-lang.org + windows-docs-rs)
 - [x] Pin/unpin documentation pages with preview page system
 - [x] Version selection with semver grouping
@@ -686,7 +686,7 @@ TurboDoc/
 - [x] Import crates from docs.rs URLs
 - [x] Symbol parsing with One Dark color coding
 - [x] Automatic cross-crate navigation via `navigated` event
-- [x] Auto-save workspace and cache on every change
+- [x] Auto-save data and cache on every change
 - [x] HTTP proxy with SQLite cache and dark mode injection (v0.3)
 - [x] C# WinUI 3 host replacing Rust host (v0.3)
 
@@ -718,7 +718,7 @@ TurboDoc/
 - **2026-03**: Migrate provider cache to HTTP proxy: crates.io API calls routed through `/proxy?url=`, SQLite cache handles persistence and RFC 7234 freshness; removed `cache.<providerId>.json` files, server cache endpoints, cache schema registry (`cache-schemas.ts`), Zod cache schemas (`cache.ts`), and cache IPC functions; `useProviderCache` simplified to in-memory `useImmer({})`
 - **2026-03**: UI state moved to localStorage (`turbodoc:ui-state`): synchronous load on startup, no server round-trip; server `/workspace/ui` endpoint and `workspace.ui.json` file removed entirely
 - **2026-03**: Fix auto-save race: `useProviderData`/`useProviderCache` now gate saves behind `loadedRef` flag; null-safe access to `ctx.data.crates` in Rust provider
-- **2026-03**: Split workspace persistence: `workspace.json` → `workspace.app.json` + `workspace.<providerId>.json` + `workspace.ui.json` with independent endpoints and auto-save; server-side auto-migration from legacy format
+- **2026-03**: Split workspace persistence: `workspace.json` → `preset.json` + `<providerId>.json` + `workspace.ui.json` with independent endpoints and auto-save; server-side auto-migration from legacy format
 - **2026-03**: Merged Plan-v0.3.md into README (three-layer architecture, request flow, server design decisions)
 - **2026-03**: Rust host removed entirely; replaced with C# WinUI 3 (.NET 10) + WebView2
 - **2026-03**: Bun server completed: HTTP proxy (`/proxy?url=`), SQLite cache with LRU eviction, dark mode injection

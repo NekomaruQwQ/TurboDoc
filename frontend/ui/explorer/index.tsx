@@ -110,15 +110,15 @@ function ExplorerGroup(props: ReadonlyDeep<{
     }
 
     const [providerData] = useProviderData();
-    const [expanded, setExpanded] = useGroupExpanded(
+    const expandedState = useGroupExpanded(
         useProvider().id,
         props.variant === "default" ? props.groupName : "__ungrouped__");
+    const [expanded] = expandedState;
     return props.variant === "ungrouped"
         ? <>
             <ExplorerGroupHeader
                 variant="ungrouped"
-                expanded={expanded}
-                setExpanded={setExpanded} />
+                expandedState={expandedState} />
             {_.pipe(
                 _.entries(props.providerOutput.items),
                 _.filter(([itemId, __]) => (
@@ -132,8 +132,7 @@ function ExplorerGroup(props: ReadonlyDeep<{
             <ExplorerGroupHeader
                 variant="default"
                 groupName={props.groupName}
-                expanded={expanded}
-                setExpanded={setExpanded} />
+                expandedState={expandedState} />
             <CollapsibleContent className="collapsible-content flex flex-col gap-2">
                 {_.pipe(
                     _.entries(props.providerOutput.items),

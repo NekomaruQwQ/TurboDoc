@@ -14,12 +14,12 @@ import * as z from "zod";
 // The types are inferred from the schemas via `z.infer<>`.
 //
 // Persistence is split into three independent files:
-//   - workspace.app.json      — global app state (presets)
-//   - workspace.<provider>.json — per-provider user data (groups, provider data)
+//   - preset.json               — global app state (presets)
+//   - <provider>.json           — per-provider user data (groups, provider data)
 //   - localStorage             — transient UI state (expansion states, current URL)
 // ============================================================================
 
-// Global app state. Persisted to `workspace.app.json`.
+// Global app state. Persisted to `preset.json`.
 export const appDataSchema = z.object({
     // Preset definitions. Each preset is a named collection of active
     // providers.
@@ -32,7 +32,7 @@ export const appDataSchema = z.object({
     currentPreset: z.string(),
 });
 
-// Per-provider user data. Persisted to `workspace.<providerId>.json`.
+// Per-provider user data. Persisted to `<providerId>.json`.
 //
 // Does NOT include UI state (expandedItems/expandedGroups) — those live in
 // `UiState` instead.

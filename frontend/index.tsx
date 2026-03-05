@@ -49,7 +49,7 @@ function useAppRoot(): AppRoot | null {
     // Load app data from server on first render.
     // biome-ignore lint/correctness/useExhaustiveDependencies: effect only run once.
     useEffect(() => {
-        IPC.loadAppData()
+        IPC.loadPresetData()
             .then(loaded => {
                 const data = loaded as AppData ?? {};
                 data.currentPreset ??= "Empty";
@@ -66,7 +66,7 @@ function useAppRoot(): AppRoot | null {
         const json = JSON.stringify(appData);
         if (lastAppDataRef.current !== json) {
             lastAppDataRef.current = json;
-            IPC.saveAppData(appData)
+            IPC.savePresetData(appData)
                 .catch(err => console.error(err));
         }
     }, [appData]);

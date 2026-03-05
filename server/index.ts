@@ -1,7 +1,7 @@
 // Entry point of the TurboDoc server.
 //
 // The TurboDoc server has three parts:
-// 1. The API server powered by Hono (workspace/cache CRUD);
+// 1. The API server powered by Hono (data/cache CRUD);
 // 2. The HTTP proxy for documentation pages (with SQLite caching);
 // 3. The frontend asset server powered by Vite;
 //
