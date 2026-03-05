@@ -378,12 +378,10 @@ Design decisions that shaped the current architecture. Organized by area.
 - Separation of concerns is enforced by the type system, not just convention
 
 **API Response Caching via HTTP Proxy**
-- Provider API calls (e.g., crates.io) are routed through the server's `/proxy?url=` endpoint
 - The proxy's SQLite cache handles persistence, RFC 7234 freshness, conditional revalidation, and LRU eviction
 - Upstreams that lack cache directives (e.g., crates.io API) get synthetic `Cache-Control` headers injected before policy evaluation — currently `max-age=86400` (24 hours) for `https://crates.io/api/` URLs
-- `?cache=none` query parameter on `/proxy` bypasses the cache for on-demand refetch; the fresh response is still stored for future requests
 - Each provider manages its own in-memory cache for within-session state — not persisted, starts empty on each app launch (e.g., Rust provider uses a module-level store subscribed to via `useSyncExternalStore`)
-- On provider load, the frontend batch-fetches all uncached crate metadata via `POST /api/v1/crates` — the server reads directly from the SQLite HTTP cache (no upstream requests). Cache misses are returned as null and fetched individually via the proxy. This reduces 100+ browser↔server roundtrips to one on warm cache
+- On provider load, the frontend batch-fetches all uncached crate metadata via `POST /api/v1/crates` — the server serves cache hits from the SQLite HTTP cache and fetches upstream (in parallel) for cache misses, returning normalized `CrateMetadata` for all requested crates. The frontend never constructs crates.io URLs or parses raw crates.io responses.
 - No separate cache files or schema validation needed — the proxy is the single caching layer
 
 **Data Model vs View Model**
@@ -602,12 +600,10 @@ TurboDoc/
 │   ├── providers/
 │   │   ├── index.ts            # Provider registry (Record<string, Provider>)
 │   │   └── rust/               # Unified Rust provider
-│   │       ├── index.tsx       # Provider implementation (render, URL handling, page parsing, cache types)
+│   │       ├── index.tsx       # Provider implementation (render, URL handling, page parsing, crate metadata fetching)
 │   │       ├── url.ts          # URL parsing/building (docs.rs, doc.rust-lang.org, windows-docs-rs)
 │   │       ├── url.test.ts
-│   │       ├── import.tsx      # Import dialog (ProviderAction with type: "node")
-│   │       ├── crates-api.ts                  # crates.io API client (via HTTP proxy)
-│   │       └── crates-api.integration.test.ts
+│   │       └── import.tsx      # Import dialog (ProviderAction with type: "node")
 │   │
 │   ├── ui/
 │   │   ├── App.tsx             # Main layout (ResizablePanelGroup: explorer + iframe viewer)
@@ -701,6 +697,8 @@ TurboDoc/
 
 ## Change History
 
+- **2026-03**: Remove unused `?cache=none` proxy bypass: no caller ever passed the parameter; removed `noCache` param from `handleProxy`, query parsing in route handler, and conditional log; stale-while-revalidate handles freshness automatically
+- **2026-03**: Move crates.io API handling from frontend to server: `POST /api/v1/crates` now fetches upstream for cache misses (in parallel via `handleProxy`) instead of returning `null`; server normalizes raw crates.io responses into a flat `CrateMetadata` type (exported from `server/api.ts`); frontend no longer constructs crates.io URLs or parses raw API responses; deleted `crates-api.ts` (inlined single `fetchCratesMetadata` into `rust/index.tsx`), `crates-api.integration.test.ts`, error classes (`RateLimitError`, `CrateNotFoundError`, `MalformedResponseError`), unused `searchCrates()`, individual `fetchCrateInfo()` and `fetchCrateCache()`; `getCrateCache()` simplified to pure store lookup (no fetch trigger); removed `> 1` batch threshold — all uncached crates fetched in a single request; `type-fest/PartialDeep` no longer used for crates API responses
 - **2026-03**: Remove generic provider cache mechanism: delete `TCache` generic from `Provider<T, TCache>` and `ProviderContext`, remove `cache`/`updateCache` from `ProviderContext`, delete `useProviderCache()` hook from `context.ts`; Rust provider now manages its own crate metadata via a module-level external store subscribed to with `useSyncExternalStore` inside `render()` (which is logically a hook — always called at the top level of `ExplorerProvider`); `getCrateCache()`, `fetchCrateCache()`, `batchFetchCrateCache()` no longer take `ctx` for cache access — they read/write the store directly
 - **2026-03**: Add collapsible expand/collapse animation: CSS keyframes (`collapsible-slide-down`/`collapsible-slide-up`) using `--radix-collapsible-content-height` CSS variable for smooth height transitions (150ms ease-out); ExplorerItem already used Radix `<CollapsibleContent>` — only needed the `.collapsible-content` class; ExplorerGroup "default" variant switched from `{expanded && items}` conditional rendering to Radix `<Collapsible open={expanded}>` + `<CollapsibleContent>` for animated collapse with delayed unmount
 - **2026-03**: Decompose `AppContext` class into separate primitives: delete class and its single context; `appDataState` (presets) passed as prop from `index.tsx` → `App` → `Explorer` (only consumer, no context needed); `navigateTo` provided via `NavigateToProvider` context (stable `useCallback` over iframe ref); `viewerRef` passed as prop to `App` (only consumer is `<iframe>`); consumers now import `useAppData` (removed) or `useNavigateTo` instead of `useAppContext`
@@ -709,11 +707,11 @@ TurboDoc/
 - **2026-03**: Optimize frontend styling: merge `global.tailwind.css` into `global.css` (single CSS entry point); override HeroUI's default bubbly look with sharper corners (`--field-radius`, `rounded-md` buttons) and compact menu items; fix HeroUI bug where `--color-accent-soft-foreground` was set to `--accent` (invisible text on accent buttons); simplify HeroUI semantic token overrides (remove redundant `*-foreground` tokens that match HeroUI defaults)
 - **2026-03**: Remove unused dependencies: drop `@hono/zod-validator`, `http-cache-semantics`, `ts-pattern`, `use-debounce` from frontend; drop `@hono/zod-validator`, `http-cache-semantics`, `immer`, `lucide-react`, `mitt`, `remeda` from server
 - **2026-03**: Migrate UI component library from shadcn/ui (vendored Radix primitives) to HeroUI v3 (beta, React Aria-based): replace Button, Input, Select, Dialog, DropdownMenu, Separator with HeroUI equivalents; move Resizable wrapper to `ui/common/Resizable.tsx`; delete `3rdparty/shadcn/` directory, `components.json`, and `@shadcn/*` path alias; remove 7 unused dependencies (`@radix-ui/react-dialog`, `@radix-ui/react-dropdown-menu`, `@radix-ui/react-select`, `@radix-ui/react-separator`, `@radix-ui/react-slot`, `class-variance-authority`, `lucide-react`); keep `@radix-ui/react-collapsible` and `react-resizable-panels` (no HeroUI equivalent); preserve dark-only OKLCH color palette via HeroUI semantic token overrides in `:root`
-- **2026-03**: Add batch crate metadata endpoint (`POST /api/v1/crates`): reads cached crates.io API responses from the SQLite HTTP cache in bulk; frontend batch-fetches all uncached crates on provider load, falling back to individual `/proxy` calls for cache misses; reduces 100+ browser↔server roundtrips to one on warm cache
+- **2026-03**: Add batch crate metadata endpoint (`POST /api/v1/crates`): serves cached crates.io API responses from the SQLite HTTP cache and fetches upstream for misses; returns normalized `CrateMetadata`; frontend batch-fetches all uncached crates on provider load in a single request
 - **2026-03**: Restructure project into `app/`, `frontend/`, `server/` top-level directories: each TypeScript package has its own `package.json` and `tsconfig.json`; C# host moved to `app/`; `.NET` build output directed to `out/` via `Directory.Build.props`; `data/` directory holds runtime workspace and cache files; Vite config moved to `frontend/vite.config.ts` with `@server` alias for cross-package imports
 - **2026-03**: Switch HTTP proxy cache to stale-while-revalidate: stale entries served immediately while background revalidation updates the cache; concurrent refetches for the same URL are deduplicated
 - **2026-03**: Remove client-side rate limiter from `crates-api.ts`: proxy cache (24h TTL) shields upstream, so the 1-second inter-request delay is unnecessary; requests now fire immediately
-- **2026-03**: Fix crates.io API cache staleness: inject synthetic `Cache-Control: max-age=86400` for crates.io API responses that lack cache directives; add `?cache=none` proxy parameter for on-demand refetch
+- **2026-03**: Fix crates.io API cache staleness: inject synthetic `Cache-Control: max-age=86400` for crates.io API responses that lack cache directives
 - **2026-03**: Move `currentUrl` from server-persisted `appData` to localStorage-backed `uiState`: eliminates HTTP PUT on every navigation, synchronous restore on startup; `appData` now contains only presets
 - **2026-03**: Migrate provider cache to HTTP proxy: crates.io API calls routed through `/proxy?url=`, SQLite cache handles persistence and RFC 7234 freshness; removed `cache.<providerId>.json` files, server cache endpoints, cache schema registry (`cache-schemas.ts`), Zod cache schemas (`cache.ts`), and cache IPC functions; `useProviderCache` simplified to in-memory `useImmer({})`
 - **2026-03**: UI state moved to localStorage (`turbodoc:ui-state`): synchronous load on startup, no server round-trip; server `/workspace/ui` endpoint and `workspace.ui.json` file removed entirely

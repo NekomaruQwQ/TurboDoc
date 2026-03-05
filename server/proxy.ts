@@ -6,7 +6,7 @@
 //
 // Uses stale-while-revalidate: stale cache entries are served immediately
 // while a background fetch updates the cache for the next request.
-// Cache misses and `?cache=none` bypass still block on upstream.
+// Cache misses block on upstream.
 //
 // The Rust host calls `GET /proxy?url={encoded_url}` for every intercepted
 // documentation request. This handler returns the response (possibly cached)
@@ -92,12 +92,8 @@ export default new Hono().get("/", async c => {
         return c.text("Missing 'url' query parameter", 400);
     }
 
-    // `?cache=none` bypasses the cache and fetches fresh from upstream.
-    // The fresh response is still stored in cache for future requests.
-    const noCache = c.req.query("cache") === "none";
-
     try {
-        const result = await handleProxy(url, noCache);
+        const result = await handleProxy(url);
         return new Response(result.body as any, {
             status: result.status,
             headers: result.headers,
@@ -110,7 +106,7 @@ export default new Hono().get("/", async c => {
 
 // == Core proxy logic ==
 
-interface ProxyResult {
+export interface ProxyResult {
     status: number;
     headers: Record<string, string>;
     body: Buffer | null;
@@ -120,11 +116,11 @@ interface ProxyResult {
  *  requests when multiple callers hit the same stale entry concurrently. */
 const pendingRefetches = new Map<string, Promise<void>>();
 
-async function handleProxy(url: string, noCache = false): Promise<ProxyResult> {
+export async function handleProxy(url: string): Promise<ProxyResult> {
     const req = policyRequest(url);
 
-    // 1. Check cache (skip when caller requests a fresh fetch)
-    const cached = noCache ? null : httpCache.get(url);
+    // 1. Check cache
+    const cached = httpCache.get(url);
     if (cached) {
         if (cached.policy.satisfiesWithoutRevalidation(req)) {
             console.log(`[proxy] HIT (fresh) ${url}`);
@@ -137,8 +133,8 @@ async function handleProxy(url: string, noCache = false): Promise<ProxyResult> {
         return serveCacheEntry(url, cached);
     }
 
-    // 2. Cache miss (or bypassed) — fetch upstream.
-    console.log(`[proxy] ${noCache ? "BYPASS" : "MISS"} ${url}`);
+    // 2. Cache miss — fetch upstream.
+    console.log(`[proxy] MISS ${url}`);
     const response = await fetchUpstream(url);
     return await cacheAndServe(url, req, response);
 }

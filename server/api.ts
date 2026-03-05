@@ -6,6 +6,7 @@ import fs from "node:fs/promises";
 
 import { dataDir, baseUrl } from "@/common";
 import * as httpCache from "@/http-cache";
+import { handleProxy } from "@/proxy";
 
 /** Load a JSON file and return it as the response body. Returns `{}` if the
  *  file doesn't exist (e.g., first launch). */
@@ -114,6 +115,50 @@ async function migrateFromWorkspacePrefix(): Promise<void> {
 await migrateFromMonolithic();
 await migrateFromWorkspacePrefix();
 
+// -- Crate metadata normalization --
+
+/** Normalized crate metadata returned by `POST /crates`. Flattened from the
+ *  nested crates.io API response shape — the frontend never sees the raw
+ *  upstream format. */
+export interface CrateMetadata {
+    name: string;
+    description: string | null;
+    homepage: string | null;
+    repository: string | null;
+    documentation: string | null;
+    versions: { num: string; yanked: boolean }[];
+}
+
+/** Parse a raw crates.io API response body into `CrateMetadata`.
+ *  Returns `null` if the body is malformed or missing required fields. */
+function parseCrateMetadata(
+    name: string, body: Buffer,
+): CrateMetadata | null {
+    try {
+        const data = JSON.parse(body.toString("utf-8"));
+        const crate = data?.crate;
+        const versions = data?.versions;
+        if (!crate?.name || !Array.isArray(versions)) return null;
+
+        return {
+            name: crate.name,
+            description: crate.description ?? null,
+            homepage: crate.homepage ?? null,
+            repository: crate.repository ?? null,
+            documentation: crate.documentation ?? null,
+            versions: versions
+                .filter((v: any) => typeof v?.num === "string")
+                .map((v: any) => ({
+                    num: v.num as string,
+                    yanked: v.yanked === true,
+                })),
+        };
+    } catch {
+        console.error(`[crates] Failed to parse metadata for ${name}.`);
+        return null;
+    }
+}
+
 export default new Hono()
     .use(async (c, next) => {
         await next();
@@ -147,28 +192,46 @@ export default new Hono()
         await Bun.write(filePath, json);
         return c.json({ success: true });
     })
-    // Batch crate metadata lookup from the HTTP proxy cache.
-    // Returns cached crates.io API responses without fetching upstream —
-    // cache misses are returned as null for the frontend to handle individually.
+    // Batch crate metadata lookup. Returns normalized metadata for each
+    // requested crate. Cache hits are served from the SQLite HTTP cache;
+    // cache misses are fetched upstream via the proxy (in parallel).
     .post("/crates", async c => {
         const body = await c.req.json<{ names?: unknown }>();
         const names = body?.names;
         if (!Array.isArray(names) || !names.every(n => typeof n === "string"))
             return c.json({ error: "Expected { names: string[] }" }, 400);
 
-        const results: Record<string, unknown> = {};
+        const results: Record<string, CrateMetadata | null> = {};
+        const misses: string[] = [];
+
+        // Phase 1: serve from cache.
         for (const name of names as string[]) {
             const url = `https://crates.io/api/v1/crates/${name}`;
             const cached = httpCache.get(url);
             if (cached?.body) {
+                results[name] = parseCrateMetadata(name, cached.body);
+            } else {
+                misses.push(name);
+            }
+        }
+
+        // Phase 2: fetch upstream for cache misses (in parallel).
+        if (misses.length > 0) {
+            const fetches = misses.map(async name => {
+                const url = `https://crates.io/api/v1/crates/${name}`;
                 try {
-                    results[name] = JSON.parse(cached.body.toString("utf-8"));
+                    const result = await handleProxy(url);
+                    if (result.status === 200 && result.body) {
+                        results[name] = parseCrateMetadata(name, result.body);
+                    } else {
+                        results[name] = null;
+                    }
                 } catch {
                     results[name] = null;
                 }
-            } else {
-                results[name] = null;
-            }
+            });
+            await Promise.all(fetches);
         }
+
         return c.json(results);
     })
