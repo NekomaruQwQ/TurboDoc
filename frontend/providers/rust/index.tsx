@@ -110,6 +110,17 @@ function render(ctx: RustProviderContext): ProviderOutput {
     // ExplorerProvider re-renders when async fetches complete.
     useSyncExternalStore(cacheSubscribe, cacheGetSnapshot);
 
+    // Seed starter crates on fresh install so new users see something
+    // immediately. Only fires once — next render, crates is populated.
+    if (!ctx.data.crates || Object.keys(ctx.data.crates).length === 0) {
+        ctx.updateData(draft => {
+            draft.crates = {
+                serde: { currentVersion: "latest", pinnedPages: [] },
+                tokio: { currentVersion: "latest", pinnedPages: [] },
+            };
+        });
+    }
+
     handleCurrentUrl(ctx);
 
     // Batch-fetch metadata for all uncached crates in a single request.

@@ -52,8 +52,8 @@ function useAppRoot(): AppRoot | null {
         IPC.loadPresetData()
             .then(loaded => {
                 const data = loaded as AppData ?? {};
-                data.currentPreset ??= "Empty";
-                data.presets ??= { "Empty": { providers: [] } };
+                data.currentPreset ??= "Rust";
+                data.presets ??= { "Rust": { providers: ["rust"] } };
                 lastAppDataRef.current = JSON.stringify(data);
                 updateAppData(() => data);
             })
