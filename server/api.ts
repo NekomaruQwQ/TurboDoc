@@ -1,5 +1,7 @@
 import type { Context as HonoContext } from "hono";
 import { Hono } from "hono";
+import { zValidator } from "@hono/zod-validator";
+import { z } from "zod";
 
 import path from "node:path";
 import fs from "node:fs/promises";
@@ -19,8 +21,9 @@ async function loadDataAsJson(c: HonoContext, dataPath: string) {
     });
 }
 
-async function saveDataAsJson(c: HonoContext, dataPath: string) {
-    const data = await c.req.json<unknown>();
+async function saveDataAsJson(
+    c: HonoContext, dataPath: string, data: unknown,
+) {
     await Bun.write(path.resolve(dataPath), JSON.stringify(data, undefined, 4));
     return c.json({ success: true });
 }
@@ -170,17 +173,17 @@ export default new Hono()
     // Static data routes (registered before :providerId to avoid shadowing).
     .get("/data/preset", async c =>
         loadDataAsJson(c, `${dataDir}/preset.json`))
-    .put("/data/preset", async c =>
-        saveDataAsJson(c, `${dataDir}/preset.json`))
+    .put("/data/preset", zValidator("json", z.unknown()), async c =>
+        saveDataAsJson(c, `${dataDir}/preset.json`, c.req.valid("json")))
     // Per-provider data.
     .get("/data/:providerId", async c => {
         const { providerId } = c.req.param();
         return loadDataAsJson(c, `${dataDir}/${providerId}.json`);
     })
-    .put("/data/:providerId", async c => {
+    .put("/data/:providerId", zValidator("json", z.unknown()), async c => {
         const { providerId } = c.req.param();
         const filePath = path.resolve(`${dataDir}/${providerId}.json`);
-        const data = await c.req.json<unknown>();
+        const data = c.req.valid("json");
         const json = JSON.stringify(data, undefined, 4);
 
         const rejection = await guardAgainstDataLoss(filePath, json);
