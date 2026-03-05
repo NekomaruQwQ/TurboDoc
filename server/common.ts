@@ -23,7 +23,10 @@ export const dataDir = process.env.TURBODOC_DATA
 
 // == Database ==
 import { Database } from "bun:sqlite";
+import { mkdirSync } from "node:fs";
 
+/// Ensure the data directory exists before opening the database.
+mkdirSync(dataDir, { recursive: true });
 export const dbCache = new Database(`${dataDir}/cache.sqlite`);
 dbCache.run("PRAGMA journal_mode = WAL");
 

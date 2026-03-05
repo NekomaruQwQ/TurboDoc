@@ -44,7 +44,7 @@ interface CacheRecord {
 /** Mapping of HttpCacheRecord fields to SQLite column types. Used for table creation. */
 const httpCacheSchema = {
     url: "TEXT PRIMARY KEY",
-    policy: "TEXT PRIMARY KEY",
+    policy: "TEXT",
     status_code: "INTEGER NOT NULL",
     content_type: "TEXT NOT NULL DEFAULT ''",
     location: "TEXT NOT NULL DEFAULT ''",
