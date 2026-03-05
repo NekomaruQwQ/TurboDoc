@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import type { ReadonlyDeep } from "type-fest";
 
 import {
@@ -29,6 +30,9 @@ export default function ExplorerItem({ item, itemGroupName }: ReadonlyDeep<{
     itemGroupName: string,
 }>) {
     const [expanded, setExpanded] = useItemExpanded(useProvider().id, item.id);
+    // Defer mounting of heavy HeroUI components (Select, Dropdown) until after
+    // the first paint so the expansion animation isn't blocked by their mount cost.
+    const deferred = useDeferredMount();
 
     function toggleExpanded() {
         setExpanded(!expanded);
@@ -43,20 +47,28 @@ export default function ExplorerItem({ item, itemGroupName }: ReadonlyDeep<{
                 <CollapsibleTrigger asChild className="flex-1 pl-1.5 truncate">
                     <p className="font-mono cursor-pointer">{item.name}</p>
                 </CollapsibleTrigger>
-                {item.versions &&
+                {deferred && item.versions &&
                     <ExplorerItemVersionSelector
                         all={item.versions.all}
                         current={item.versions.current}
                         recommended={item.versions.recommended}
                         setCurrentVersion={item.versions?.setCurrentVersion} />
                 }
-                <ExplorerItemMenu item={item} itemGroupName={itemGroupName} />
+                {deferred && <ExplorerItemMenu item={item} itemGroupName={itemGroupName} />}
             </div>
             <CollapsibleContent className="collapsible-content flex flex-col">
                 <Separator className="my-1"/>
                 <ExplorerPageList pages={item.pages} />
             </CollapsibleContent>
         </Collapsible>);
+}
+
+/** Returns `false` on first render, `true` after the browser paints.
+ * Lets the initial frame commit without waiting for expensive children to mount. */
+function useDeferredMount(): boolean {
+    const [mounted, setMounted] = useState(false);
+    useEffect(() => { setMounted(true); }, []);
+    return mounted;
 }
 
 function ExplorerItemVersionSelector(props: ReadonlyDeep<ItemVersions>) {
