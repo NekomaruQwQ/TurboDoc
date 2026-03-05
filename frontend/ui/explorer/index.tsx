@@ -15,7 +15,6 @@ import {
     ProviderProvider,
     useNavigateTo,
     useProvider,
-    useProviderCache,
     useProviderData,
     useProviderDataLoader,
 } from "@/core/context";
@@ -50,17 +49,12 @@ function ExplorerProvider() {
     const provider = useProvider();
     const providerDataState = useProviderDataLoader();
     const [providerData, updateProviderData] = providerDataState;
-    const [cache, updateCache] = useProviderCache();
     const [currentUrl] = useCurrentUrl();
 
     const providerContext = {
         data: providerData?.data ?? {},
         updateData: (updater: (draft: unknown) => void) => {
             updateProviderData(draft => updater(draft.data));
-        },
-        cache,
-        updateCache: (updater: (draft: unknown) => void) => {
-            updateCache(draft => { updater(draft); });
         },
         currentUrl,
         navigateTo,

@@ -78,8 +78,3 @@ export function useProviderDataLoader(): State<ProviderData> {
     return [providerData, updateProviderData];
 }
 
-/** Per-provider in-memory cache for API responses. Not persisted — the HTTP
- *  proxy's SQLite cache handles persistence and RFC 7234 freshness. */
-export function useProviderCache(): State<unknown> {
-    return useImmer<unknown>({});
-}

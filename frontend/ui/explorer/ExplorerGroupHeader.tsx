@@ -154,7 +154,7 @@ export default function ExplorerGroupHeader(
         }
 
         return (
-            <div className="group/header flex flex-row h-8 py-0.5 items-center gap-0.5 text-muted">
+            <div className="group/header flex flex-row h-8 py-1 items-center gap-0.5 text-muted">
                 {/* Group name */}
                 <p
                     className="flex flex-row flex-1 gap-2 items-center text-lg pl-1 font-semibold cursor-pointer truncate"
@@ -288,7 +288,7 @@ export default function ExplorerGroupHeader(
             </div>);
     } else {
         return (
-            <div className="group/header flex flex-row h-8 py-0.5 items-center gap-0.5 text-muted">
+            <div className="group/header flex flex-row h-8 py-1 items-center gap-0.5 text-muted">
                 {/* Group name */}
                 <p className="flex flex-row flex-1 gap-2 items-center text-lg pl-1 font-semibold cursor-pointer truncate" >
                     <span className="flex-1 truncate">Ungrouped</span>

@@ -191,7 +191,7 @@ ExplorerItem (Radix Collapsible)
 ### Component Responsibilities
 
 - **Explorer** (`frontend/ui/explorer/index.tsx`): Top-level container; iterates providers in current preset
-- **ExplorerProvider** (inline): Owns per-provider data (`useProviderData`) and cache (`useProviderCache`), constructs `ProviderContext`, calls `provider.render()`, renders provider actions and groups
+- **ExplorerProvider** (inline): Owns per-provider data (`useProviderData`), constructs `ProviderContext`, calls `provider.render()`, renders provider actions and groups
 - **ExplorerGroup** (inline): Renders group header + filtered/sorted items; handles ungrouped vs named variants
 - **ExplorerGroupHeader** (`ExplorerGroupHeader.tsx`): Chevron toggle, rename input, dropdown menu (expand/collapse all, move up/down/under, delete with confirmation)
 - **ExplorerCreateGroupComponent** (`ExplorerCreateGroupComponent.tsx`): Button that transforms to inline input for creating new groups
@@ -216,7 +216,7 @@ ExplorerItem (Radix Collapsible)
 
 ### Provider System
 
-Providers register in `frontend/providers/index.ts` and implement the `Provider<T, TCache>` interface from `frontend/core/data.ts`. Each provider's `render()` returns a `ProviderOutput` containing:
+Providers register in `frontend/providers/index.ts` and implement the `Provider<T>` interface from `frontend/core/data.ts`. Each provider's `render()` returns a `ProviderOutput` containing:
 - `items: Record<string, Item>` — uniform view models with pages, links, actions, versions
 - `actions?: ProviderAction[]` — provider-level UI (e.g., import dialog)
 
@@ -231,7 +231,7 @@ workspace.app.json ───────────────────► 
 workspace.<providerId>.json ──────────► useProviderData ────────► ProviderOutput (View Model)
 localStorage (turbodoc:current-url) ──► useCurrentUrl ──────────► current URL (direct hook)
 localStorage (turbodoc:expanded) ────► useGroupExpanded/useItemExpanded ► expansion state
-HTTP proxy SQLite cache ──────────────► useProviderCache ───────► in-memory API response cache
+HTTP proxy SQLite cache ──────────────► useSyncExternalStore ──► in-memory API response cache (per-provider)
 ```
 
 **Navigation flow:**
@@ -382,7 +382,7 @@ Design decisions that shaped the current architecture. Organized by area.
 - The proxy's SQLite cache handles persistence, RFC 7234 freshness, conditional revalidation, and LRU eviction
 - Upstreams that lack cache directives (e.g., crates.io API) get synthetic `Cache-Control` headers injected before policy evaluation — currently `max-age=86400` (24 hours) for `https://crates.io/api/` URLs
 - `?cache=none` query parameter on `/proxy` bypasses the cache for on-demand refetch; the fresh response is still stored for future requests
-- Frontend keeps an in-memory cache (`useProviderCache` → `useImmer({})`) for within-session state — not persisted, starts empty on each app launch
+- Each provider manages its own in-memory cache for within-session state — not persisted, starts empty on each app launch (e.g., Rust provider uses a module-level store subscribed to via `useSyncExternalStore`)
 - On provider load, the frontend batch-fetches all uncached crate metadata via `POST /api/v1/crates` — the server reads directly from the SQLite HTTP cache (no upstream requests). Cache misses are returned as null and fetched individually via the proxy. This reduces 100+ browser↔server roundtrips to one on warm cache
 - No separate cache files or schema validation needed — the proxy is the single caching layer
 
@@ -444,7 +444,7 @@ Design decisions that shaped the current architecture. Organized by area.
   - **Primitive** (`turbodoc:current-url`): current URL, simple get/set
   - **Array** (`turbodoc:expanded`): flat string array of expanded item/group keys. Key format: `<providerId>:<itemId>` for items, `<providerId>:group:<groupId>` for groups. Membership-check hooks (`useGroupExpanded`, `useItemExpanded`) with selective re-rendering via mitt events — only hooks whose specific key changed re-render.
   - Each slot validated with Zod on load; invalid/missing data falls back to empty defaults (default URL `https://docs.rs/`, nothing expanded). See `frontend/core/localStorage.ts` and `frontend/core/uiState.ts`.
-- API response caching (e.g., crates.io metadata) handled by the HTTP proxy's SQLite cache — no separate cache files or endpoints. Provider keeps an in-memory cache (`useProviderCache` → `useImmer({})`) for within-session state, populated on demand from proxy responses.
+- API response caching (e.g., crates.io metadata) handled by the HTTP proxy's SQLite cache — no separate cache files or endpoints. Each provider manages its own in-memory cache for within-session state, populated on demand from proxy responses (e.g., Rust provider uses a module-level store with `useSyncExternalStore`).
 - Server-persisted via Hono HTTP API (`/api/v1/workspace/app`, `/workspace/:providerId`)
 - `"app"` is a reserved path segment — cannot be used as a provider ID
 - Auto-save on every state change (no debouncing — files are small)
@@ -483,12 +483,12 @@ AppData + ProviderData (React state) ──► provider.render() ──► React
               └── Immer updates (new refs only for changed parts)
 ```
 
-- `provider.render()` called on every React render — no memoization
+- `provider.render()` called on every React render — logically a hook (may call React hooks like `useSyncExternalStore`), no memoization
 - View models contain callbacks (closures over Immer updaters) — never serialized
 - Immer ensures immutable updates with minimal reference changes
 - Object creation is fast; DOM updates are the bottleneck — no memoization needed yet
 - View model derivation is a pure function of data model — easy to reason about
-- `ProviderContext` constructed in `ExplorerProvider` using `useProviderData` and `useProviderCache` hooks from `frontend/core/context.ts`
+- `ProviderContext` constructed in `ExplorerProvider` using `useProviderData` hook from `frontend/core/context.ts`
 
 **Independent State Atoms**
 - `frontend/index.tsx` owns `appData` (presets, async from server) and the `navigated` IPC event handler (writes `currentUrl` to localStorage)
@@ -593,7 +593,7 @@ TurboDoc/
 │   │
 │   ├── core/
 │   │   ├── data.ts             # Zod schemas + inferred types (AppData, ProviderData, Provider, Item, Page, etc.)
-│   │   ├── context.ts          # React context providers and hooks (useNavigateTo, useProvider, useProviderData, useProviderCache)
+│   │   ├── context.ts          # React context providers and hooks (useNavigateTo, useProvider, useProviderData)
 │   │   ├── ipc.ts              # Hono HTTP client (workspace + cache CRUD) + WebView2 event listener (navigated)
 │   │   ├── localStorage.ts    # Typed localStorage abstraction (Zod validation, mitt events, primitive + array APIs)
 │   │   ├── uiState.ts         # Self-contained UI state hooks (useCurrentUrl, useGroupExpanded, useItemExpanded) + imperative helpers
@@ -701,6 +701,7 @@ TurboDoc/
 
 ## Change History
 
+- **2026-03**: Remove generic provider cache mechanism: delete `TCache` generic from `Provider<T, TCache>` and `ProviderContext`, remove `cache`/`updateCache` from `ProviderContext`, delete `useProviderCache()` hook from `context.ts`; Rust provider now manages its own crate metadata via a module-level external store subscribed to with `useSyncExternalStore` inside `render()` (which is logically a hook — always called at the top level of `ExplorerProvider`); `getCrateCache()`, `fetchCrateCache()`, `batchFetchCrateCache()` no longer take `ctx` for cache access — they read/write the store directly
 - **2026-03**: Add collapsible expand/collapse animation: CSS keyframes (`collapsible-slide-down`/`collapsible-slide-up`) using `--radix-collapsible-content-height` CSS variable for smooth height transitions (150ms ease-out); ExplorerItem already used Radix `<CollapsibleContent>` — only needed the `.collapsible-content` class; ExplorerGroup "default" variant switched from `{expanded && items}` conditional rendering to Radix `<Collapsible open={expanded}>` + `<CollapsibleContent>` for animated collapse with delayed unmount
 - **2026-03**: Decompose `AppContext` class into separate primitives: delete class and its single context; `appDataState` (presets) passed as prop from `index.tsx` → `App` → `Explorer` (only consumer, no context needed); `navigateTo` provided via `NavigateToProvider` context (stable `useCallback` over iframe ref); `viewerRef` passed as prop to `App` (only consumer is `<iframe>`); consumers now import `useAppData` (removed) or `useNavigateTo` instead of `useAppContext`
 - **2026-03**: Remove `currentUrl` from AppContext: `currentUrl` state no longer routed through AppContext — components read it via `useCurrentUrl()` hook directly; `setCurrentUrl` removed from `ProviderContext` interface (all URL writes go through `navigateTo`); `AppContext.navigateTo()` only sets `iframe.src` — the WebView2 `navigated` IPC event handler in `index.tsx` persists the URL to localStorage via `storage.save`, and mitt propagates to all hook consumers; URL normalization in rust provider changed from `setCurrentUrl` to `navigateTo` (always hits proxy cache); `ExplorerPageList` and `ExplorerItemMenu` now use `ctx.navigateTo()` instead of `setCurrentUrl()` from hook

@@ -86,10 +86,12 @@ export type ProviderData =
 // ============================================================================
 
 /** The uniform interface for documentation providers. */
-export interface Provider<T = unknown, TCache = unknown>
+export interface Provider<T = unknown>
     extends ProviderInfo {
-    /** Render a full view model from provider-specific data storage. */
-    render(provider: ProviderContext<T, TCache>): ProviderOutput,
+    /** Render a full view model from provider-specific data storage.
+     *  Called at the top level of `ExplorerProvider` on every React render —
+     *  logically a hook, so implementations may call React hooks. */
+    render(provider: ProviderContext<T>): ProviderOutput,
 }
 
 /** Metadata about a provider. */
@@ -107,18 +109,12 @@ export interface ProviderInfo {
     readonly renderItemNameAsCode: boolean,
 }
 
-export interface ProviderContext<T = unknown, TCache = unknown> {
+export interface ProviderContext<T = unknown> {
     /** Provider-specific data storage. */
     readonly data: T,
 
     /** Update the provider-specific data storage. */
     updateData(updater: (draft: T) => void): void,
-
-    /** Provider-specific cache storage. */
-    readonly cache: TCache,
-
-    /** Update the provider-specific cache storage. */
-    updateCache(updater: (draft: TCache) => void): void,
 
     /** The current URL being viewed in the app. HTTPS protocol assumed. */
     readonly currentUrl: string,

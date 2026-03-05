@@ -1,3 +1,4 @@
+import { useSyncExternalStore } from "react";
 import type { ReadonlyDeep } from "type-fest";
 import * as _ from "remeda";
 import * as semver from "semver";
@@ -20,10 +21,7 @@ import type {
 import { parseUrl, buildUrl, getBaseUrlForCrate } from "./url";
 import { getImportCratesAction } from "./import";
 
-const RustProvider:
-    Provider<
-        RustProviderData,
-        RustProviderCache> = {
+const RustProvider: Provider<RustProviderData> = {
     id: "rust",
     name: "Rust",
     enableItemGrouping: true,
@@ -34,9 +32,7 @@ const RustProvider:
 export default RustProvider;
 
 export type RustProviderContext =
-    ProviderContext<
-        RustProviderData,
-        RustProviderCache>;
+    ProviderContext<RustProviderData>;
 
 export interface RustProviderData {
     crates: Record<string, CrateData>;
@@ -55,7 +51,7 @@ export interface CrateCache {
 }
 
 /** In-memory cache shape for the Rust provider. */
-export interface RustProviderCache {
+interface RustProviderCache {
     crates: Record<string, CrateCache>;
 }
 
@@ -110,25 +106,30 @@ function handleCurrentUrl(ctx: RustProviderContext) {
 }
 
 function render(ctx: RustProviderContext): ProviderOutput {
+    // Subscribe to the module-level crate metadata store so that
+    // ExplorerProvider re-renders when async fetches complete.
+    useSyncExternalStore(cacheSubscribe, cacheGetSnapshot);
+
     handleCurrentUrl(ctx);
 
     // Batch-fetch metadata for all uncached crates in a single request.
     // Individual getCrateCache() calls below will skip crates already
     // covered by this batch (they're in inFlight).
+    const cache = cacheGetSnapshot();
     const uncached = Object.keys(ctx.data.crates ?? {}).filter(name =>
-        !ctx.cache.crates?.[name]
+        !cache.crates?.[name]
         && !inFlight.has(name)
         && getBaseUrlForCrate(name) !== "https://doc.rust-lang.org/");
     if (uncached.length > 1) {
         for (const name of uncached) inFlight.add(name);
-        batchFetchCrateCache(ctx, uncached);
+        batchFetchCrateCache(uncached);
     }
 
     const items =
         _.mapToObj(_.entries(ctx.data.crates ?? {}), pair => {
             const [crateName, crateData] = pair;
             const crateCache =
-                getCrateCache(ctx, crateName);
+                getCrateCache(crateName);
             const crateItem =
                 renderItem(
                     ctx,
@@ -478,25 +479,54 @@ function getCratePages(
 import * as CratesAPI from "./crates-api";
 import * as Utils from "@/utils/version-group";
 
+// -- Module-level crate metadata store ----------------------------------------
+//
+// In-memory cache of crates.io API responses, subscribed to by `render()` via
+// `useSyncExternalStore`.  The HTTP proxy's SQLite cache handles persistence
+// and freshness — this store is purely for within-session state.
+
+let _cacheSnapshot: RustProviderCache = { crates: {} };
+const _cacheListeners = new Set<() => void>();
+
+function cacheSubscribe(cb: () => void): () => void {
+    _cacheListeners.add(cb);
+    return () => _cacheListeners.delete(cb);
+}
+
+function cacheGetSnapshot(): RustProviderCache {
+    return _cacheSnapshot;
+}
+
+function setCrateCache(name: string, cache: CrateCache) {
+    _cacheSnapshot = { crates: { ..._cacheSnapshot.crates, [name]: cache } };
+    for (const l of _cacheListeners) l();
+}
+
+function setCrateCaches(entries: Record<string, CrateCache>) {
+    _cacheSnapshot = { crates: { ..._cacheSnapshot.crates, ...entries } };
+    for (const l of _cacheListeners) l();
+}
+
+// -- Crate metadata fetching --------------------------------------------------
+
 /** Crate names with a fetch currently in flight, preventing duplicate
  *  requests when React re-renders before the first fetch completes. */
 const inFlight = new Set<string>();
 
 /** Return cached crate metadata, fetching through the HTTP proxy if not yet
- *  in the in-memory cache. Returns null for std-library crates (not on
+ *  in the in-memory store. Returns null for std-library crates (not on
  *  crates.io) or when the first fetch is still in flight. */
 function getCrateCache(
-    ctx: RustProviderContext,
     crateName: string,
 ): ReadonlyDeep<CrateCache> | null {
     // Standard library crates are not on crates.io — no cache needed.
     if (getBaseUrlForCrate(crateName) === "https://doc.rust-lang.org/")
         return null;
 
-    const existing = ctx.cache.crates?.[crateName] ?? null;
+    const existing = cacheGetSnapshot().crates?.[crateName] ?? null;
     if (!existing && !inFlight.has(crateName)) {
         inFlight.add(crateName);
-        fetchCrateCache(ctx, crateName)
+        fetchCrateCache(crateName)
             .finally(() => inFlight.delete(crateName));
     }
 
@@ -516,18 +546,14 @@ function crateInfoToCache(crateInfo: CratesAPI.CrateInfo): CrateCache {
 }
 
 /** Fetch crate metadata from crates.io (via HTTP proxy) and store in the
- *  in-memory cache. Errors are logged but non-fatal. */
+ *  in-memory store. Errors are logged but non-fatal. */
 async function fetchCrateCache(
-    ctx: RustProviderContext,
     crateName: string,
 ): Promise<void> {
     console.log(`Fetching crate info for ${crateName}.`);
     try {
         const crateInfo = await CratesAPI.fetchCrateInfo(crateName);
-        ctx.updateCache(draft => {
-            draft.crates ??= {};
-            draft.crates[crateName] = crateInfoToCache(crateInfo);
-        });
+        setCrateCache(crateName, crateInfoToCache(crateInfo));
     } catch (err) {
         console.error(`Failed to fetch crate info for ${crateName}:`, err);
     }
@@ -537,20 +563,17 @@ async function fetchCrateCache(
  *  to individual proxy requests for cache misses. Called once on provider
  *  load when multiple crates need metadata. */
 async function batchFetchCrateCache(
-    ctx: RustProviderContext,
     names: string[],
 ): Promise<void> {
     try {
         const cached = await CratesAPI.fetchCratesInfo(names);
 
-        // Populate in-memory cache with hits.
+        // Populate in-memory store with hits.
         const hits = Object.keys(cached);
         if (hits.length > 0) {
-            ctx.updateCache(draft => {
-                draft.crates ??= {};
-                for (const name of hits)
-                    draft.crates[name] = crateInfoToCache(cached[name]);
-            });
+            setCrateCaches(
+                // biome-ignore lint/style/noNonNullAssertion: hits are keys of cached.
+                _.mapToObj(hits, name => [name, crateInfoToCache(cached[name]!)]));
         }
 
         // Fall back to individual proxy fetches for misses.
@@ -558,10 +581,10 @@ async function batchFetchCrateCache(
         if (misses.length > 0)
             console.log(`[crates.io] ${hits.length} cache hits, ${misses.length} misses — fetching individually.`);
         for (const name of misses)
-            fetchCrateCache(ctx, name).finally(() => inFlight.delete(name));
+            fetchCrateCache(name).finally(() => inFlight.delete(name));
     } catch (err) {
         console.error("Batch crate fetch failed, falling back to individual fetches:", err);
         for (const name of names)
-            fetchCrateCache(ctx, name).finally(() => inFlight.delete(name));
+            fetchCrateCache(name).finally(() => inFlight.delete(name));
     }
 }
