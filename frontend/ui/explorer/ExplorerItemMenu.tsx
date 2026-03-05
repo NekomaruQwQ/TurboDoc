@@ -12,7 +12,7 @@ import { Button, Dropdown } from "@heroui/react";
 import type { Item, ItemLink, ItemAction, ProviderData } from "@/core/data";
 import Icon from "@/ui/common/Icon";
 
-import { useAppContext, useProviderData } from "@/core/context";
+import { useNavigateTo, useProviderData } from "@/core/context";
 
 export default function ExplorerItemMenu({ item, itemGroupName }: ReadonlyDeep<{
     item: Item,
@@ -86,7 +86,7 @@ export default function ExplorerItemMenu({ item, itemGroupName }: ReadonlyDeep<{
 }
 
 function ExplorerItemMenuLink({ link }: ReadonlyDeep<{ link: ItemLink }>) {
-    const ctx = useAppContext();
+    const navigateTo = useNavigateTo();
     const defaultLinkIcon = {
         type: "fontawesome",
         name: faArrowUpRightFromSquare,
@@ -95,7 +95,7 @@ function ExplorerItemMenuLink({ link }: ReadonlyDeep<{ link: ItemLink }>) {
         <Dropdown.Item
             textValue={link.name}
             className="cursor-pointer"
-            onAction={() => ctx.navigateTo(link.url)}>
+            onAction={() => navigateTo(link.url)}>
             <Icon icon={link.icon ?? defaultLinkIcon} size="sm" />
             <span>{link.name}</span>
         </Dropdown.Item>);

@@ -7,37 +7,44 @@ ReactDOM
     .createRoot(document.getElementById("app")!)
     .render(React.createElement(() => {
         console.log("App rerendered.");
-        const ctx = useAppContext();
-        return ctx &&
+        const root = useAppRoot();
+        return root &&
             <React.StrictMode>
-                <AppContextProvider value={ctx}>
-                    <App />
-                </AppContextProvider>
+                <NavigateToProvider value={root.navigateTo}>
+                    <App viewerRef={root.viewerRef} appDataState={root.appDataState} />
+                </NavigateToProvider>
             </React.StrictMode>;
     }));
 
 import type { ReadonlyDeep } from "type-fest";
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useImmer } from "use-immer";
 
 import type { AppData } from "@/core/data";
-import { AppContext, AppContextProvider } from "@/core/context";
+import type { State } from "@/core/prelude";
+import { NavigateToProvider } from "@/core/context";
 import * as storage from "@/core/localStorage";
 import * as IPC from "@/core/ipc";
 
-function useAppContext(): AppContext | null {
+interface AppRoot {
+    viewerRef: React.RefObject<HTMLIFrameElement | null>;
+    appDataState: State<AppData>;
+    navigateTo: (url: string) => void;
+}
+
+function useAppRoot(): AppRoot | null {
     const viewerRef = useRef<HTMLIFrameElement | null>(null);
     const lastAppDataRef = useRef<string>("");
 
     const [appData, updateAppData] =
         useImmer<ReadonlyDeep<AppData> | null>(null);
 
-    const app = appData ?
-        new AppContext(
-            viewerRef,
-            [appData, updater => updateAppData(draft => {
-                draft && updater(draft);
-            })]) : null;
+    // Stable callback — viewerRef is a ref object, so the closure always
+    // sees the latest `.current` without needing it as a dependency.
+    // biome-ignore lint/correctness/useExhaustiveDependencies: viewerRef is a stable ref.
+    const navigateTo = useCallback((url: string) => {
+        if (viewerRef.current) viewerRef.current.src = url;
+    }, []);
 
     // Load app data from server on first render.
     // biome-ignore lint/correctness/useExhaustiveDependencies: effect only run once.
@@ -76,5 +83,12 @@ function useAppContext(): AppContext | null {
         });
     }, []);
 
-    return app;
+    if (!appData) return null;
+
+    const appDataState: State<AppData> = [
+        appData,
+        updater => updateAppData(draft => { draft && updater(draft); }),
+    ];
+
+    return { viewerRef, appDataState, navigateTo };
 }

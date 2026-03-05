@@ -160,9 +160,9 @@ WebView2 iframe navigates to https://docs.rs/serde/latest/serde/
 
 ```
 frontend/index.tsx (entry point, appData loading, uiState from localStorage, auto-save)
-└── AppContextProvider
-    └── App (ResizablePanelGroup)
-        ├── Explorer (left panel)
+└── NavigateToProvider
+    └── App (ResizablePanelGroup; receives viewerRef + appDataState as props)
+        ├── Explorer (left panel; receives appDataState as prop)
         │   └── ExplorerProvider (per provider in preset; owns provider data + cache)
         │       ├── ProviderAction nodes (e.g., Import dialog)
         │       ├── ExplorerGroup (variant="ungrouped")
@@ -227,9 +227,9 @@ View models contain callbacks (e.g., `setPinned`, `setCurrentVersion`, `invoke`)
 **Data flow:**
 ```
 [Disk/Storage]                         [Deserialization]         [Runtime]
-workspace.app.json ───────────────────► AppContext ──────────────► global state (presets)
+workspace.app.json ───────────────────► useAppRoot (index.tsx) ──► appDataState prop (presets)
 workspace.<providerId>.json ──────────► useProviderData ────────► ProviderOutput (View Model)
-localStorage (turbodoc:current-url) ──► useCurrentUrl ──────────► current URL (direct hook, not via AppContext)
+localStorage (turbodoc:current-url) ──► useCurrentUrl ──────────► current URL (direct hook)
 localStorage (turbodoc:expanded) ────► useGroupExpanded/useItemExpanded ► expansion state
 HTTP proxy SQLite cache ──────────────► useProviderCache ───────► in-memory API response cache
 ```
@@ -505,12 +505,12 @@ AppData + ProviderData (React state) ──► provider.render() ──► React
 - Navigation events via WebView2 `postMessage` (low-latency, event-driven)
 - All operations except app data are non-fatal (log errors, don't crash)
 
-**Class-Based AppContext**
-- AppContext is a class (not a plain object) that owns the iframe ref (`viewerRef`) and `appData`
-- `navigateTo(url)` sets `iframe.src` only — the WebView2 host fires a `navigated` IPC event, whose handler in `index.tsx` persists the URL to localStorage and propagates to all `useCurrentUrl()` consumers
-- `currentUrl` is NOT stored in AppContext — components read it via `useCurrentUrl()` hook directly
-- Recreated on every render (no memoization) — re-renders only happen when `appData` changes
-- Provider data is NOT stored in AppContext — each provider loads its own data lazily
+**Decomposed Root State (no AppContext class)**
+- `appDataState` (presets) passed as prop from `index.tsx` → `App` → `Explorer` — only one consumer, no context needed
+- `navigateTo(url)` provided via `NavigateToProvider` context — stable `useCallback` over iframe ref; consumed by `ExplorerProvider`, `ExplorerItemMenuLink`, `ExplorerPage`
+- `viewerRef` passed as prop from `index.tsx` → `App` — only consumer is the `<iframe>` element
+- `currentUrl` read via `useCurrentUrl()` hook directly — not part of root state
+- Provider data loaded lazily per-provider inside `ExplorerProvider`
 
 **Graceful Degradation**
 - Stale proxy cache preferred over no data: if upstream refetch fails, the proxy serves the cached response
@@ -593,7 +593,7 @@ TurboDoc/
 │   │
 │   ├── core/
 │   │   ├── data.ts             # Zod schemas + inferred types (AppData, ProviderData, Provider, Item, Page, etc.)
-│   │   ├── context.ts          # AppContext class, React context providers and hooks (useProviderData, useProviderCache)
+│   │   ├── context.ts          # React context providers and hooks (useNavigateTo, useProvider, useProviderData, useProviderCache)
 │   │   ├── ipc.ts              # Hono HTTP client (workspace + cache CRUD) + WebView2 event listener (navigated)
 │   │   ├── localStorage.ts    # Typed localStorage abstraction (Zod validation, mitt events, primitive + array APIs)
 │   │   ├── uiState.ts         # Self-contained UI state hooks (useCurrentUrl, useGroupExpanded, useItemExpanded) + imperative helpers
@@ -701,6 +701,7 @@ TurboDoc/
 
 ## Change History
 
+- **2026-03**: Decompose `AppContext` class into separate primitives: delete class and its single context; `appDataState` (presets) passed as prop from `index.tsx` → `App` → `Explorer` (only consumer, no context needed); `navigateTo` provided via `NavigateToProvider` context (stable `useCallback` over iframe ref); `viewerRef` passed as prop to `App` (only consumer is `<iframe>`); consumers now import `useAppData` (removed) or `useNavigateTo` instead of `useAppContext`
 - **2026-03**: Remove `currentUrl` from AppContext: `currentUrl` state no longer routed through AppContext — components read it via `useCurrentUrl()` hook directly; `setCurrentUrl` removed from `ProviderContext` interface (all URL writes go through `navigateTo`); `AppContext.navigateTo()` only sets `iframe.src` — the WebView2 `navigated` IPC event handler in `index.tsx` persists the URL to localStorage via `storage.save`, and mitt propagates to all hook consumers; URL normalization in rust provider changed from `setCurrentUrl` to `navigateTo` (always hits proxy cache); `ExplorerPageList` and `ExplorerItemMenu` now use `ctx.navigateTo()` instead of `setCurrentUrl()` from hook
 - **2026-03**: Decompose monolithic UI state into self-contained localStorage hooks: replace single `turbodoc:ui-state` JSON blob with two individual slots (`turbodoc:current-url` primitive, `turbodoc:expanded` flat string array); typed localStorage abstraction in `localStorage.ts` with Zod validation and mitt events carrying per-element granularity (`{ element, present }`) for selective re-rendering; `uiState.ts` provides `useCurrentUrl`, `useGroupExpanded(providerId, groupId)`, `useItemExpanded(providerId, itemId)` hooks plus imperative helpers (`expandItems`, `collapseItems`, `renameGroup`, `expandGroup`) for bulk operations; key scheme: `<providerId>:<itemId>` for items, `<providerId>:group:<groupId>` for groups; removed `ui-state-storage.ts`, `UiState` type, `uiStateSchema`, and centralized `useProviderUiState` hook; fixed `State<boolean>` distributive conditional type issue in `prelude.ts`; fixed `AppContext` constructor calling hooks (moved to `index.tsx`)
 - **2026-03**: Optimize frontend styling: merge `global.tailwind.css` into `global.css` (single CSS entry point); override HeroUI's default bubbly look with sharper corners (`--field-radius`, `rounded-md` buttons) and compact menu items; fix HeroUI bug where `--color-accent-soft-foreground` was set to `--accent` (invisible text on accent buttons); simplify HeroUI semantic token overrides (remove redundant `*-foreground` tokens that match HeroUI defaults)

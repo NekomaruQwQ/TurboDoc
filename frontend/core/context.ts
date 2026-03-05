@@ -1,52 +1,24 @@
-import type { ReadonlyDeep } from "type-fest";
 import { createContext, useContext, useEffect, useRef } from "react";
 import { useImmer } from "use-immer";
 
 import type { State } from "@/core/prelude";
 
 import type {
-    AppData,
     Provider,
     ProviderData,
 } from "@/core/data";
 import * as IPC from "@/core/ipc";
 
-export class AppContext {
-    /** Reference to the viewer iframe for programmatic navigation. */
-    public readonly viewerRef: React.RefObject<HTMLIFrameElement | null>;
-
-    readonly _appData: State<AppData>;
-
-    public constructor(
-        viewerRef: React.RefObject<HTMLIFrameElement | null>,
-        appData: State<AppData>) {
-        this.viewerRef = viewerRef;
-        this._appData = appData;
-    }
-
-    public get appData(): ReadonlyDeep<AppData> {
-        return this._appData[0];
-    }
-
-    public updateAppData(updater: (draft: AppData) => void): void {
-        this._appData[1](draft => {
-            updater(draft);
-        });
-    }
-
-    /** Navigate the viewer iframe to a URL. The WebView2 host fires a
-     *  `navigated` IPC event in response, whose handler in `index.tsx`
-     *  persists the URL to localStorage and propagates to all
-     *  `useCurrentUrl()` consumers. */
-    public navigateTo(url: string): void {
-        if (this.viewerRef.current) this.viewerRef.current.src = url;
-    }
-}
+// -- Navigation context -------------------------------------------------------
 
 // biome-ignore lint/style/noNonNullAssertion: always assigned in the context provider.
-const appContext = createContext<AppContext>(undefined!);
-export const AppContextProvider = appContext.Provider;
-export const useAppContext = () => useContext(appContext);
+const navigateToContext = createContext<(url: string) => void>(undefined!);
+export const NavigateToProvider = navigateToContext.Provider;
+/** Navigate the viewer iframe to a URL. The WebView2 host fires a
+ *  `navigated` IPC event in response, whose handler in `index.tsx`
+ *  persists the URL to localStorage and propagates to all
+ *  `useCurrentUrl()` consumers. */
+export const useNavigateTo = () => useContext(navigateToContext);
 
 // biome-ignore lint/style/noNonNullAssertion: always assigned in the context provider.
 const provider = createContext<Provider>(undefined!);

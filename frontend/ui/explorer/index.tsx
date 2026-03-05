@@ -2,12 +2,13 @@ import type { ReadonlyDeep } from "type-fest";
 
 import * as _ from "remeda";
 
-import type { Item } from "@/core/data";
+import type { AppData, Item } from "@/core/data";
+import type { State } from "@/core/prelude";
 import providers from "@/providers";
 import {
     ProviderDataProvider,
     ProviderProvider,
-    useAppContext,
+    useNavigateTo,
     useProvider,
     useProviderCache,
     useProviderData,
@@ -20,9 +21,11 @@ import ExplorerItem from "@/ui/explorer/ExplorerItem";
 import ExplorerGroupHeader from "@/ui/explorer/ExplorerGroupHeader";
 import ExplorerCreateGroupComponent from "@/ui/explorer/ExplorerCreateGroupComponent";
 
-export default function Explorer() {
-    const ctx = useAppContext();
-    const preset = ctx._appData[0].presets[ctx._appData[0].currentPreset];
+export default function Explorer({ appDataState }: {
+    appDataState: State<AppData>,
+}) {
+    const [appData] = appDataState;
+    const preset = appData.presets[appData.currentPreset];
     return (
         <div
             className="flex flex-col w-full h-full gap-1 rounded overflow-y-scroll"
@@ -38,7 +41,7 @@ export default function Explorer() {
 }
 
 function ExplorerProvider() {
-    const ctx = useAppContext();
+    const navigateTo = useNavigateTo();
     const provider = useProvider();
     const providerDataState = useProviderDataLoader();
     const [providerData, updateProviderData] = providerDataState;
@@ -55,7 +58,7 @@ function ExplorerProvider() {
             updateCache(draft => { updater(draft); });
         },
         currentUrl,
-        navigateTo: (url: string) => ctx.navigateTo(url),
+        navigateTo,
     };
 
     const providerOutput = provider.render(providerContext);
