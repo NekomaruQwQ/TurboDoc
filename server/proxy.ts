@@ -116,7 +116,7 @@ export interface ProxyResult {
  *  requests when multiple callers hit the same stale entry concurrently. */
 const pendingRefetches = new Map<string, Promise<void>>();
 
-export async function handleProxy(url: string): Promise<ProxyResult> {
+async function handleProxy(url: string): Promise<ProxyResult> {
     const req = policyRequest(url);
 
     // 1. Check cache
@@ -196,13 +196,6 @@ async function cacheAndServe(
     // Read body for 2xx responses. Redirects have no meaningful body.
     const isRedirect = status >= 300 && status < 400;
     const body = isRedirect ? null : Buffer.from(await response.arrayBuffer());
-
-    // Crates.io API responses lack cache directives (no Cache-Control,
-    // Last-Modified, or ETag), making them immediately stale under RFC 7234.
-    // Inject a 24-hour TTL since crate metadata changes infrequently.
-    if (!responseHeaders["cache-control"] && url.startsWith("https://crates.io/api/")) {
-        responseHeaders["cache-control"] = "max-age=86400";
-    }
 
     // Build cache policy.
     const policyResponse: CachePolicy.Response = { status, headers: responseHeaders };

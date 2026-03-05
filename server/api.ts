@@ -7,8 +7,10 @@ import path from "node:path";
 import fs from "node:fs/promises";
 
 import { dataDir, baseUrl } from "@server/common";
-import * as httpCache from "@server/http-cache";
-import { handleProxy } from "@server/proxy";
+import * as cratesCache from "@server/crates-cache";
+import { type CrateMetadata, parseCrateMetadata } from "@server/crates-cache";
+
+export type { CrateMetadata } from "@server/crates-cache";
 
 /** Load a JSON file and return it as the response body. Returns `{}` if the
  *  file doesn't exist (e.g., first launch). */
@@ -118,49 +120,6 @@ async function migrateFromWorkspacePrefix(): Promise<void> {
 await migrateFromMonolithic();
 await migrateFromWorkspacePrefix();
 
-// -- Crate metadata normalization --
-
-/** Normalized crate metadata returned by `POST /crates`. Flattened from the
- *  nested crates.io API response shape — the frontend never sees the raw
- *  upstream format. */
-export interface CrateMetadata {
-    name: string;
-    description: string | null;
-    homepage: string | null;
-    repository: string | null;
-    documentation: string | null;
-    versions: { num: string; yanked: boolean }[];
-}
-
-/** Parse a raw crates.io API response body into `CrateMetadata`.
- *  Returns `null` if the body is malformed or missing required fields. */
-function parseCrateMetadata(
-    name: string, body: Buffer,
-): CrateMetadata | null {
-    try {
-        const data = JSON.parse(body.toString("utf-8"));
-        const crate = data?.crate;
-        const versions = data?.versions;
-        if (!crate?.name || !Array.isArray(versions)) return null;
-
-        return {
-            name: crate.name,
-            description: crate.description ?? null,
-            homepage: crate.homepage ?? null,
-            repository: crate.repository ?? null,
-            documentation: crate.documentation ?? null,
-            versions: versions
-                .filter((v: any) => typeof v?.num === "string")
-                .map((v: any) => ({
-                    num: v.num as string,
-                    yanked: v.yanked === true,
-                })),
-        };
-    } catch {
-        console.error(`[crates] Failed to parse metadata for ${name}.`);
-        return null;
-    }
-}
 
 export default new Hono()
     .use(async (c, next) => {
@@ -196,8 +155,9 @@ export default new Hono()
         return c.json({ success: true });
     })
     // Batch crate metadata lookup. Returns normalized metadata for each
-    // requested crate. Cache hits are served from the SQLite HTTP cache;
-    // cache misses are fetched upstream via the proxy (in parallel).
+    // requested crate. Fresh cache hits are served immediately; stale or
+    // missing entries are refreshed from crates.io in parallel. Stale
+    // entries are kept as fallback if upstream fails.
     .post("/crates", async c => {
         const body = await c.req.json<{ names?: unknown }>();
         const names = body?.names;
@@ -205,32 +165,37 @@ export default new Hono()
             return c.json({ error: "Expected { names: string[] }" }, 400);
 
         const results: Record<string, CrateMetadata | null> = {};
-        const misses: string[] = [];
+        const staleFallbacks = new Map<string, Buffer>();
+        const toFetch: string[] = [];
 
-        // Phase 1: serve from cache.
+        // Phase 1: serve fresh hits from the dedicated crate cache.
         for (const name of names as string[]) {
-            const url = `https://crates.io/api/v1/crates/${name}`;
-            const cached = httpCache.get(url);
-            if (cached?.body) {
+            const cached = cratesCache.get(name);
+            if (cached?.fresh) {
                 results[name] = parseCrateMetadata(name, cached.body);
             } else {
-                misses.push(name);
+                if (cached) staleFallbacks.set(name, cached.body);
+                toFetch.push(name);
             }
         }
 
-        // Phase 2: fetch upstream for cache misses (in parallel).
-        if (misses.length > 0) {
-            const fetches = misses.map(async name => {
-                const url = `https://crates.io/api/v1/crates/${name}`;
+        // Phase 2: fetch upstream for stale and missing entries (in parallel).
+        if (toFetch.length > 0) {
+            const fetches = toFetch.map(async name => {
                 try {
-                    const result = await handleProxy(url);
-                    if (result.status === 200 && result.body) {
-                        results[name] = parseCrateMetadata(name, result.body);
+                    const body = await cratesCache.fetchUpstream(name);
+                    if (body) {
+                        cratesCache.set(name, body);
+                        results[name] = parseCrateMetadata(name, body);
                     } else {
-                        results[name] = null;
+                        // Non-200 upstream — serve stale fallback if available.
+                        const fallback = staleFallbacks.get(name);
+                        results[name] = fallback ? parseCrateMetadata(name, fallback) : null;
                     }
                 } catch {
-                    results[name] = null;
+                    // Network error — serve stale fallback if available.
+                    const fallback = staleFallbacks.get(name);
+                    results[name] = fallback ? parseCrateMetadata(name, fallback) : null;
                 }
             });
             await Promise.all(fetches);

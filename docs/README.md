@@ -103,7 +103,7 @@ TurboDoc is an "enhanced tabbed browser with inactive tab resources released" �
 | **Component** | **Tech Stack** | **Role** | **Key Responsibilities** |
 |---|---|---|---|
 | **Host** | C# WinUI 3 (.NET 10) + WebView2 | **The Shell** | Window management. Intercepts doc URL requests and forwards them to the server's `/proxy?url=` endpoint. Sends `navigated` events to frontend via `PostWebMessageAsJson`. Opens external URLs in system browser. |
-| **Server** | TypeScript (Bun + Hono) | **The Brain** | REST endpoints for split data persistence (`/api/v1/data/preset`, `/data/:providerId`). Batch crate metadata lookup from cache (`POST /api/v1/crates`). HTTP proxy with SQLite caching and LRU eviction (`/proxy?url=`). Dark mode injection at serve time. Serves frontend assets via Vite middleware. |
+| **Server** | TypeScript (Bun + Hono) | **The Brain** | REST endpoints for split data persistence (`/api/v1/data/preset`, `/data/:providerId`). Batch crate metadata lookup with dedicated SQLite cache (`POST /api/v1/crates`). HTTP proxy with SQLite caching and LRU eviction (`/proxy?url=`). Dark mode injection at serve time. Serves frontend assets via Vite middleware. |
 | **Frontend** | React + Vite | **The Face** | UI rendering (Explorer, Navigation). Fetches data from `/api/v1/*` via `hono/client`. Provider-based architecture for multi-source docs. |
 
 ### Request Flow
@@ -231,7 +231,7 @@ preset.json ───────────────────► useAppR
 <providerId>.json ──────────► useProviderData ────────► ProviderOutput (View Model)
 localStorage (turbodoc:current-url) ──► useCurrentUrl ──────────► current URL (direct hook)
 localStorage (turbodoc:expanded) ────► useGroupExpanded/useItemExpanded ► expansion state
-HTTP proxy SQLite cache ──────────────► useSyncExternalStore ──► in-memory API response cache (per-provider)
+Dedicated crates_cache SQLite table ──► useSyncExternalStore ──► in-memory API response cache (per-provider)
 ```
 
 **Navigation flow:**
@@ -377,12 +377,11 @@ Design decisions that shaped the current architecture. Organized by area.
 - Adding a new provider is isolated work — no central type modifications
 - Separation of concerns is enforced by the type system, not just convention
 
-**API Response Caching via HTTP Proxy**
-- The proxy's SQLite cache handles persistence, RFC 7234 freshness, conditional revalidation, and LRU eviction
-- Upstreams that lack cache directives (e.g., crates.io API) get synthetic `Cache-Control` headers injected before policy evaluation — currently `max-age=86400` (24 hours) for `https://crates.io/api/` URLs
+**API Response Caching**
+- Crate metadata (crates.io API) uses a dedicated `crates_cache` SQLite table (`server/crates-cache.ts`) — stores raw upstream response bodies with a simple 24-hour TTL. No LRU eviction needed (entries are small). On upstream failure, stale entries are served as fallback. Fetches use plain `fetch()` directly to crates.io, not through the HTTP proxy.
+- Documentation page caching uses the HTTP proxy's SQLite cache (`server/http-cache.ts`) — RFC 7234 freshness, conditional revalidation, LRU eviction, stale-while-revalidate
 - Each provider manages its own in-memory cache for within-session state — not persisted, starts empty on each app launch (e.g., Rust provider uses a module-level store subscribed to via `useSyncExternalStore`)
-- On provider load, the frontend batch-fetches all uncached crate metadata via `POST /api/v1/crates` — the server serves cache hits from the SQLite HTTP cache and fetches upstream (in parallel) for cache misses, returning normalized `CrateMetadata` for all requested crates. The frontend never constructs crates.io URLs or parses raw crates.io responses.
-- No separate cache files or schema validation needed — the proxy is the single caching layer
+- On provider load, the frontend batch-fetches all uncached crate metadata via `POST /api/v1/crates` — the server serves fresh cache hits from the `crates_cache` table and fetches upstream (in parallel) for stale/missing entries, returning normalized `CrateMetadata` for all requested crates. The frontend never constructs crates.io URLs or parses raw crates.io responses.
 
 **Data Model vs View Model**
 
@@ -442,7 +441,7 @@ Design decisions that shaped the current architecture. Organized by area.
   - **Primitive** (`turbodoc:current-url`): current URL, simple get/set
   - **Array** (`turbodoc:expanded`): flat string array of expanded item/group keys. Key format: `<providerId>:<itemId>` for items, `<providerId>:group:<groupId>` for groups. Membership-check hooks (`useGroupExpanded`, `useItemExpanded`) with selective re-rendering via mitt events — only hooks whose specific key changed re-render.
   - Each slot validated with Zod on load; invalid/missing data falls back to empty defaults (default URL `https://docs.rs/`, nothing expanded). See `frontend/core/localStorage.ts` and `frontend/core/uiState.ts`.
-- API response caching (e.g., crates.io metadata) handled by the HTTP proxy's SQLite cache — no separate cache files or endpoints. Each provider manages its own in-memory cache for within-session state, populated on demand from proxy responses (e.g., Rust provider uses a module-level store with `useSyncExternalStore`).
+- Crate metadata caching uses a dedicated `crates_cache` SQLite table with 24-hour TTL (separate from the HTTP proxy cache). Each provider manages its own in-memory cache for within-session state, populated on demand from the batch endpoint (e.g., Rust provider uses a module-level store with `useSyncExternalStore`).
 - Server-persisted via Hono HTTP API (`/api/v1/data/preset`, `/data/:providerId`)
 - `"preset"` is a reserved path segment — cannot be used as a provider ID
 - Auto-save on every state change (no debouncing — files are small)
@@ -626,13 +625,14 @@ TurboDoc/
 │   ├── package.json            # Server dependencies (Hono, bun:sqlite, etc.)
 │   ├── tsconfig.json           # ESNext, bundler mode, strict; alias: @/ → server/
 │   ├── index.ts                # Hono router + Vite dev server ($TURBODOC_PORT)
-│   ├── api.ts                  # API endpoints (split data CRUD, legacy migration)
+│   ├── api.ts                  # API endpoints (split data CRUD, batch crate lookup, legacy migration)
 │   ├── proxy.ts                # /proxy?url= route handler + dark mode injection
-│   ├── http-cache.ts           # SQLite HTTP cache (bun:sqlite, LRU eviction)
+│   ├── http-cache.ts           # SQLite HTTP cache for doc pages (bun:sqlite, LRU eviction)
+│   ├── crates-cache.ts         # Dedicated SQLite cache for crates.io API responses (TTL-based)
 │   └── common.ts               # Shared config, database setup, utilities
 │
 ├── data/                       # Runtime data directory ($TURBODOC_DATA)
-│   ├── cache.sqlite            # HTTP proxy cache (SQLite WAL mode)
+│   ├── cache.sqlite            # SQLite database (HTTP proxy cache + crates metadata cache, WAL mode)
 │   ├── preset.json      # Global app state (presets)
 │   └── <id>.json               # Per-provider user data
 │
@@ -697,6 +697,7 @@ TurboDoc/
 
 ## Change History
 
+- **2026-03**: Extract crates.io caching into dedicated system: new `server/crates-cache.ts` with `crates_cache` SQLite table (stores raw upstream response bodies, 24-hour TTL, no LRU); `POST /api/v1/crates` now reads from dedicated cache and fetches directly to crates.io (not through HTTP proxy); stale entries served as fallback on upstream failure; removed synthetic `Cache-Control` injection for crates.io URLs from `server/proxy.ts`; `handleProxy` un-exported (only used internally by proxy route); `CrateMetadata` type and `parseCrateMetadata` moved from `api.ts` to `crates-cache.ts` (re-exported from `api.ts` for frontend compatibility)
 - **2026-03**: Remove unused `?cache=none` proxy bypass: no caller ever passed the parameter; removed `noCache` param from `handleProxy`, query parsing in route handler, and conditional log; stale-while-revalidate handles freshness automatically
 - **2026-03**: Move crates.io API handling from frontend to server: `POST /api/v1/crates` now fetches upstream for cache misses (in parallel via `handleProxy`) instead of returning `null`; server normalizes raw crates.io responses into a flat `CrateMetadata` type (exported from `server/api.ts`); frontend no longer constructs crates.io URLs or parses raw API responses; deleted `crates-api.ts` (inlined single `fetchCratesMetadata` into `rust/index.tsx`), `crates-api.integration.test.ts`, error classes (`RateLimitError`, `CrateNotFoundError`, `MalformedResponseError`), unused `searchCrates()`, individual `fetchCrateInfo()` and `fetchCrateCache()`; `getCrateCache()` simplified to pure store lookup (no fetch trigger); removed `> 1` batch threshold — all uncached crates fetched in a single request; `type-fest/PartialDeep` no longer used for crates API responses
 - **2026-03**: Remove generic provider cache mechanism: delete `TCache` generic from `Provider<T, TCache>` and `ProviderContext`, remove `cache`/`updateCache` from `ProviderContext`, delete `useProviderCache()` hook from `context.ts`; Rust provider now manages its own crate metadata via a module-level external store subscribed to with `useSyncExternalStore` inside `render()` (which is logically a hook — always called at the top level of `ExplorerProvider`); `getCrateCache()`, `fetchCrateCache()`, `batchFetchCrateCache()` no longer take `ctx` for cache access — they read/write the store directly
