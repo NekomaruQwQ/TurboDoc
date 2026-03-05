@@ -158,20 +158,29 @@ export default new Hono()
     // requested crate. Fresh cache hits are served immediately; stale or
     // missing entries are refreshed from crates.io in parallel. Stale
     // entries are kept as fallback if upstream fails.
+    //
+    // ?refresh=true bypasses the freshness check and always fetches
+    // upstream. Limited to a single crate to prevent accidental bulk
+    // hits to crates.io.
     .post("/crates", async c => {
         const body = await c.req.json<{ names?: unknown }>();
         const names = body?.names;
         if (!Array.isArray(names) || !names.every(n => typeof n === "string"))
             return c.json({ error: "Expected { names: string[] }" }, 400);
 
+        const refresh = c.req.query("refresh") === "true";
+        if (refresh && names.length > 1)
+            return c.json({ error: "?refresh=true only supports a single crate" }, 400);
+
         const results: Record<string, CrateMetadata | null> = {};
         const staleFallbacks = new Map<string, Buffer>();
         const toFetch: string[] = [];
 
         // Phase 1: serve fresh hits from the dedicated crate cache.
+        // Skipped entirely when refresh=true — always fetch upstream.
         for (const name of names as string[]) {
             const cached = cratesCache.get(name);
-            if (cached?.fresh) {
+            if (!refresh && cached?.fresh) {
                 results[name] = parseCrateMetadata(name, cached.body);
             } else {
                 if (cached) staleFallbacks.set(name, cached.body);

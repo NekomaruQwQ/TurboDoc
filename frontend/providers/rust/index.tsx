@@ -3,7 +3,7 @@ import type { ReadonlyDeep } from "type-fest";
 import * as _ from "remeda";
 import * as semver from "semver";
 
-import { faTrash } from "@fortawesome/free-solid-svg-icons";
+import { faRotateRight, faTrash } from "@fortawesome/free-solid-svg-icons";
 
 import type {
     Provider,
@@ -289,16 +289,32 @@ function getCrateLinks(
 function getCrateActions(
     ctx: RustProviderContext,
     crateName: string): ItemAction[] {
-    return [
-        {
-            name: "Delete Crate",
-            icon: { type: "fontawesome", name: faTrash },
-            destructive: true,
-            invoke: () => ctx.updateData(draft => {
-                delete draft.crates[crateName];
-            }),
-        },
-    ];
+    const actions: ItemAction[] = [];
+
+    // Refresh metadata — only for crates.io crates (std-library crates
+    // don't have crates.io metadata to refresh).
+    if (getBaseUrlForCrate(crateName) !== "https://doc.rust-lang.org/") {
+        actions.push({
+            name: "Refresh Metadata",
+            icon: { type: "fontawesome", name: faRotateRight },
+            invoke: () => {
+                deleteCrateCache(crateName);
+                inFlight.delete(crateName);
+                batchFetchCrateCache([crateName], true);
+            },
+        });
+    }
+
+    actions.push({
+        name: "Delete Crate",
+        icon: { type: "fontawesome", name: faTrash },
+        destructive: true,
+        invoke: () => ctx.updateData(draft => {
+            delete draft.crates[crateName];
+        }),
+    });
+
+    return actions;
 }
 
 function getCratePages(
@@ -501,6 +517,14 @@ function setCrateCaches(entries: Record<string, CrateCache>) {
     for (const l of _cacheListeners) l();
 }
 
+/** Remove a single crate from the in-memory cache. Creates a new snapshot
+ *  reference so `useSyncExternalStore` triggers a re-render. */
+function deleteCrateCache(name: string) {
+    const { [name]: _, ...rest } = _cacheSnapshot.crates ?? {};
+    _cacheSnapshot = { crates: rest };
+    for (const l of _cacheListeners) l();
+}
+
 // -- Crate metadata fetching --------------------------------------------------
 
 /** Crate names with a fetch currently in flight, preventing duplicate
@@ -531,12 +555,17 @@ function crateMetadataToCache(meta: CrateMetadata): CrateCache {
 }
 
 /** Fetch normalized crate metadata from the server. The server handles
- *  cache lookups and upstream fetches for misses. */
+ *  cache lookups and upstream fetches for misses.
+ *  @param refresh — bypass the server's cache freshness check and always
+ *  fetch upstream. Only allowed for a single crate at a time (server
+ *  enforces this). */
 async function fetchCratesMetadata(
     names: string[],
+    refresh?: boolean,
 ): Promise<Record<string, CrateMetadata | null>> {
-    console.log(`[crates] Fetching metadata for ${names.length} crate(s).`);
-    const response = await fetch("/api/v1/crates", {
+    console.log(`[crates] Fetching metadata for ${names.length} crate(s)${refresh ? " (refresh)" : ""}.`);
+    const url = refresh ? "/api/v1/crates?refresh=true" : "/api/v1/crates";
+    const response = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ names }),
@@ -548,12 +577,14 @@ async function fetchCratesMetadata(
 
 /** Batch-fetch crate metadata from the server and populate the in-memory
  *  store. The server handles both cache lookups and upstream fetches for
- *  misses — the frontend just receives normalized results. */
+ *  misses — the frontend just receives normalized results.
+ *  @param refresh — propagated to the server to bypass cache freshness. */
 async function batchFetchCrateCache(
     names: string[],
+    refresh?: boolean,
 ): Promise<void> {
     try {
-        const results = await fetchCratesMetadata(names);
+        const results = await fetchCratesMetadata(names, refresh);
         const entries: Record<string, CrateCache> = {};
         for (const [name, meta] of Object.entries(results)) {
             if (meta) entries[name] = crateMetadataToCache(meta);

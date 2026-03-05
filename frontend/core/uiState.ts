@@ -99,6 +99,11 @@ export function collapseItems(providerId: string, itemIds: string[]): void {
     storage.removeAll("expanded", itemIds.map(id => `${providerId}:${id}`));
 }
 
+/** Remove a deleted group's expansion state. */
+export function removeGroup(providerId: string, groupId: string): void {
+    storage.remove("expanded", `${providerId}:group:${groupId}`);
+}
+
 /** Transfer a group's expansion state from old name to new name. */
 export function renameGroup(providerId: string, oldName: string, newName: string): void {
     const oldKey = `${providerId}:group:${oldName}`;

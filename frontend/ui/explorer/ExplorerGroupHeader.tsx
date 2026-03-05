@@ -22,7 +22,7 @@ import { useOverlayState } from "@heroui/react";
 
 import type { State } from "@/core/prelude";
 import { useProvider, useProviderData } from "@/core/context";
-import { expandItems, collapseItems, renameGroup } from "@/core/uiState";
+import { expandItems, collapseItems, removeGroup, renameGroup } from "@/core/uiState";
 
 // --- Main component ---
 
@@ -68,10 +68,12 @@ function ExplorerGroupHeaderCore(props: {
         }
     }
 
-    function removeGroup() {
+    function deleteGroup() {
         updateProviderData(draft => {
             delete draft.groups[groupName];
+            draft.groupOrder = draft.groupOrder.filter(name => name !== groupName);
         });
+        removeGroup(providerId, groupName);
     }
 
     if (isRenaming) {
@@ -100,7 +102,7 @@ function ExplorerGroupHeaderCore(props: {
             <ExplorerGroupDeletionDialog
                 groupName={groupName}
                 state={deleteDialogState}
-                onConfirm={removeGroup} />
+                onConfirm={deleteGroup} />
         </ExplorerGroupHeaderContainer>);
 }
 

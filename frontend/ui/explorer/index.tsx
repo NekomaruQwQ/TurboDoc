@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import type { ReadonlyDeep } from "type-fest";
 
 import * as _ from "remeda";
@@ -61,6 +62,22 @@ function ExplorerProvider() {
     };
 
     const providerOutput = provider.render(providerContext);
+
+    // Eager cleanup: remove orphaned item IDs from groups.
+    // Catches orphans from any cause (deletion, data corruption, migration).
+    const validItemIds = Object.keys(providerOutput.items);
+    // biome-ignore lint/correctness/useExhaustiveDependencies: stable string key derived from item IDs.
+    useEffect(() => {
+        const hasOrphans = Object.values(providerData.groups).some(group =>
+            group.items.some(id => !validItemIds.includes(id)));
+        if (hasOrphans) {
+            updateProviderData(draft => {
+                for (const group of Object.values(draft.groups))
+                    group.items = group.items.filter(id => validItemIds.includes(id));
+            });
+        }
+    }, [validItemIds.join(",")]);
+
     const providerActionNodes =
         providerOutput.actions?.map(action => (
             action.type === "node" ? action.render() : undefined
