@@ -229,9 +229,20 @@ View models contain callbacks (e.g., `setPinned`, `setCurrentVersion`, `invoke`)
 [Disk/Storage]                         [Deserialization]         [Runtime]
 workspace.app.json ───────────────────► AppContext ──────────────► global state (presets)
 workspace.<providerId>.json ──────────► useProviderData ────────► ProviderOutput (View Model)
-localStorage (turbodoc:current-url) ──► useCurrentUrl ──────────► current URL
+localStorage (turbodoc:current-url) ──► useCurrentUrl ──────────► current URL (direct hook, not via AppContext)
 localStorage (turbodoc:expanded) ────► useGroupExpanded/useItemExpanded ► expansion state
 HTTP proxy SQLite cache ──────────────► useProviderCache ───────► in-memory API response cache
+```
+
+**Navigation flow:**
+```
+navigateTo(url) ──► iframe.src = url
+                        │
+                        └─► WebView2 fires "navigated" IPC event
+                              │
+                              └─► index.tsx handler: storage.save("currentUrl", url)
+                                    │
+                                    └─► mitt event ──► all useCurrentUrl() hooks update
 ```
 
 #### Unified Rust Provider
@@ -480,7 +491,8 @@ AppData + ProviderData (React state) ──► provider.render() ──► React
 - `ProviderContext` constructed in `ExplorerProvider` using `useProviderData` and `useProviderCache` hooks from `frontend/core/context.ts`
 
 **Independent State Atoms**
-- `frontend/index.tsx` owns `appData` (presets, async from server) and `currentUrl` (sync from localStorage via `useCurrentUrl`)
+- `frontend/index.tsx` owns `appData` (presets, async from server) and the `navigated` IPC event handler (writes `currentUrl` to localStorage)
+- `currentUrl` consumed via `useCurrentUrl()` hook directly in components that need it (`ExplorerProvider`, `ExplorerPageList`) — not routed through AppContext
 - Expansion state managed per-component via `useGroupExpanded`/`useItemExpanded` hooks — each hook reads/writes its own key in the `turbodoc:expanded` localStorage slot, synced across components via mitt events
 - Provider data is lazily loaded per-provider inside `ExplorerProvider` via `useProviderData` hook
 - Each atom has independent auto-save — a change in one slice doesn't trigger writes to others
@@ -494,9 +506,10 @@ AppData + ProviderData (React state) ──► provider.render() ──► React
 - All operations except app data are non-fatal (log errors, don't crash)
 
 **Class-Based AppContext**
-- AppContext is a class (not a plain object) that owns the iframe ref (`viewerRef`), `appData`, and `currentUrl`
-- Encapsulates navigation logic (`navigateTo`, `setCurrentUrl`), hides React state management details from consumers
-- Recreated on every render (no memoization) — holds app-level + UI state, so re-renders only happen when state changes
+- AppContext is a class (not a plain object) that owns the iframe ref (`viewerRef`) and `appData`
+- `navigateTo(url)` sets `iframe.src` only — the WebView2 host fires a `navigated` IPC event, whose handler in `index.tsx` persists the URL to localStorage and propagates to all `useCurrentUrl()` consumers
+- `currentUrl` is NOT stored in AppContext — components read it via `useCurrentUrl()` hook directly
+- Recreated on every render (no memoization) — re-renders only happen when `appData` changes
 - Provider data is NOT stored in AppContext — each provider loads its own data lazily
 
 **Graceful Degradation**
@@ -688,6 +701,7 @@ TurboDoc/
 
 ## Change History
 
+- **2026-03**: Remove `currentUrl` from AppContext: `currentUrl` state no longer routed through AppContext — components read it via `useCurrentUrl()` hook directly; `setCurrentUrl` removed from `ProviderContext` interface (all URL writes go through `navigateTo`); `AppContext.navigateTo()` only sets `iframe.src` — the WebView2 `navigated` IPC event handler in `index.tsx` persists the URL to localStorage via `storage.save`, and mitt propagates to all hook consumers; URL normalization in rust provider changed from `setCurrentUrl` to `navigateTo` (always hits proxy cache); `ExplorerPageList` and `ExplorerItemMenu` now use `ctx.navigateTo()` instead of `setCurrentUrl()` from hook
 - **2026-03**: Decompose monolithic UI state into self-contained localStorage hooks: replace single `turbodoc:ui-state` JSON blob with two individual slots (`turbodoc:current-url` primitive, `turbodoc:expanded` flat string array); typed localStorage abstraction in `localStorage.ts` with Zod validation and mitt events carrying per-element granularity (`{ element, present }`) for selective re-rendering; `uiState.ts` provides `useCurrentUrl`, `useGroupExpanded(providerId, groupId)`, `useItemExpanded(providerId, itemId)` hooks plus imperative helpers (`expandItems`, `collapseItems`, `renameGroup`, `expandGroup`) for bulk operations; key scheme: `<providerId>:<itemId>` for items, `<providerId>:group:<groupId>` for groups; removed `ui-state-storage.ts`, `UiState` type, `uiStateSchema`, and centralized `useProviderUiState` hook; fixed `State<boolean>` distributive conditional type issue in `prelude.ts`; fixed `AppContext` constructor calling hooks (moved to `index.tsx`)
 - **2026-03**: Optimize frontend styling: merge `global.tailwind.css` into `global.css` (single CSS entry point); override HeroUI's default bubbly look with sharper corners (`--field-radius`, `rounded-md` buttons) and compact menu items; fix HeroUI bug where `--color-accent-soft-foreground` was set to `--accent` (invisible text on accent buttons); simplify HeroUI semantic token overrides (remove redundant `*-foreground` tokens that match HeroUI defaults)
 - **2026-03**: Remove unused dependencies: drop `@hono/zod-validator`, `http-cache-semantics`, `ts-pattern`, `use-debounce` from frontend; drop `@hono/zod-validator`, `http-cache-semantics`, `immer`, `lucide-react`, `mitt`, `remeda` from server

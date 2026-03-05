@@ -22,7 +22,7 @@ import { useImmer } from "use-immer";
 
 import type { AppData } from "@/core/data";
 import { AppContext, AppContextProvider } from "@/core/context";
-import { useCurrentUrl } from "@/core/uiState";
+import * as storage from "@/core/localStorage";
 import * as IPC from "@/core/ipc";
 
 function useAppContext(): AppContext | null {
@@ -31,15 +31,13 @@ function useAppContext(): AppContext | null {
 
     const [appData, updateAppData] =
         useImmer<ReadonlyDeep<AppData> | null>(null);
-    const currentUrl = useCurrentUrl();
 
     const app = appData ?
         new AppContext(
             viewerRef,
             [appData, updater => updateAppData(draft => {
                 draft && updater(draft);
-            })],
-            currentUrl) : null;
+            })]) : null;
 
     // Load app data from server on first render.
     // biome-ignore lint/correctness/useExhaustiveDependencies: effect only run once.
@@ -66,16 +64,15 @@ function useAppContext(): AppContext | null {
         }
     }, [appData]);
 
-    // Listen to the "navigated" IPCEvent. Only records the URL in state
-    // (the iframe already navigated). `currentUrl[1]` (setState) from
-    // useState is referentially stable, so this effect subscribes once.
-    // biome-ignore lint/correctness/useExhaustiveDependencies: setCurrentUrl is stable.
+    // Listen to the "navigated" IPCEvent. Only records the URL in
+    // localStorage (the iframe already navigated); the mitt event
+    // propagates to all useCurrentUrl() consumers.
     useEffect(() => {
         return IPC.on("navigated", event => {
             // Ignore false navigation.
             if (event.url === "https://docs.rs/-/storage-change-detection.html")
                 return;
-            currentUrl[1](event.url);
+            storage.save("currentUrl", event.url);
         });
     }, []);
 

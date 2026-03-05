@@ -14,7 +14,7 @@ import {
     useProviderDataLoader,
 } from "@/core/context";
 
-import { useGroupExpanded } from "@/core/uiState";
+import { useCurrentUrl, useGroupExpanded } from "@/core/uiState";
 
 import ExplorerItem from "@/ui/explorer/ExplorerItem";
 import ExplorerGroupHeader from "@/ui/explorer/ExplorerGroupHeader";
@@ -43,6 +43,7 @@ function ExplorerProvider() {
     const providerDataState = useProviderDataLoader();
     const [providerData, updateProviderData] = providerDataState;
     const [cache, updateCache] = useProviderCache();
+    const [currentUrl] = useCurrentUrl();
 
     const providerContext = {
         data: providerData?.data ?? {},
@@ -53,8 +54,7 @@ function ExplorerProvider() {
         updateCache: (updater: (draft: unknown) => void) => {
             updateCache(draft => { updater(draft); });
         },
-        currentUrl: ctx.currentUrl,
-        setCurrentUrl: (url: string) => ctx.setCurrentUrl(url),
+        currentUrl,
         navigateTo: (url: string) => ctx.navigateTo(url),
     };
 

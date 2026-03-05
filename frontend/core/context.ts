@@ -16,27 +16,16 @@ export class AppContext {
     public readonly viewerRef: React.RefObject<HTMLIFrameElement | null>;
 
     readonly _appData: State<AppData>;
-    readonly _currentUrl: State<string>;
 
     public constructor(
         viewerRef: React.RefObject<HTMLIFrameElement | null>,
-        appData: State<AppData>,
-        currentUrl: State<string>) {
+        appData: State<AppData>) {
         this.viewerRef = viewerRef;
         this._appData = appData;
-        this._currentUrl = currentUrl;
     }
 
     public get appData(): ReadonlyDeep<AppData> {
         return this._appData[0];
-    }
-
-    public get currentUrl(): string {
-        return this._currentUrl[0];
-    }
-
-    public setCurrentUrl(url: string): void {
-        this._currentUrl[1](url);
     }
 
     public updateAppData(updater: (draft: AppData) => void): void {
@@ -45,9 +34,11 @@ export class AppContext {
         });
     }
 
-    /** Navigate the viewer iframe to a URL and update currentUrl state. */
+    /** Navigate the viewer iframe to a URL. The WebView2 host fires a
+     *  `navigated` IPC event in response, whose handler in `index.tsx`
+     *  persists the URL to localStorage and propagates to all
+     *  `useCurrentUrl()` consumers. */
     public navigateTo(url: string): void {
-        this._currentUrl[1](url);
         if (this.viewerRef.current) this.viewerRef.current.src = url;
     }
 }

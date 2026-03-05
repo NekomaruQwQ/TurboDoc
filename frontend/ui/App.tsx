@@ -7,6 +7,7 @@ import {
 import { useRef } from "react";
 
 import { useAppContext } from "@/core/context";
+import * as storage from "@/core/localStorage";
 
 import Explorer from "@/ui/explorer";
 
@@ -14,7 +15,7 @@ export default function App() {
     const ctx = useAppContext();
     // Capture the initial URL once — React never re-sets the `src` attribute
     // after this. All subsequent navigation is imperative via navigateTo().
-    const initialUrl = useRef(ctx.currentUrl);
+    const initialUrl = useRef(storage.load("currentUrl"));
     return (
         <div className="w-full h-full flex flex-col">
             <div className="h-12">-</div>

@@ -78,8 +78,8 @@ function handleCurrentUrl(ctx: RustProviderContext) {
     if (!currentUrl) return;
 
     if (ctx.currentUrl !== buildUrl(currentUrl)) {
-        // Normalize currentUrl in context.
-        ctx.setCurrentUrl(buildUrl(currentUrl));
+        // Normalize currentUrl — re-navigation always hits proxy cache.
+        ctx.navigateTo(buildUrl(currentUrl));
         return;
     }
 

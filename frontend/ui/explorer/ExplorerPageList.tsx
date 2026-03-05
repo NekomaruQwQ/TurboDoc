@@ -7,6 +7,7 @@ import { faThumbtack } from "@fortawesome/free-solid-svg-icons";
 
 import type { IdentType, Page, PageName } from "@/core/data";
 import { cn } from "@/core/prelude";
+import { useAppContext } from "@/core/context";
 import { useCurrentUrl } from "@/core/uiState";
 
 function getIdentColor(type: IdentType): string | undefined {
@@ -46,7 +47,8 @@ export default function ExplorerPageList({ pages }: ReadonlyDeep<{ pages: Page[]
 }
 
 function ExplorerPage({ page }: ReadonlyDeep<{ page: Page }>) {
-    const [currentUrl, setCurrentUrl] = useCurrentUrl();
+    const ctx = useAppContext();
+    const [currentUrl] = useCurrentUrl();
     const active = page.url === currentUrl;
     const pinned = page.pinned === true;
     const italic = page.pinned === false;
@@ -58,7 +60,7 @@ function ExplorerPage({ page }: ReadonlyDeep<{ page: Page }>) {
                     ? "bg-input shadow-sm"
                     : "border-transparent hover:bg-input/50",
                 italic && "italic")}
-            onClick={() => setCurrentUrl(page.url)}>
+            onClick={() => ctx.navigateTo(page.url)}>
             <span className="flex-1 px-0.5 truncate font-mono font-light">
                 <ExplorerPageName value={page.name} />
             </span>
