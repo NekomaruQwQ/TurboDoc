@@ -7,6 +7,10 @@ list:
 install:
     cd server;   bun i
     cd frontend; bun i
+check:
+    cd server;   bunx --bun tsc --noEmit
+    cd frontend; bunx --bun tsc --noEmit
+
 app:
     out/bin/TurboDoc/debug_win-x64/TurboDoc.exe
 server:

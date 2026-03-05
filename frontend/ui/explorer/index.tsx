@@ -2,6 +2,11 @@ import type { ReadonlyDeep } from "type-fest";
 
 import * as _ from "remeda";
 
+import {
+    Collapsible,
+    CollapsibleContent,
+} from "@radix-ui/react-collapsible";
+
 import type { AppData, Item } from "@/core/data";
 import type { State } from "@/core/prelude";
 import providers from "@/providers";
@@ -129,14 +134,14 @@ function ExplorerGroup(props: ReadonlyDeep<{
                 _.sortBy(([_, item]) => item.sortKey),
                 _.map(renderItem))}
         </>
-        : <>
+        : <Collapsible open={expanded}>
             <ExplorerGroupHeader
                 variant="default"
                 groupName={props.groupName}
                 expanded={expanded}
                 setExpanded={setExpanded} />
-            {expanded &&
-                _.pipe(
+            <CollapsibleContent className="collapsible-content flex flex-col gap-2">
+                {_.pipe(
                     _.entries(props.providerOutput.items),
                     _.filter(([itemId, __]) => (
                         providerData
@@ -145,5 +150,6 @@ function ExplorerGroup(props: ReadonlyDeep<{
                         ?? false)),
                     _.sortBy(([_, item]) => item.sortKey),
                     _.map(renderItem))}
-        </>;
+            </CollapsibleContent>
+        </Collapsible>;
 }

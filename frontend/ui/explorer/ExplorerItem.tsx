@@ -52,7 +52,7 @@ export default function ExplorerItem({ item, itemGroupName }: ReadonlyDeep<{
                 }
                 <ExplorerItemMenu item={item} itemGroupName={itemGroupName} />
             </div>
-            <CollapsibleContent className="flex flex-col">
+            <CollapsibleContent className="collapsible-content flex flex-col">
                 <Separator />
                 <div className="h-1" />
                 <ExplorerPageList pages={item.pages} />
