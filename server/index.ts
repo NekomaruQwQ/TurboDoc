@@ -37,6 +37,9 @@ const viteServer =
         configFile: path.resolve(__dirname, "../frontend/vite.config.ts"),
         server: {
             middlewareMode: true,
+            hmr: {
+                port: serverPort + 10000,
+            }
         },
     });
 const httpServer =
