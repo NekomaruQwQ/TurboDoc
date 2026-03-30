@@ -43,7 +43,7 @@ export default function ExplorerItemMenu({ item, itemGroupName }: ReadonlyDeep<{
                 <Button
                     variant="ghost"
                     isIconOnly
-                    className="size-6 min-w-0 border hover:bg-input/50 cursor-pointer">
+                    className="size-6 min-w-0 border rounded-2xl hover:bg-input/50 cursor-pointer">
                     <FontAwesomeIcon icon={faEllipsisVertical} size="sm" />
                 </Button>
             </Dropdown.Trigger>
@@ -104,10 +104,9 @@ function ExplorerItemMenuLink({ link }: ReadonlyDeep<{ link: ItemLink }>) {
 function ExplorerItemMenuAction({ action }: ReadonlyDeep<{ action: ItemAction }>) {
     return (
         <Dropdown.Item
-            variant={action.destructive ? "danger" : undefined}
             isDisabled={action.disabled ?? false}
             textValue={action.name}
-            className="cursor-pointer"
+            className={"cursor-pointer" + (action.destructive ? " text-danger" : "")}
             onAction={() => action.invoke()}>
             {action.icon && <Icon icon={action.icon} size="sm" />}
             <span>{action.name}</span>

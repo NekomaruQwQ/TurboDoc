@@ -35,7 +35,7 @@ export default function App({ viewerRef, appDataState }: {
                     <iframe
                         ref={viewerRef}
                         src={initialUrl.current}
-                        className="w-full h-full border border-white/25 rounded-tl-lg"/>
+                        className="w-full h-full border border-white/30 rounded-tl-3xl"/>
                 </ResizablePanel>
             </ResizablePanelGroup>
         </div>);

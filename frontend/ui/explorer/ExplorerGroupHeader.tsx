@@ -17,7 +17,7 @@ import {
     faTrash,
 } from "@fortawesome/free-solid-svg-icons";
 
-import { Button, Dropdown, Input, Modal } from "@heroui/react";
+import { Button, Dropdown, Input, Modal, Separator } from "@heroui/react";
 import { useOverlayState } from "@heroui/react";
 
 import type { State } from "@/core/prelude";
@@ -111,7 +111,7 @@ function ExplorerGroupHeaderCore(props: {
 /** Shared outer shell for both default and ungrouped group headers. */
 function ExplorerGroupHeaderContainer(props: { children: React.ReactNode }) {
     return (
-        <div className="group/header flex flex-row h-8 py-1 items-center gap-0.5 text-muted">
+        <div className="group/header flex flex-row h-12 items-center gap-0.5 text-muted">
             {props.children}
         </div>);
 }
@@ -251,6 +251,7 @@ function ExplorerGroupMenu(props: {
                             <span>Collapse All</span>
                         </Dropdown.Item>
                     </Dropdown.Section>
+                    <Separator />
                     <Dropdown.Section>
                         <Dropdown.Item
                             textValue="Move to Top"
@@ -299,10 +300,11 @@ function ExplorerGroupMenu(props: {
                                 </Dropdown.Popover>
                             </Dropdown.SubmenuTrigger>)}
                     </Dropdown.Section>
+                    <Separator />
                     <Dropdown.Section>
                         <Dropdown.Item
                             textValue="Delete Group"
-                            variant="danger"
+                            className="text-danger"
                             onAction={props.onDelete}>
                             <FontAwesomeIcon icon={faTrash} />
                             <span>Delete Group</span>
@@ -343,7 +345,6 @@ function GroupRenameInput(props: {
                 autoFocus
                 className="flex-1 h-7 mx-1 font-semibold" />
             <Button
-                variant="secondary"
                 isIconOnly
                 className="size-7 min-w-0"
                 onPress={confirm}>

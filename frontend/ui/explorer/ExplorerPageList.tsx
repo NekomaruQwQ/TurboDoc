@@ -55,7 +55,7 @@ function ExplorerPage({ page }: ReadonlyDeep<{ page: Page }>) {
     return (
         <div
             className={cn(
-                "group/page flex items-center rounded-md w-full px-1 cursor-pointer border",
+                "group/page flex items-center rounded-2xl w-full px-1 cursor-pointer border",
                 active
                     ? "bg-input shadow-sm"
                     : "border-transparent hover:bg-input/50",

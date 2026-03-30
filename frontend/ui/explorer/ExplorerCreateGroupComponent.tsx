@@ -69,14 +69,14 @@ export default function ExplorerCreateGroupComponent() {
                     className="h-8 flex-1 ml-1"/>
                 {/* Use onMouseDown to prevent onBlur fired before onClick */}
                 <Button
-                    variant="secondary"
+                    variant="tertiary"
                     className="size-8 min-w-0 border cursor-pointer"
                     onMouseDown={e => onOK(e)}>
                     <FontAwesomeIcon icon={faCheck}/>
                 </Button>
             </> : <>
                 <Button
-                    variant="secondary"
+                    variant="tertiary"
                     className="w-full h-8 border cursor-pointer"
                     onPress={() => setInputMode(true)}>
                     <FontAwesomeIcon icon={faPlus}/>

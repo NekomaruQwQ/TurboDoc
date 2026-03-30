@@ -84,7 +84,7 @@ function ExplorerProvider() {
         )) ?? [];
     return provider &&
         <ProviderDataProvider value={providerDataState}>
-        <div className="flex flex-col gap-2 mb-2">
+        <div className="flex flex-col mb-2">
             {...providerActionNodes}
             {provider.enableItemGrouping ? <>
                 <ExplorerGroup

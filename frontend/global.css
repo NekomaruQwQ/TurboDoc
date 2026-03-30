@@ -2,6 +2,9 @@
 @import "tw-animate-css";
 @import "@heroui/styles";
 
+/* Theme generated at https://heroui.com/themes?hue=60.27623775118002&chroma=0.16292423293312241&lightness=0.7736857035420378&fontFamily=google-sans&radius=small&template=dashboard */
+@import "@/global.theme.css";
+
 @theme inline {
     /* 15% transparent white for interactive element highlights.
      * No HeroUI equivalent — HeroUI uses opaque colors for interactive states.
@@ -15,11 +18,12 @@
      * in the UI, especially for the sidebar and explorer, as TurboDoc is a
      * productivity tool rather than a general-purpose website. */
     font-size: 14px;
-}
 
-:root {
-    /* Font families: We use Ubuntu as the default font for both sans and mono
-     * to give a more modern and sleek look. */
+    /* Border Radius Overrides */
+    --radius: 0.125rem;
+    --field-radius: 0.25rem;
+
+    /* Font Family Overrides */
     --font-sans: 'Ubuntu Light', sans-serif;
     --font-mono: 'Ubuntu Mono', monospace;
 
@@ -35,64 +39,8 @@
     --color-red: #E06C75;
 }
 
-:root {
-    /* Sharp corners: HeroUI defaults to a bubbly look with large border radii.
-     * Particularly, HeroUI defines --field-radius cal(var(--radius) * 1.5),
-     * which is too much for input fields. By setting --field-radius to
-     * --radius-md (0.375rem in Tailwind), we can achieve a more professional and
-     * consistent look across all form elements. */
-    --field-radius: var(--radius-md);
-
-    /* HeroUI defines --color-accent-soft-foreground  as --accent, which is
-     * obviously wrong and causes the text on accent colored buttons to be
-     * invisible.
-     *
-     * This seems to be a bug in HeroUI's styling and here we override it to
-     * with the correct value.
-     */
-    --color-accent-soft-foreground: var(--accent-foreground);
-}
-
-:root {
-    /* === Base palette === */
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-
-    /* === HeroUI semantic overrides === */
-    --surface: oklch(0.205 0 0);
-    --surface-secondary: oklch(0.257 0 0);
-    --surface-tertiary: oklch(0.272 0 0);
-    --overlay: oklch(0.205 0 0);
-    --default: oklch(0.269 0 0);
-    --muted: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --danger: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 10%);
-    --separator: oklch(1 0 0 / 10%);
-    --focus: oklch(0.556 0 0);
-    --scrollbar: oklch(0.708 0 0);
-    --segment: oklch(0.396 0 0);
-    --field-background: oklch(0.205 0 0);
-    --field-border: oklch(1 0 0 / 10%);
-}
-
-/* HeroUI defaults to a bubbly look with large border radii, but as TurboDoc
- * is a productivity tool, we prefer a more professional and clean appearance
- * with sharper corners and more compact spacing. */
-.button {
-    @apply rounded-md;
-}
-
-.menu-item,
-.list-box-item {
-    @apply rounded-md px-2 py-0;
-
-    min-height: calc(var(--spacing) * 7.5);
-}
-
-.select__popover,
-.dropdown__popover {
-    @apply rounded-lg;
+.menu-item, .list-box-item {
+    @apply px-2 py-0 min-h-0;
 }
 
 .select__value {

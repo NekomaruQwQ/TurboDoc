@@ -91,8 +91,8 @@ export function getImportCratesAction(ctx: RustProviderContext): ProviderAction 
 
             return <>
                 <Button
-                    variant="secondary"
-                    className="w-full h-8 border rounded-md cursor-pointer"
+                    variant="tertiary"
+                    className="w-full h-8 border cursor-pointer"
                     onPress={dialogState.open}>
                     <FontAwesomeIcon icon={faPlus}/>
                     <span>Import</span>

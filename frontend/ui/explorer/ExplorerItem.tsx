@@ -40,7 +40,7 @@ export default function ExplorerItem({ item, itemGroupName }: ReadonlyDeep<{
 
     return (
         <Collapsible
-            className="flex flex-col p-1 gap-0.5 rounded-lg bg-accent border shadow-sm truncate"
+            className="flex flex-col p-1 rounded-3xl bg-surface border shadow-sm truncate"
             open={expanded}
             onOpenChange={toggleExpanded}>
             <div className="flex flex-row gap-1">
@@ -97,9 +97,8 @@ function ExplorerItemVersionSelector(props: ReadonlyDeep<ItemVersions>) {
                     </ListBox.Section>
                     <ListBox.Section>
                         {/* Placeholder for future full version list popup */}
-                        <ListBox.Item id="..." textValue="More versions" className="h-7 px-2 text-sm opacity-50">
-                            <FontAwesomeIcon icon={faEllipsis} className="mr-1 inline" />
-                            <span>More versions</span>
+                        <ListBox.Item id="..." isDisabled textValue="..." className="h-6 px-2 text-sm">
+                            <FontAwesomeIcon icon={faEllipsis} />
                         </ListBox.Item>
                     </ListBox.Section>
                 </ListBox>
