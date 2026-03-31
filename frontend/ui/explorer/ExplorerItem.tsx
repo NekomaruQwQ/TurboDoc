@@ -40,7 +40,7 @@ export default function ExplorerItem({ item, itemGroupName }: ReadonlyDeep<{
 
     return (
         <Collapsible
-            className="flex flex-col p-1 rounded-3xl bg-surface border shadow-sm truncate"
+            className="flex flex-col p-0.5 rounded-3xl bg-surface border shadow-sm truncate"
             open={expanded}
             onOpenChange={toggleExpanded}>
             <div className="flex flex-row gap-1">

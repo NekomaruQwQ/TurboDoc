@@ -13,13 +13,14 @@ export const formatPath = (path: string) => path.replaceAll("\\", "/");
 
 // == Config ==
 export const serverHost = "localhost";
-export const serverPort = Number(process.env.TURBODOC_PORT)
-    || throwError("TURBODOC_PORT environment variable is not set.");
-export const baseUrl = `http://${serverHost}:${serverPort}`;
+export const serverPort =
+    Number(process.env.TURBODOC_PORT)
+        || throwError("TURBODOC_PORT is required to start the server.");
 
 /** Directory for storing server-side data and cache. */
-export const dataDir = process.env.TURBODOC_DATA
-    || throwError("TURBODOC_DATA environment variable is not set.");
+export const dataDir =
+    process.env.TURBODOC_DATA
+        || throwError("TURBODOC_DATA is required to start the server.");
 
 // == Database ==
 import { Database } from "bun:sqlite";

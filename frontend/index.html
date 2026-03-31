@@ -7,7 +7,8 @@
         <link rel="stylesheet" href="global.css">
     </head>
     <body class="bg-background text-foreground">
-        <div id="app" class="w-lvw h-lvh overflow-hidden"></div>
+        <!-- React's createRoot().render() replaces #app's children, removing the spinner automatically. -->
+        <div id="app"></div>
         <script type="module" src="index.tsx"></script>
     </body>
 </html>

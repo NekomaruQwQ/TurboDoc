@@ -1,7 +1,15 @@
 {
     "compilerOptions": {
+        "types": ["bun"],
+        "paths": {
+            "@/*": ["./frontend/*"],
+            "@server/*": ["./server/*"],
+        },
+
         "target": "ESNext",
-        "lib": ["ESNext"],
+        "lib": ["ESNext", "DOM"],
+        "jsx": "react-jsx",
+        "jsxImportSource": "react",
 
         "module": "preserve",
         "moduleResolution": "bundler",

@@ -137,7 +137,7 @@ WebView2 iframe navigates to https://docs.rs/serde/latest/serde/
 - **Styling**: Tailwind CSS v4 with OKLCH color space
 - **Icons**: Font Awesome
 - **Utilities**: remeda (functional), semver, zod
-- **Server**: Bun + Hono (API + HTTP proxy with SQLite cache) + Vite (middleware mode) on `$TURBODOC_PORT`
+- **Server**: Bun + Hono (API + HTTP proxy with SQLite cache) + Vite (middleware mode) on `$TURBODOC_PORT`, writes `lock.toml` for launcher readiness
 - **Host**: C# WinUI 3 (.NET 10) + WebView2 — window management and request forwarding
 - **IPC**: Hono HTTP API for CRUD + WebView2 `PostWebMessageAsJson` for navigation events
 
@@ -285,15 +285,15 @@ Currently handled within the unified `rust` provider (cross-crate). When multipl
 
 ## Development Workflow
 
-### Running the Dev Server
+### Running the App
 
 ```
 just install   # Installs dependencies for both server/ and frontend/
-just server    # Starts Bun + Hono API/proxy + Vite dev server on $TURBODOC_PORT
-just app       # Starts C# WinUI host from out/bin/, connects to server at $TURBODOC_PORT
+just build     # Builds both the .NET host app and the Rust launcher
+just run       # Launches the app (Rust launcher spawns server + host together)
 ```
 
-The server and host are started separately. The server must be running before the host is launched.
+The Rust launcher (`src/main.rs`) handles the full lifecycle: conditional `dotnet build`, spawning the Bun server, waiting for server readiness (polls `lock.toml`), then spawning the WinUI host with the server port. A Windows Job Object ensures both children are killed when the launcher exits.
 
 ### Mandatory Implementation Rules
 
@@ -425,7 +425,7 @@ Design decisions that shaped the current architecture. Organized by area.
 **Architectural Constraints**
 - No URL Rewriting: the WebView still believes it is browsing `docs.rs` directly
 - No SSL Proxy: proxying happens after WebView2 intercepts the request intent
-- Configurable Port: combined server (Hono API + proxy + Vite dev server) port set via `$TURBODOC_PORT` env var (required)
+- Configurable Port: combined server (Hono API + proxy + Vite dev server) binds to `$TURBODOC_PORT`, writes `lock.toml` to data dir for launcher readiness
 
 **Dark Mode Injection (Serve-Time)**
 - Cache stores clean upstream content; dark mode injection applied at serve time
@@ -568,8 +568,10 @@ AppData + ProviderData (React state) ──► provider.render() ──► React
 
 ```
 TurboDoc/
-├── .justfile                   # Task runner (just install, just server, just app)
+├── .justfile                   # Task runner (just install, just build, just run, etc.)
 ├── biome.json                  # Biome linter (formatter disabled)
+├── Cargo.toml                  # Rust launcher (spawns server + WinUI app)
+├── src/main.rs                 # Launcher entry point (job object, conditional rebuild, lock file polling)
 ├── TurboDoc.slnx               # .NET solution file (references app/)
 ├── Directory.Build.props       # .NET build config (output to out/)
 │
@@ -582,7 +584,7 @@ TurboDoc/
 │
 ├── frontend/                   # React frontend (own package.json + tsconfig.json)
 │   ├── package.json            # Frontend dependencies (React, HeroUI, Font Awesome, etc.)
-│   ├── tsconfig.json           # ESNext, bundler mode, strict; aliases: @/ @server/
+│   ├── tsconfig.json           # Extends root tsconfig
 │   ├── vite.config.ts          # Root: frontend/, aliases: @/ → frontend/, @server/ → server/
 │   ├── core.ts                 # Shared utility (throwError)
 │   ├── index.html              # Entry HTML
@@ -624,18 +626,20 @@ TurboDoc/
 │
 ├── server/                     # Bun + Hono server (own package.json + tsconfig.json)
 │   ├── package.json            # Server dependencies (Hono, bun:sqlite, etc.)
-│   ├── tsconfig.json           # ESNext, bundler mode, strict; alias: @/ → server/
-│   ├── index.ts                # Hono router + Vite dev server ($TURBODOC_PORT)
+│   ├── tsconfig.json           # Extends root tsconfig
+│   ├── index.ts                # Hono router + Vite dev server ($TURBODOC_PORT, writes lock.toml)
 │   ├── api.ts                  # API endpoints (split data CRUD, batch crate lookup, legacy migration)
 │   ├── proxy.ts                # /proxy?url= route handler + dark mode injection
 │   ├── http-cache.ts           # SQLite HTTP cache for doc pages (bun:sqlite, LRU eviction)
 │   ├── crates-cache.ts         # Dedicated SQLite cache for crates.io API responses (TTL-based)
 │   └── common.ts               # Shared config, database setup, utilities
 │
-├── data/                       # Runtime data directory ($TURBODOC_DATA)
-│   ├── cache.sqlite            # SQLite database (HTTP proxy cache + crates metadata cache, WAL mode)
-│   ├── preset.json      # Global app state (presets)
-│   └── <id>.json               # Per-provider user data
+├── target/                     # Build output (Rust + runtime data)
+│   └── data/                       # Runtime data directory ($TURBODOC_DATA)
+│       ├── cache.sqlite            # SQLite database (HTTP proxy cache + crates metadata cache, WAL mode)
+│       ├── lock.toml               # Server readiness lock file (port = N)
+│       ├── preset.json             # Global app state (presets)
+│       └── <id>.json               # Per-provider user data
 │
 ├── out/                        # .NET build output (ArtifactsPath)
 │

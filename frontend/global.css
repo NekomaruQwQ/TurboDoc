@@ -39,6 +39,10 @@
     --color-red: #E06C75;
 }
 
+div#app {
+    @apply w-screen h-screen overflow-hidden;
+}
+
 .menu-item, .list-box-item {
     @apply px-2 py-0 min-h-0;
 }

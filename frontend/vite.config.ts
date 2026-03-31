@@ -15,4 +15,5 @@ export default vite.defineConfig({
             "@shadcn": __dirname + "/3rdparty/shadcn",
         },
     },
+    clearScreen: false,
 });

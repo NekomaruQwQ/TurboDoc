@@ -1,0 +1,12 @@
+[package]
+name = "turbodoc"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.102"
+clap = { version = "4.6.0", features = ["derive", "env"] }
+log = "0.4.29"
+pretty_env_logger = "0.5.0"
+tap = "1.0.1"
+win32job = "2"

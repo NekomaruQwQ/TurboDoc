@@ -4,16 +4,17 @@ alias i := install
 
 list:
     just --list
+run:
+    cargo run
 install:
     cd server;   bun i
     cd frontend; bun i
 check:
+    cargo clippy
     cd server;   bunx --bun tsc --noEmit
     cd frontend; bunx --bun tsc --noEmit
-
-app:
-    out/bin/TurboDoc/debug_win-x64/TurboDoc.exe
-server:
-    TURBODOC_DATA=data bun --hot server
-backup:
-    cp -f data/workspace.json data/workspace.bak.json
+build:
+    dotnet build
+    cargo  build
+unlock:
+    rm -f target/data/lock.toml

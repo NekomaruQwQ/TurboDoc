@@ -6,7 +6,7 @@ import { z } from "zod";
 import path from "node:path";
 import fs from "node:fs/promises";
 
-import { dataDir, baseUrl } from "@server/common";
+import { dataDir } from "@server/common";
 import * as cratesCache from "@server/crates-cache";
 import { type CrateMetadata, parseCrateMetadata } from "@server/crates-cache";
 
@@ -126,7 +126,7 @@ export default new Hono()
         await next();
         console.log(
             `${c.req.method} ` +
-            `${c.req.url.replace(baseUrl, "")} ` +
+            `${c.req.path} ` +
             `-> ${c.res.status} (${c.res.headers.get("Content-Type") || ""})`);
     })
     // Static data routes (registered before :providerId to avoid shadowing).
