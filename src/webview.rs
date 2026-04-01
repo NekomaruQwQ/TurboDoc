@@ -225,43 +225,6 @@ impl WebView {
         Ok(())
     }
 
-    pub fn on_web_message_received<F>(&self, mut callback: F) -> anyhow::Result<()>
-    where
-        F: FnMut(&str) + 'static, {
-        let handler = WebMessageReceivedEventHandler::create(Box::new(move |_, args| {
-            Self::on_web_message_received_handler(args.as_ref(), &mut callback)
-                .context("an error occurred while handling webview event `WebMessageReceived`")
-                .map_err(|err| {
-                    log::error!("{err}");
-                    E_UNEXPECTED.into()
-                })
-        }));
-
-        let mut token = 0i64;
-        api_call!(unsafe { self.core.add_WebMessageReceived(&handler, &raw mut token) })
-    }
-
-    fn on_web_message_received_handler<F>(
-        args: Option<&ICoreWebView2WebMessageReceivedEventArgs>,
-        callback: &mut F)
-     -> anyhow::Result<()>
-    where
-        F: FnMut(&str) + 'static, {
-        let Some(args) = args else {
-            anyhow::bail!("WebMessageReceived event args is null");
-        };
-
-        let mut message = PWSTR::null();
-        api_call!(unsafe { args.TryGetWebMessageAsString(&raw mut message) })?;
-
-        let message =
-            unsafe { U16CString::from_raw(message.0) }
-                .to_string()
-                .context("ICoreWebView2WebMessageReceivedEventArgs::TryGetWebMessageAsString returns invalid UTF-16")?;
-
-        callback(&message);
-        Ok(())
-    }
 }
 
 mod blocking {

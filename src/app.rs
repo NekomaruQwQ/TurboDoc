@@ -7,7 +7,6 @@ use windows::Win32::Foundation::*;
 use winit::window::Window;
 
 use crate::consts::*;
-use crate::server::WebServer;
 use crate::webview::WebView;
 use crate::webview::WebViewNavigationResult;
 
@@ -22,8 +21,8 @@ pub fn run() -> anyhow::Result<()> {
         window::Window,
     };
 
-    log::info!("cache directory: {}", CACHE_DIR.display());
-    log::info!("frontend url: {FRONTEND_URL}...");
+    let server_url = server_url();
+    log::info!("server url: {server_url}");
 
     let event_loop =
         api_call!(EventLoop::<()>::new())?;
@@ -39,9 +38,9 @@ pub fn run() -> anyhow::Result<()> {
     let webview =
         WebView::new(get_window_handle(&window))
             .context("failed to create webview")?;
-    handler::setup(&window, &webview)
+    handler::setup(&window, &webview, &server_url)
         .context("failed to setup webview event handlers")?;
-    webview.navigate(FRONTEND_URL)
+    webview.navigate(&server_url)
         .context("failed to load frontend")?;
 
     event_loop.run(move |event, event_loop| {
@@ -118,7 +117,7 @@ mod handler {
     use crate::prelude::*;
     use super::*;
 
-    pub fn setup(window: &Rc<Window>, webview: &WebView) -> anyhow::Result<()> {
+    pub fn setup(window: &Rc<Window>, webview: &WebView, server_url: &str) -> anyhow::Result<()> {
         webview.on_next_navigation_completed({
             let window = Rc::clone(window);
             let webview = webview.clone();
@@ -126,13 +125,14 @@ mod handler {
         })?;
 
         webview.on_web_resource_requested({
-            let mut server = WebServer::new(CACHE_DIR.as_path());
-            move |request| on_web_resource_requested(&mut server, request)
-        })?;
-
-        webview.on_web_message_received({
-            let webview = webview.clone();
-            move |message| on_web_message_received(&webview, message)
+            // Proxy client with auto-redirect disabled, matching the WinUI app's behavior.
+            // Redirects pass through to WebView2 which re-navigates and re-triggers interception.
+            let client = reqwest::blocking::Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .expect("failed to create HTTP client");
+            let server_url = server_url.to_owned();
+            move |request| on_web_resource_requested(&client, &server_url, request)
         })?;
 
         webview.on_frame_navigation_starting({
@@ -167,31 +167,62 @@ mod handler {
         }
     }
 
+    /// Proxies GET requests for known doc URLs through the server's `/proxy?url=` endpoint.
     fn on_web_resource_requested(
-        server: &mut WebServer,
+        client: &reqwest::blocking::Client,
+        server_url: &str,
         request: WebRequest)
      -> Option<WebResponse> {
         use http::Method;
-        if request.method() == Method::GET && KNOWN_URL.contains(&request.uri().to_string()) {
-            Some(server.handle_request(request))
-        } else {
-            log::info!("(direct) {} {}", request.method(), request.uri());
-            None
+        let uri = request.uri().to_string();
+        if request.method() != Method::GET || !KNOWN_URL.contains(&uri) {
+            return None;
+        }
+
+        log::info!("(proxy) GET {uri}");
+
+        match client.get(format!("{server_url}proxy")).query(&[("url", &uri)]).send() {
+            Ok(response) =>
+                Some(convert_proxy_response(response)),
+            Err(err) => {
+                log::error!("proxy request failed for {uri}: {err}");
+                None
+            }
         }
     }
 
+    /// Converts a [`reqwest::blocking::Response`] into a [`WebResponse`] for WebView2.
+    fn convert_proxy_response(response: reqwest::blocking::Response) -> WebResponse {
+        let status = response.status().as_u16();
+        let headers: Vec<_> = response.headers()
+            .iter()
+            .map(|(name, value)| (name.clone(), value.clone()))
+            .collect();
+        let body = response.bytes()
+            .inspect_err(|err| log::error!("failed to read proxy response body: {err}"))
+            .unwrap_or_default()
+            .to_vec();
+
+        let mut builder = http::Response::builder().status(status);
+        for (name, value) in headers {
+            builder = builder.header(name, value);
+        }
+        builder.body(body).unwrap()
+    }
+
+    /// Intercepts iframe navigations.
+    ///
+    /// - Known documentation URLs: forward a `navigated` event to the frontend
+    ///   so it can update the sidebar (version selector, current item highlight).
+    /// - External URLs: cancel navigation and offer to open in the system browser.
     fn on_frame_navigation_starting(
         window: &Window,
         webview: &WebView,
         url: &str,
         cancel_navigation: Box<dyn FnOnce()>) {
         log::info!("navigating to {url}");
-        if !KNOWN_URL.contains(url) {
-            log::info!(" -> external link, navigation cancelled");
-            cancel_navigation();
-            open_external_link(window, url);
-        } else if !IGNORED_URL.contains(url) {
-            // Notify frontend of navigation
+        if KNOWN_URL.contains(url) {
+            // Notify frontend of navigation so it can update the sidebar.
             let message = serde_json::json!({
                 "type": "navigated",
                 "url": url,
@@ -199,208 +230,9 @@ mod handler {
             let _ = webview.post_message_as_json(&message)
                 .inspect_err(|err| log::error!("failed to send navigated: {err}"));
         } else {
-            log::info!(" -> ignored link, navigation cancelled");
+            log::info!(" -> external link, navigation cancelled");
+            cancel_navigation();
+            open_external_link(window, url);
         }
-    }
-
-    fn on_web_message_received(webview: &WebView, message: &str) {
-        let result =
-            ipc::handle_request(message)
-                .map(|response| response.to_string())
-                .and_then(|response| webview.post_message_as_json(&response));
-        if let Err(err) = result {
-            log::error!("{err}");
-        }
-    }
-}
-
-mod ipc {
-    use nkcore::prelude::*;
-    use nkcore::debug::*;
-
-    use crate::prelude::*;
-    use crate::consts::*;
-
-    use std::fs;
-    use std::path::Path;
-
-    pub fn handle_request(message: &str) -> anyhow::Result<JsonValue> {
-        let Ok((message_type, message)) = parse_ipc_message(message) else {
-            log::error!("failed to parse ipc message: {message}");
-            anyhow::bail!("failed to parse ipc message: {message}");
-        };
-
-        Ok(match message_type.as_str() {
-            "load-workspace" =>
-                load_workspace(),
-            "save-workspace" => {
-                let content =
-                    message
-                        .get("content")
-                        .and_then(|value| value.as_str())
-                        .unwrap_or("");
-                save_workspace(content)
-            },
-            "load-cache" =>
-                load_cache(),
-            "save-cache" => {
-                let content =
-                    message
-                        .get("content")
-                        .and_then(|value| value.as_str())
-                        .unwrap_or("");
-                save_cache(content)
-            },
-            _ => {
-                log::error!("unknown ipc message type '{message_type}'");
-                anyhow::bail!("unknown ipc message type '{message_type}'");
-            }
-        })
-    }
-
-    fn parse_ipc_message(message: &str) -> anyhow::Result<(String, JsonValue)> {
-        let message =
-            serde_json::from_str::<JsonValue>(message)
-                .context("ipc message is not valid json")?;
-        let message_type =
-            message
-                .get("type")
-                .and_then(|value| value.as_str())
-                .ok_or_else(|| anyhow::anyhow!("ipc message is missing 'type' field"))?
-                .to_owned();
-        Ok((message_type, message))
-    }
-
-    fn load_workspace() -> JsonValue {
-        let file_path = DATA_DIR.join("workspace.json");
-        match load_file(&file_path) {
-            Ok(Some(content)) => {
-                log::info!("workspace loaded.");
-                serde_json::json!({
-                    "type": "workspace-loaded",
-                    "success": true,
-                    "content": content,
-                })
-            },
-            Ok(None) => {
-                // Workspace file not present is not an error. We just create an empty workspace
-                // and return that.
-                log::info!("workspace not found. an empty workspace will be created.");
-                serde_json::json!({
-                    "type": "workspace-loaded",
-                    "success": true,
-                    "content": "{}",
-                })
-            },
-            Err(err) =>{
-                // Failing to load workspace is fatal. To avoid overwriting existing data,
-                // we propagate the error instead of creating a new empty workspace.
-                log::error!("failed to load workspace {}: {err:?}", file_path.display());
-                serde_json::json!({
-                    "type": "workspace-loaded",
-                    "success": false,
-                    "message": format!("{err:?}"),
-                })
-            },
-        }
-    }
-
-    fn save_workspace(content: &str) -> JsonValue {
-        let file_path = DATA_DIR.join("workspace.json");
-        match save_file(&file_path, content) {
-            Ok(()) =>{
-                log::info!("workspace saved.");
-                serde_json::json!({
-                    "type": "workspace-saved",
-                    "success": true,
-                })
-            },
-            Err(err) => {
-                log::error!("failed to save workspace {}: {err:?}", file_path.display());
-                serde_json::json!({
-                    "type": "workspace-saved",
-                    "success": false,
-                    "message": format!("{err:?}"),
-                })
-            }
-        }
-    }
-
-    fn load_cache() -> JsonValue {
-        let file_path = DATA_DIR.join("cache.json");
-        let file_content = match load_file(&file_path) {
-            Ok(Some(content)) => {
-                log::info!("frontend cache loaded.");
-                Some(content)
-            },
-            Ok(None) => {
-                log::info!("frontend cache not found.");
-                log::info!("frontend cache will be created on the next fetch.");
-                None
-            },
-            Err(err) => {
-                // Failing to load frontend cache is non-fatal, so we just log error
-                // and return an empty cache.
-                log::warn!("failed to load frontend cache: {err}");
-                log::warn!("frontend cache will be created on the next fetch.");
-                None
-            }
-        };
-
-        serde_json::json!({
-            "type": "cache-loaded",
-            "success": true,
-            "content":
-                file_content
-                    .as_deref()
-                    .unwrap_or("{}"),
-        })
-    }
-
-    fn save_cache(content: &str) -> JsonValue {
-        let file_path = DATA_DIR.join("cache.json");
-        match save_file(&file_path, content) {
-            Ok(()) =>{
-                log::info!("frontend cache saved.");
-                serde_json::json!({
-                    "type": "cache-saved",
-                    "success": true,
-                })
-            },
-            Err(err) => {
-                log::error!("failed to save frontend cache {}: {err:?}", file_path.display());
-                serde_json::json!({
-                    "type": "cache-saved",
-                    "success": false,
-                    "message": format!("{err:?}"),
-                })
-            }
-        }
-    }
-
-    /// Load file content as [`String`].
-    ///
-    /// Returns `Ok(None)` if file doesn't exist (not an error).
-    /// Returns `Err` on other IO errors.
-    fn load_file(path: &Path) -> anyhow::Result<Option<String>> {
-        match fs::read_to_string(path) {
-            Ok(content) =>
-                Ok(Some(content)),
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound =>
-                Ok(None),
-            Err(err) =>
-                Err(anyhow::anyhow!("failed to read file {}: {err:?}", path.display())),
-        }
-    }
-
-    fn save_file(path: &Path, content: &str) -> anyhow::Result<()> {
-        // Create containing directory if needed
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| context!("failed to create directory {}", parent.display()))?;
-        }
-
-        fs::write(path, content)
-            .with_context(|| context!("failed to write file {}", path.display()))
     }
 }

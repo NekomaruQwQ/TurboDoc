@@ -1,13 +1,10 @@
 mod prelude {
-    pub use serde_json::Value as JsonValue;
-
     pub type WebRequestBuilder = http::request::Builder;
     pub type WebRequest = http::Request<Vec<u8>>;
     pub type WebResponse = http::Response<Vec<u8>>;
 }
 
 mod app;
-mod server;
 mod webview;
 
 fn main() {
@@ -18,31 +15,25 @@ fn main() {
 
 mod consts {
     use std::borrow::Cow;
-    use std::path::PathBuf;
-    use std::sync::LazyLock;
-    use std::time::Duration;
+    use std::env;
 
     use crate::collections::PrefixCollection;
 
-    pub static DATA_DIR: LazyLock<PathBuf> =
-        LazyLock::new(|| nkcore::executable_dir().unwrap().join("data"));
-    pub static CACHE_DIR: LazyLock<PathBuf> =
-        LazyLock::new(|| nkcore::executable_dir().unwrap().join("cache"));
+    /// Returns the server URL derived from the `TURBODOC_PORT` environment variable.
+    ///
+    /// Panics if the variable is not set -- the launcher is responsible for providing it.
+    pub fn server_url() -> String {
+        let port = env::var("TURBODOC_PORT")
+            .expect("TURBODOC_PORT environment variable is required");
+        format!("http://localhost:{port}/")
+    }
 
-    pub const CACHE_EXPIRY: Duration = Duration::from_hours(24);
-
-    pub const FRONTEND_URL: &str = "http://localhost:9680/";
-
+    /// URL prefixes for documentation domains that the host proxies and tracks.
     pub const KNOWN_URL: PrefixCollection<'static> =
         PrefixCollection(Cow::Borrowed(&[
             "https://docs.rs",
             "https://doc.rust-lang.org",
             "https://microsoft.github.io/windows-docs-rs/doc/",
-        ]));
-
-    pub const IGNORED_URL: PrefixCollection<'static> =
-        PrefixCollection(Cow::Borrowed(&[
-            "https://docs.rs/-/",
         ]));
 }
 
