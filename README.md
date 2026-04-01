@@ -24,30 +24,26 @@ TurboDoc is a dedicated viewer that proxies and caches docs.rs locally, lets you
 
 ## Getting Started
 
-> **Windows only** — TurboDoc uses WinUI 3 + WebView2, which requires Windows 10/11.
+> **Windows only** — TurboDoc uses WebView2, which requires Windows 10/11.
 
 ### Prerequisites
 
+- [Rust toolchain](https://rustup.rs/) (for the host app)
 - [Bun](https://bun.sh/) (JavaScript runtime)
-- [.NET 10 SDK](https://dotnet.microsoft.com/) (for the WinUI host)
 - [just](https://github.com/casey/just) (task runner)
 
 ### Build & Run
 
 ```sh
-dotnet build   # Build the host app
 just install   # Install dependencies for server/ and frontend/
-just server    # Start the dev server (API + proxy + Vite HMR)
-just app       # Launch the WinUI host (in a separate terminal)
+cargo run      # Run TurboDoc
 ```
-
-The server must be running before launching the host.
 
 ### Tech Stack
 
 | Layer | Technologies |
 |-------|-------------|
-| **Host** | C# · WinUI 3 · .NET 10 · WebView2 |
+| **Host** | Rust · winit · webview2-com · WebView2 |
 | **Server** | TypeScript · Bun · Hono · SQLite (bun:sqlite) |
 | **Frontend** | React 19 · Vite 7 · Tailwind CSS v4 · HeroUI v3 · Immer |
 | **Tooling** | just (task runner) · Biome (linter) |
@@ -58,7 +54,7 @@ TurboDoc is a three-layer desktop application:
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  Host (C# WinUI 3 + WebView2)                               │
+│  Host (Rust + WebView2)                                      │
 │  Window shell — intercepts doc requests, forwards to server  │
 ├──────────────────────────────────────────────────────────────┤
 │  Server (Bun + Hono)                                         │
@@ -69,7 +65,7 @@ TurboDoc is a three-layer desktop application:
 └──────────────────────────────────────────────────────────────┘
 ```
 
-The host is a thin shell — all logic lives in the server and frontend. When the WebView2 iframe navigates to a documentation URL, the host intercepts the request and forwards it to the server's `/proxy` endpoint. The server checks its SQLite cache (RFC 7234 freshness, LRU eviction) and either serves the cached response or fetches upstream:
+The host is a thin Rust process that spawns the server, opens a WebView2 window, and gets out of the way — all logic lives in the server and frontend. When the WebView2 iframe navigates to a documentation URL, the host intercepts the request and forwards it to the server's `/proxy` endpoint. The server checks its SQLite cache (RFC 7234 freshness, LRU eviction) and either serves the cached response or fetches upstream:
 
 ```
 iframe navigates to https://docs.rs/serde/latest/serde/

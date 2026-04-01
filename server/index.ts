@@ -17,12 +17,11 @@ import { Hono } from "hono";
 
 import * as http from "node:http";
 import * as path from "node:path";
+
 import * as vite from "vite";
 import * as hono from "@hono/node-server";
 
-import { writeFileSync } from "node:fs";
-
-import { serverHost, serverPort, dataDir } from "@server/common";
+import { serverHost, serverPort } from "@server/common";
 import api from "@server/api";
 import proxy from "@server/proxy";
 
@@ -55,6 +54,5 @@ const httpServer =
     });
 
 httpServer.listen(serverPort, () => {
-    writeFileSync(`${dataDir}/lock.toml`, `port = ${serverPort}\n`);
     console.log(`server running at http://${serverHost}:${serverPort}`);
 });
