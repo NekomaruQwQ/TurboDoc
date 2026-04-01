@@ -1123,7 +1123,7 @@ dependencies = [
 [[package]]
 name = "nkcore"
 version = "0.1.0"
-source = "git+git://nekomaru-ubuntu/Nekomaru-Rust.git?branch=main#d9a27c28d24987cd8bfe75b082666855a0079aa2"
+source = "git+git://nekomaru-ubuntu/Nekomaru-Rust.git?rev=853fbe37#853fbe37b1e1144e4c2d10350826e038ba3e15d5"
 dependencies = [
  "nkcore-base",
  "nkcore-debug",
@@ -1133,7 +1133,7 @@ dependencies = [
 [[package]]
 name = "nkcore-base"
 version = "0.1.0"
-source = "git+git://nekomaru-ubuntu/Nekomaru-Rust.git?branch=main#d9a27c28d24987cd8bfe75b082666855a0079aa2"
+source = "git+git://nekomaru-ubuntu/Nekomaru-Rust.git?rev=853fbe37#853fbe37b1e1144e4c2d10350826e038ba3e15d5"
 dependencies = [
  "anyhow",
  "euclid",
@@ -1144,7 +1144,7 @@ dependencies = [
 [[package]]
 name = "nkcore-debug"
 version = "0.1.0"
-source = "git+git://nekomaru-ubuntu/Nekomaru-Rust.git?branch=main#d9a27c28d24987cd8bfe75b082666855a0079aa2"
+source = "git+git://nekomaru-ubuntu/Nekomaru-Rust.git?rev=853fbe37#853fbe37b1e1144e4c2d10350826e038ba3e15d5"
 dependencies = [
  "anyhow",
  "nkcore-debug-macros",
@@ -1154,7 +1154,7 @@ dependencies = [
 [[package]]
 name = "nkcore-debug-macros"
 version = "0.1.0"
-source = "git+git://nekomaru-ubuntu/Nekomaru-Rust.git?branch=main#d9a27c28d24987cd8bfe75b082666855a0079aa2"
+source = "git+git://nekomaru-ubuntu/Nekomaru-Rust.git?rev=853fbe37#853fbe37b1e1144e4c2d10350826e038ba3e15d5"
 dependencies = [
  "darling",
  "proc-macro2",
@@ -1166,7 +1166,7 @@ dependencies = [
 [[package]]
 name = "nkcore-windows"
 version = "0.1.0"
-source = "git+git://nekomaru-ubuntu/Nekomaru-Rust.git?branch=main#d9a27c28d24987cd8bfe75b082666855a0079aa2"
+source = "git+git://nekomaru-ubuntu/Nekomaru-Rust.git?rev=853fbe37#853fbe37b1e1144e4c2d10350826e038ba3e15d5"
 dependencies = [
  "pretty_env_logger",
  "raw-window-handle",

@@ -9,7 +9,7 @@ edition = "2024"
 
 [workspace.dependencies.nkcore]
 git = "git://nekomaru-ubuntu/Nekomaru-Rust.git"
-branch = "main"
+rev = "853fbe37"
 features = ["debug", "winit"]
 
 [dependencies]

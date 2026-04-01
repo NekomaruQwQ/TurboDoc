@@ -102,7 +102,7 @@ TurboDoc is an "enhanced tabbed browser with inactive tab resources released" �
 
 | **Component** | **Tech Stack** | **Role** | **Key Responsibilities** |
 |---|---|---|---|
-| **Host** | C# WinUI 3 (.NET 10) + WebView2 | **The Shell** | Window management. Intercepts doc URL requests and forwards them to the server's `/proxy?url=` endpoint. Sends `navigated` events to frontend via `PostWebMessageAsJson`. Opens external URLs in system browser. |
+| **Host** | Rust (winit + WebView2) | **The Shell** | Window management. Intercepts doc URL requests and forwards them to the server's `/proxy?url=` endpoint. Sends `navigated` events to frontend via `PostWebMessageAsJson`. Opens external URLs in system browser. Spawns the server and ensures cleanup via Job Object. |
 | **Server** | TypeScript (Bun + Hono) | **The Brain** | REST endpoints for split data persistence (`/api/v1/data/preset`, `/data/:providerId`). Batch crate metadata lookup with dedicated SQLite cache (`POST /api/v1/crates`). HTTP proxy with SQLite caching and LRU eviction (`/proxy?url=`). Dark mode injection at serve time. Serves frontend assets via Vite middleware. |
 | **Frontend** | React + Vite | **The Face** | UI rendering (Explorer, Navigation). Fetches data from `/api/v1/*` via `hono/client`. Provider-based architecture for multi-source docs. |
 
@@ -115,7 +115,7 @@ WebView2 iframe navigates to https://docs.rs/serde/latest/serde/
   │
   └─ OnWebResourceRequested (GET, ProxiedUrls match):
        │
-       │  C# host forwards to Bun:
+       │  Rust host forwards to Bun:
        │  GET http://localhost:$TURBODOC_PORT/proxy?url=https%3A%2F%2Fdocs.rs%2Fserde%2Flatest%2Fserde%2F
        │
        └─ Bun /proxy handler:
@@ -138,7 +138,7 @@ WebView2 iframe navigates to https://docs.rs/serde/latest/serde/
 - **Icons**: Font Awesome
 - **Utilities**: remeda (functional), semver, zod
 - **Server**: Bun + Hono (API + HTTP proxy with SQLite cache) + Vite (middleware mode) on `$TURBODOC_PORT`, writes `lock.toml` for launcher readiness
-- **Host**: C# WinUI 3 (.NET 10) + WebView2 — window management and request forwarding
+- **Host**: Rust (winit + WebView2) — window management, request forwarding, server lifecycle
 - **IPC**: Hono HTTP API for CRUD + WebView2 `PostWebMessageAsJson` for navigation events
 
 ### Sidebar Layout
@@ -289,11 +289,11 @@ Currently handled within the unified `rust` provider (cross-crate). When multipl
 
 ```
 just install   # Installs dependencies for both server/ and frontend/
-just build     # Builds both the .NET host app and the Rust launcher
-just run       # Launches the app (Rust launcher spawns server + host together)
+just build     # Builds the Rust host app
+just run       # Launches the app (host spawns server, then opens the WebView2 window)
 ```
 
-The Rust launcher (`src/main.rs`) handles the full lifecycle: conditional `dotnet build`, spawning the Bun server, waiting for server readiness (polls `lock.toml`), then spawning the WinUI host with the server port. A Windows Job Object ensures both children are killed when the launcher exits.
+The Rust host (`src/main.rs`) handles the full lifecycle: spawning the Bun server, waiting for server readiness (polls `lock.toml`), then opening the WebView2 window. A Windows Job Object ensures the server is killed when the host exits, and the lock file is cleaned up on shutdown.
 
 ### Mandatory Implementation Rules
 
@@ -419,7 +419,7 @@ Design decisions that shaped the current architecture. Organized by area.
 
 **"Dumb Pipe" Delegate Pattern**
 - All proxy and caching logic lives in the Bun server, not in the WebView2 event loop
-- The C# host is a thin forwarding shim — intercepts doc URL requests and delegates to the server's `/proxy?url=` endpoint
+- The Rust host is a thin forwarding shim — intercepts doc URL requests and delegates to the server's `/proxy?url=` endpoint
 - Decouples host (windowing) from logic (caching/parsing), improving maintainability and type safety
 
 **Architectural Constraints**
@@ -570,17 +570,11 @@ AppData + ProviderData (React state) ──► provider.render() ──► React
 TurboDoc/
 ├── .justfile                   # Task runner (just install, just build, just run, etc.)
 ├── biome.json                  # Biome linter (formatter disabled)
-├── Cargo.toml                  # Rust launcher (spawns server + WinUI app)
-├── src/main.rs                 # Launcher entry point (job object, conditional rebuild, lock file polling)
-├── TurboDoc.slnx               # .NET solution file (references app/)
-├── Directory.Build.props       # .NET build config (output to out/)
-│
-├── app/                        # C# WinUI host (WebView2 shell)
-│   ├── TurboDoc.csproj         # .NET 10, WinUI 3, x64
-│   ├── App.xaml / App.xaml.cs  # WinUI application entry
-│   ├── MainWindow.xaml / .cs   # WebView2 window, request interception, proxy forwarding
-│   ├── WindowUtils.cs          # Window sizing and title bar customization
-│   └── App.manifest            # Application manifest
+├── Cargo.toml                  # Rust host app
+├── src/
+│   ├── main.rs                 # Entry point (job object, server spawn, lock file polling, cleanup)
+│   ├── app.rs                  # WebView2 window, event handlers, proxy forwarding
+│   └── webview.rs              # WebView2 COM wrapper (environment, controller, events)
 │
 ├── frontend/                   # React frontend (own package.json + tsconfig.json)
 │   ├── package.json            # Frontend dependencies (React, HeroUI, Font Awesome, etc.)
@@ -641,8 +635,6 @@ TurboDoc/
 │       ├── preset.json             # Global app state (presets)
 │       └── <id>.json               # Per-provider user data
 │
-├── out/                        # .NET build output (ArtifactsPath)
-│
 └── docs/
     ├── README.md               # This file
     └── Bug-v0.2-Migration.md   # Bug tracker for v0.2 migration
@@ -670,7 +662,6 @@ TurboDoc/
 2. **Preset picker UI**: Not yet built — switching presets requires manual workspace edit
 3. **Loading/error states**: Not yet implemented — no skeletons, spinners, or error boundaries
 4. **Prod build**: Vite prod build not configured — dev mode only via `just server`
-5. **Bun as child process**: Dev server started manually via `just server`; auto-launch from host deferred
 
 ---
 
@@ -689,7 +680,7 @@ TurboDoc/
 - [x] Automatic cross-crate navigation via `navigated` event
 - [x] Auto-save data and cache on every change
 - [x] HTTP proxy with SQLite cache and dark mode injection (v0.3)
-- [x] C# WinUI 3 host replacing Rust host (v0.3)
+- [x] Rust host with WebView2 (winit + webview2-com)
 
 ### Remaining
 - [ ] Unified search bar
@@ -702,6 +693,7 @@ TurboDoc/
 
 ## Change History
 
+- **2026-04**: Replace WinUI host with Rust host: revive Rust webview host (`src/app.rs`, `src/webview.rs`) using winit + webview2-com; merge launcher into host process (`src/main.rs` spawns server, polls lock file, opens window, cleans up lock on exit); remove `app/` directory (C# WinUI 3), `.slnx`, `Directory.Build.props`, `out/`; proxy delegation preserved (host forwards doc URLs to server's `/proxy?url=` endpoint); IPC removed (frontend uses Hono HTTP API); `HOSTED_URL` and `PROXIED_URL` split into separate constants for future flexibility
 - **2026-03**: Add force-refresh for crates.io metadata: `POST /api/v1/crates?refresh=true` bypasses cache freshness and always fetches upstream; limited to a single crate per request (server returns 400 for multiple); "Refresh Metadata" menu item added to crate actions in explorer (skipped for std-library crates); new `deleteCrateCache()` helper evicts a crate from the in-memory store so `useSyncExternalStore` triggers a re-render while the fresh fetch is in flight
 - **2026-03**: Extract crates.io caching into dedicated system: new `server/crates-cache.ts` with `crates_cache` SQLite table (stores raw upstream response bodies, 24-hour TTL, no LRU); `POST /api/v1/crates` now reads from dedicated cache and fetches directly to crates.io (not through HTTP proxy); stale entries served as fallback on upstream failure; removed synthetic `Cache-Control` injection for crates.io URLs from `server/proxy.ts`; `handleProxy` un-exported (only used internally by proxy route); `CrateMetadata` type and `parseCrateMetadata` moved from `api.ts` to `crates-cache.ts` (re-exported from `api.ts` for frontend compatibility)
 - **2026-03**: Remove unused `?cache=none` proxy bypass: no caller ever passed the parameter; removed `noCache` param from `handleProxy`, query parsing in route handler, and conditional log; stale-while-revalidate handles freshness automatically

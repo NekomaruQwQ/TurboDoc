@@ -1,9 +1,0 @@
-
-<Solution>
-    <Configurations>
-        <Platform Name="x64" />
-    </Configurations>
-    <Project Path="app/src/TurboDoc.csproj">
-        <Platform Project="x64" />
-    </Project>
-</Solution>

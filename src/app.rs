@@ -1,94 +1,75 @@
 use nkcore::prelude::*;
 use nkcore::debug::*;
 
-use std::rc::Rc;
+pub fn run(url: &str) {
+    use nkcore::os::windows::{
+        prelude::RawWindowHandleExt as _,
+        winit::EventLoopExt as _,
+        winit::AppEvent,
+    };
 
-use windows::Win32::Foundation::*;
-use winit::window::Window;
+    use crate::webview::WebView;
 
-use crate::consts::*;
-use crate::webview::WebView;
-use crate::webview::WebViewNavigationResult;
-
-pub fn run() -> anyhow::Result<()> {
-    #![expect(deprecated, reason = "using winit without the trait-based API")]
-
+    use std::rc::Rc;
+    use windows::Win32::Foundation::RECT;
     use winit::{
         dpi::LogicalSize,
-        event::Event,
         event::WindowEvent,
         event_loop::EventLoop,
+        raw_window_handle::HasWindowHandle as _,
         window::Window,
     };
 
-    let server_url = server_url();
-    log::info!("server url: {server_url}");
+    EventLoop::<()>::new()
+        .expect("failed to create event loop")
+        .run_app_with(|event_loop| {
+            let window =
+                api_call! {
+                    event_loop.create_window(
+                        Window::default_attributes()
+                            .with_title("TurboDoc")
+                            .with_inner_size(LogicalSize::<u32>::new(1280, 800))
+                            .with_visible(false /* show window after page loaded */))
+                }.expect("failed to create window");
+            let window = Rc::new(window);
+            let webview =
+                WebView::new(window.window_handle().unwrap().as_raw().as_hwnd())
+                    .expect("failed to create webview");
+            handler::setup(&window, &webview, url)
+                .expect("failed to setup webview event handlers");
+            webview.navigate(url)
+                .expect("failed to load frontend");
 
-    let event_loop =
-        api_call!(EventLoop::<()>::new())?;
-    let window =
-        api_call! {
-            event_loop.create_window(
-                Window::default_attributes()
-                    .with_title("TurboDoc")
-                    .with_inner_size(LogicalSize::<u32>::new(1440, 900))
-                    .with_visible(false /* show window after page loaded */))
-        }?;
-    let window = Rc::new(window);
-    let webview =
-        WebView::new(get_window_handle(&window))
-            .context("failed to create webview")?;
-    handler::setup(&window, &webview, &server_url)
-        .context("failed to setup webview event handlers")?;
-    webview.navigate(&server_url)
-        .context("failed to load frontend")?;
+            move |event_loop, event| {
+                if let AppEvent::WindowEvent(window_id, event) = event {
+                    if window_id == window.id() {
+                        match event {
+                            WindowEvent::CloseRequested =>
+                                event_loop.exit(),
+                            WindowEvent::Resized(size) => {
+                                let new_bounds = RECT {
+                                    left: 0,
+                                    top: 0,
+                                    right: size.width as _,
+                                    bottom: size.height as _,
+                                };
 
-    event_loop.run(move |event, event_loop| {
-        if let Event::WindowEvent { event, window_id } = event {
-            if window_id == window.id() {
-                match event {
-                    WindowEvent::CloseRequested =>
-                        event_loop.exit(),
-                    WindowEvent::Resized(size) => {
-                        let new_bounds = RECT {
-                            left: 0,
-                            top: 0,
-                            right: size.width as _,
-                            bottom: size.height as _,
-                        };
-
-                        if let Err(err) = webview.set_bounds(new_bounds) {
-                            log::error!("failed to resize webview: {err}");
+                                if let Err(err) = webview.set_bounds(new_bounds) {
+                                    log::error!("failed to resize webview: {err}");
+                                }
+                            },
+                            _ => {},
                         }
-                    },
-                    _ => {},
+                    } else {
+                        log::warn!("ignoring event for unknown window {window_id:?}: {event:?}");
+                    }
                 }
-            } else {
-                log::warn!("ignoring event for unknown window {window_id:?}: {event:?}");
             }
-        }
-    }).context("failed to run event loop")?;
-
-    Ok(())
+        })
+        .expect("failed to run event loop");
 }
 
-fn get_window_handle(window: &Window) -> HWND {
-    use winit::raw_window_handle::{
-        HasWindowHandle as _,
-        RawWindowHandle,
-    };
-
-    if let Ok(RawWindowHandle::Win32(handle)) =
-        window
-            .window_handle()
-            .map(|handle| handle.as_raw()) {
-        HWND(handle.hwnd.get() as _)
-    } else {
-        panic!("unexpected platform: only Win32 is supported");
-    }
-}
-
-fn open_external_link(window: &Window, url: &str) {
+fn open_external_link(window: &winit::window::Window, url: &str) {
     use native_dialog::*;
 
     let result = MessageDialogBuilder::default()
@@ -115,9 +96,17 @@ fn open_external_link(window: &Window, url: &str) {
 
 mod handler {
     use crate::prelude::*;
-    use super::*;
+    use crate::webview::WebView;
+    use crate::webview::WebViewNavigationResult;
 
-    pub fn setup(window: &Rc<Window>, webview: &WebView, server_url: &str) -> anyhow::Result<()> {
+    use std::rc::Rc;
+    use winit::window::Window;
+
+    pub fn setup(
+        window: &Rc<Window>,
+        webview: &WebView,
+        server_url: &str)
+     -> anyhow::Result<()> {
         webview.on_next_navigation_completed({
             let window = Rc::clone(window);
             let webview = webview.clone();
@@ -175,13 +164,12 @@ mod handler {
      -> Option<WebResponse> {
         use http::Method;
         let uri = request.uri().to_string();
-        if request.method() != Method::GET || !KNOWN_URL.contains(&uri) {
+        if request.method() != Method::GET ||
+            !crate::PROXIED_URL.iter().any(|&prefix| uri.starts_with(prefix)) {
             return None;
         }
 
-        log::info!("(proxy) GET {uri}");
-
-        match client.get(format!("{server_url}proxy")).query(&[("url", &uri)]).send() {
+        match client.get(format!("{server_url}/proxy")).query(&[("url", &uri)]).send() {
             Ok(response) =>
                 Some(convert_proxy_response(response)),
             Err(err) => {
@@ -221,7 +209,7 @@ mod handler {
         url: &str,
         cancel_navigation: Box<dyn FnOnce()>) {
         log::info!("navigating to {url}");
-        if KNOWN_URL.contains(url) {
+        if crate::HOSTED_URL.iter().any(|&prefix| url.starts_with(prefix)) {
             // Notify frontend of navigation so it can update the sidebar.
             let message = serde_json::json!({
                 "type": "navigated",
@@ -232,7 +220,7 @@ mod handler {
         } else {
             log::info!(" -> external link, navigation cancelled");
             cancel_navigation();
-            open_external_link(window, url);
+            super::open_external_link(window, url);
         }
     }
 }
