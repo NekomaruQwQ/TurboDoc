@@ -1,11 +1,4 @@
-.vs/
-.idea/
-.vite/
-
 node_modules/
-dist/
 target/
-app/bin/
-app/obj/
-
+dist/
 data/

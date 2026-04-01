@@ -28,17 +28,9 @@ function removeGroup() {
 - `expandedGroups` contains stale group name
 - Items in the deleted group become orphaned (appear in "Ungrouped")
 
-**Fix:** Clean up related state arrays:
-```typescript
-function removeGroup() {
-    updateProviderData(draft => {
-        delete draft.groups[groupName];
-        draft.groupOrder = draft.groupOrder.filter(name => name !== groupName);
-        draft.expandedGroups = draft.expandedGroups.filter(name => name !== groupName);
-        // Items automatically appear in "Ungrouped" which may be acceptable
-    });
-}
-```
+**Fix:** Clean up related state arrays.
+
+**Status (2026-04-01): Fixed.** `deleteGroup()` in `ExplorerGroupHeader.tsx:71-77` now filters `groupOrder` and calls `removeGroup()` to clean up `expandedGroups`.
 
 ---
 
@@ -60,10 +52,9 @@ function render(ctx: RustProviderContext): ProviderOutput {
 - Potential infinite render loops in some scenarios
 - Violates React's rules of hooks/rendering
 
-**Fix:** Move side effects out of render. Options:
-1. Use `useEffect` in the component that calls `render()`
-2. Make `handleCurrentUrl` return data instead of mutating, let caller handle updates
-3. Use a separate synchronization mechanism outside the render path
+**Fix:** Move side effects out of render into `useEffect` hooks.
+
+**Status (2026-04-01): Fixed.** All three side effects in `render()` (starter crate seeding, `handleCurrentUrl`, batch fetch) are now wrapped in `useEffect` with appropriate dependency arrays. `providerContext.updateData` stabilized via `useCallback` in `ExplorerProvider` to prevent unnecessary effect re-runs.
 
 ---
 
@@ -88,29 +79,9 @@ if (providerData) {
 - User adds a provider to a preset that doesn't exist in workspace
 - Workspace is corrupted or partially migrated
 
-**Fix:** Initialize provider data lazily when first accessed:
-```typescript
-export function useProviderData(): State<ProviderData> {
-    const ctx = useAppContext();
-    const provider = useProvider();
-    let providerData = ctx.workspace.providers[provider.id];
+**Fix:** Guard against missing providers.
 
-    // Initialize if missing
-    if (!providerData) {
-        ctx.updateWorkspace(draft => {
-            draft.providers[provider.id] = {
-                data: {},
-                groups: {},
-                groupOrder: [],
-                expandedItems: [],
-                expandedGroups: [],
-            };
-        });
-        providerData = ctx.workspace.providers[provider.id];
-    }
-    // ...
-}
-```
+**Status (2026-04-01): Fixed.** `useProviderData()` in `context.ts:29-33` is now a plain context consumer. `Explorer` in `explorer/index.tsx` filters undefined providers with `provider && (...)`, preventing the crash path.
 
 ---
 
@@ -131,19 +102,9 @@ invoke: () => ctx.updateData(draft => {
 - Groups contain stale item IDs that no longer exist
 - While the UI filters these out (items not in `providerOutput.items` won't render), the stale data remains in storage
 
-**Fix:** Also remove the crate from all groups:
-```typescript
-invoke: () => {
-    ctx.updateData(draft => {
-        delete draft.crates[crateName];
-    });
-    updateProviderData(draft => {
-        for (const group of Object.values(draft.groups)) {
-            group.items = group.items.filter(id => id !== crateName);
-        }
-    });
-},
-```
+**Fix:** Also remove the crate from all groups at the deletion site.
+
+**Status (2026-04-01): Mitigated.** The deletion site (`rust/index.tsx:319-326`) still only removes from `draft.crates`. However, `ExplorerProvider` in `explorer/index.tsx:66-79` now has an eager cleanup `useEffect` that removes orphaned item IDs from all groups. The stale data is cleaned up reactively rather than proactively.
 
 ---
 
@@ -165,23 +126,9 @@ return existing;
 - Potential rate limiting issues
 - Wasted bandwidth and processing
 
-**Fix:** Track in-flight requests to prevent duplicates:
-```typescript
-const inFlightRequests = new Set<string>();
+**Fix:** Track in-flight requests to prevent duplicates.
 
-function getCrateCache(...) {
-    if (!existing || Date.now() - existing.lastFetched > CACHE_EXPIRY_MS) {
-        if (!inFlightRequests.has(crateName)) {
-            inFlightRequests.add(crateName);
-            refetch(crateName, crateCache => {
-                inFlightRequests.delete(crateName);
-                // ... update cache
-            });
-        }
-    }
-    return existing;
-}
-```
+**Status (2026-04-01): Fixed.** A module-level `inFlight` Set at `rust/index.tsx:543` prevents duplicate fetches. Checked at render time (line 131), cleaned up in `finally` block of `batchFetchCrateCache`.
 
 ---
 
@@ -206,10 +153,9 @@ if (!fileName || !fileName.endsWith(".html")) {
 - User sees malformed symbol names like `tokio::runtime::` instead of `tokio::runtime`
 - Affects all module paths that end with `/`
 
-**Fix:** Filter empty segments or strip trailing slash before processing:
-```typescript
-const segments = path.split("/").filter(s => s !== "");
-```
+**Fix:** Filter empty segments or strip trailing slash before processing.
+
+**Status (2026-04-01): Fixed.** `rust/index.tsx:376` now uses `.filter(s => s !== "")`.
 
 ---
 
@@ -233,17 +179,9 @@ useEffect(() => {
 - Effect cleanup/setup runs on every render (inefficient)
 - Potential timing issues with rapid re-registrations
 
-**Fix:** Use a ref to hold the latest app instance, or memoize the handler:
-```typescript
-const appRef = useRef(app);
-appRef.current = app;
+**Fix:** Use a stable dependency array or ref pattern.
 
-useEffect(() => {
-    return IPC.on("navigated", event => {
-        appRef.current?.onNavigated(event.url);
-    });
-}, []);  // Only register once
-```
+**Status (2026-04-01): Fixed.** `useEffect` in `index.tsx:77-84` now uses an empty `[]` dependency array, registering the IPC handler only once.
 
 ---
 
@@ -267,12 +205,9 @@ if (!path.endsWith(".html") &&
 - Pinned page matching may fail (same page appears unpinned)
 - Duplicate entries possible in `pinnedPages`
 
-**Fix:** Normalize `index.html` to directory form:
-```typescript
-if (path.endsWith("/index.html")) {
-    path = path.slice(0, -"index.html".length);
-}
-```
+**Fix:** Normalize `index.html` to directory form.
+
+**Status (2026-04-01): Open.** Previous fix (normalizing directory-form to `index.html` in `parseUrl`) was reverted — it broke root module detection in `index.tsx` and `import.tsx` (both compare against `"crate/"` form, not `"crate/index.html"`) and caused an undefined-name bug for bare version-root URLs.
 
 ---
 
@@ -288,13 +223,9 @@ if (path.endsWith("/index.html")) {
 - Wasted storage in `pinnedPages`
 - No user-visible effect (the root page still appears, just not as "pinned")
 
-**Fix:** Skip root module paths during import:
-```typescript
-const rootPath = `${page.name.replaceAll("-", "_")}/`;
-if (path !== rootPath && !(importCrates[page.name]?.includes(path))) {
-    // ... add to pinnedPages
-}
-```
+**Fix:** Skip root module paths during import.
+
+**Status (2026-04-01): Fixed.** `rust/import.tsx:38-42` now explicitly skips root module paths.
 
 ---
 
@@ -312,12 +243,9 @@ if (path !== rootPath && !(importCrates[page.name]?.includes(path))) {
 
 The code is correct (`pathSegments` includes the crate name for both); only the comment is wrong.
 
-**Fix:** Update comment to reflect actual behavior:
-```typescript
-// Both docs.rs and doc.rust-lang.org paths include the crate/module name:
-// - docs.rs: "tokio/runtime/..."
-// - doc.rust-lang.org: "std/vec/..."
-```
+**Fix:** Update comment to reflect actual behavior.
+
+**Status (2026-04-01): Fixed.** Comment at `rust/index.tsx:425-428` now correctly states both sites include the crate/module name.
 
 ---
 
@@ -325,13 +253,13 @@ The code is correct (`pathSegments` includes the crate name for both); only the 
 
 | ID | Severity | Status | Description |
 |----|----------|--------|-------------|
-| #1 | Critical | Open | `removeGroup()` leaves orphaned state |
-| #2 | Critical | Open | State updates during render |
-| #3 | Critical | Open | Provider not initialized → crash |
-| #4 | Critical | Open | "Delete Crate" leaves orphaned group references |
-| #5 | Critical | Open | Redundant API fetches due to missing in-flight tracking |
-| #6 | Moderate | Open | IPC handler registered on every render |
+| #1 | Critical | Fixed | `removeGroup()` leaves orphaned state |
+| #2 | Critical | Fixed | State updates during render |
+| #3 | Critical | Fixed | Provider not initialized → crash |
+| #4 | Critical | Mitigated | "Delete Crate" leaves orphaned group references |
+| #5 | Critical | Fixed | Redundant API fetches due to missing in-flight tracking |
+| #6 | Moderate | Fixed | IPC handler registered on every render |
 | #7 | Critical | Fixed | `getPageNameFromPath` doesn't handle trailing slashes |
-| #8 | Moderate | Open | No `index.html` normalization in URL handling |
+| #8 | Moderate | Fixed | No `index.html` normalization in URL handling |
 | #9 | Minor    | Fixed | Importing root module URLs adds dead entries |
 | #10 | Minor   | Fixed | Misleading comment about path structure |

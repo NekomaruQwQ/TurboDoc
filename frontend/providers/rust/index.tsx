@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import type { ReadonlyDeep } from "type-fest";
 import * as _ from "remeda";
 import * as semver from "semver";
@@ -110,30 +110,44 @@ function render(ctx: RustProviderContext): ProviderOutput {
     // ExplorerProvider re-renders when async fetches complete.
     useSyncExternalStore(cacheSubscribe, cacheGetSnapshot);
 
-    // Seed starter crates on fresh install so new users see something
-    // immediately. Only fires once — next render, crates is populated.
-    if (!ctx.data.crates || Object.keys(ctx.data.crates).length === 0) {
-        ctx.updateData(draft => {
-            draft.crates = {
-                serde: { currentVersion: "latest", pinnedPages: [] },
-                tokio: { currentVersion: "latest", pinnedPages: [] },
-            };
-        });
-    }
+    // --- Side effects (deferred to after render) ---
 
-    handleCurrentUrl(ctx);
+    // Seed starter crates on fresh install so new users see something
+    // immediately. Only fires once — next effect, hasCrates is true.
+    const hasCrates = Boolean(ctx.data.crates && Object.keys(ctx.data.crates).length > 0);
+    // biome-ignore lint/correctness/useExhaustiveDependencies: ctx.updateData is stable (useCallback in ExplorerProvider).
+    useEffect(() => {
+        if (!hasCrates) {
+            ctx.updateData(draft => {
+                draft.crates = {
+                    serde: { currentVersion: "latest", pinnedPages: [] },
+                    tokio: { currentVersion: "latest", pinnedPages: [] },
+                };
+            });
+        }
+    }, [hasCrates]);
+
+    // Sync current URL → crate data (version update, auto-add unknown crate).
+    // biome-ignore lint/correctness/useExhaustiveDependencies: ctx callbacks are stable; currentUrl is the real trigger.
+    useEffect(() => {
+        handleCurrentUrl(ctx);
+    }, [ctx.currentUrl]);
 
     // Batch-fetch metadata for all uncached crates in a single request.
     // The server handles cache lookups and upstream fetches for misses.
-    const cache = cacheGetSnapshot();
-    const uncached = Object.keys(ctx.data.crates ?? {}).filter(name =>
-        !cache.crates?.[name]
-        && !inFlight.has(name)
-        && getBaseUrlForCrate(name) !== "https://doc.rust-lang.org/");
-    if (uncached.length > 0) {
-        for (const name of uncached) inFlight.add(name);
-        batchFetchCrateCache(uncached);
-    }
+    const crateKeys = Object.keys(ctx.data.crates ?? {}).sort().join(",");
+    // biome-ignore lint/correctness/useExhaustiveDependencies: crateKeys is a stable string key derived from crate names.
+    useEffect(() => {
+        const cache = cacheGetSnapshot();
+        const uncached = Object.keys(ctx.data.crates ?? {}).filter(name =>
+            !cache.crates?.[name]
+            && !inFlight.has(name)
+            && getBaseUrlForCrate(name) !== "https://doc.rust-lang.org/");
+        if (uncached.length > 0) {
+            for (const name of uncached) inFlight.add(name);
+            batchFetchCrateCache(uncached);
+        }
+    }, [crateKeys]);
 
     const items =
         _.mapToObj(_.entries(ctx.data.crates ?? {}), pair => {

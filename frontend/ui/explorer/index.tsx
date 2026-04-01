@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 import type { ReadonlyDeep } from "type-fest";
 
 import * as _ from "remeda";
@@ -52,11 +52,16 @@ function ExplorerProvider() {
     const [providerData, updateProviderData] = providerDataState;
     const [currentUrl] = useCurrentUrl();
 
-    const providerContext = {
-        data: providerData?.data ?? {},
-        updateData: (updater: (draft: unknown) => void) => {
+    // Stable callback — updateProviderData (from useImmer) is already stable.
+    const updateData = useCallback(
+        (updater: (draft: unknown) => void) => {
             updateProviderData(draft => updater(draft.data));
         },
+        [updateProviderData]);
+
+    const providerContext = {
+        data: providerData?.data ?? {},
+        updateData,
         currentUrl,
         navigateTo,
     };

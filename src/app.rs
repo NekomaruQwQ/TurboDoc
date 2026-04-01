@@ -81,11 +81,27 @@ fn open_external_link(window: &winit::window::Window, url: &str) {
         .show();
     match result {
         Ok(true) => {
-            use std::process::Command;
-            let _ = Command::new("cmd")
-                .args(["/C", "start", "", url])
-                .spawn()
-                .inspect_err(|err| log::error!("failed to open external link: {err}"));
+            use nkcore::os::windows::prelude::RawWindowHandleExt as _;
+            use winit::raw_window_handle::HasWindowHandle as _;
+            use windows::core::HSTRING;
+            use windows::Win32::UI::Shell::ShellExecuteW;
+            use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+            let hwnd = window.window_handle().unwrap().as_raw().as_hwnd();
+            let url = HSTRING::from(url);
+            // ShellExecuteW returns an HINSTANCE; values > 32 indicate success.
+            let result = unsafe {
+                ShellExecuteW(
+                    Some(hwnd),
+                    windows::core::w!("open"),
+                    &url,
+                    None,
+                    None,
+                    SW_SHOWNORMAL)
+            };
+            if result.0 as usize <= 32 {
+                log::error!("ShellExecuteW failed with code {:?}", result.0);
+            }
         },
         Ok(false) => {},
         Err(err) => {

@@ -11,6 +11,7 @@ use windows::core::*;
 use windows::Win32::Foundation::*;
 
 use webview2_com::*;
+use webview2_com::take_pwstr;
 use webview2_com::Microsoft::Web::WebView2::Win32::*;
 
 use crate::prelude::*;
@@ -170,10 +171,7 @@ impl WebView {
         unsafe { args.Uri(&raw mut uri) }
             .context("ICoreWebView2NavigationStartingEventArgs::get_Uri failed")?;
 
-        let uri =
-            unsafe { U16CString::from_raw(uri.0) }
-                .to_string()
-                .context("ICoreWebView2NavigationStartingEventArgs::get_Uri returns invalid UTF-16")?;
+        let uri = take_pwstr(uri);
 
         let args = args.clone();
         callback(&uri, Box::new(move || {
@@ -289,6 +287,7 @@ mod blocking {
 
 mod convert {
     use anyhow::Context as _;
+    use webview2_com::take_pwstr;
     use widestring::*;
     use windows::core::*;
     use webview2_com::Microsoft::Web::WebView2::Win32::*;
@@ -303,16 +302,10 @@ mod convert {
             .context("ICoreWebView2WebResourceRequest::get_Uri failed")?;
         unsafe { request.Method(&raw mut method) }
             .context("ICoreWebView2WebResourceRequest::get_Method failed")?;
-        let uri =
-            unsafe { U16CString::from_raw(uri.0) }
-                .to_string()
-                .context("ICoreWebView2WebResourceRequest::get_Uri returns invalid UTF-16")?;
-        let method =
-            unsafe { U16CString::from_raw(method.0) }
-                .to_string()
-                .context("ICoreWebView2WebResourceRequest::get_Method returns invalid UTF-16")?
-                .parse::<http::Method>()
-                .context("http::Method::from_str failed")?;
+        let uri = take_pwstr(uri);
+        let method = take_pwstr(method)
+            .parse::<http::Method>()
+            .context("http::Method::from_str failed")?;
 
         let headers =
             unsafe { request.Headers() }
@@ -323,10 +316,10 @@ mod convert {
         let headers = {
             let mut result = Vec::new();
             loop {
-                let mut has_next = BOOL(0);
-                unsafe { headers.MoveNext(&raw mut has_next) }
-                    .context("ICoreWebView2HttpHeadersCollectionIterator::MoveNext failed")?;
-                if !has_next.as_bool() {
+                let mut has_current = BOOL(0);
+                unsafe { headers.HasCurrentHeader(&raw mut has_current) }
+                    .context("ICoreWebView2HttpHeadersCollectionIterator::HasCurrentHeader failed")?;
+                if !has_current.as_bool() {
                     break result;
                 }
 
@@ -334,15 +327,13 @@ mod convert {
                 let mut value = PWSTR::null();
                 unsafe { headers.GetCurrentHeader(&raw mut name, &raw mut value) }
                     .context("ICoreWebView2HttpHeadersCollectionIterator::GetCurrentHeader failed")?;
-                let name =
-                    unsafe { U16CString::from_raw(name.0) }
-                        .to_string()
-                        .context("ICoreWebView2HttpHeadersCollectionIterator::GetCurrentHeader returns invalid UTF-16 for name")?;
-                let value =
-                    unsafe { U16CString::from_raw(value.0) }
-                        .to_string()
-                        .context("ICoreWebView2HttpHeadersCollectionIterator::GetCurrentHeader returns invalid UTF-16 for value")?;
+                let name = take_pwstr(name);
+                let value = take_pwstr(value);
                 result.push((name, value));
+
+                let mut _has_next = BOOL(0);
+                unsafe { headers.MoveNext(&raw mut _has_next) }
+                    .context("ICoreWebView2HttpHeadersCollectionIterator::MoveNext failed")?;
             }
         };
 
