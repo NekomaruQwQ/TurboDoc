@@ -38,7 +38,7 @@ public sealed partial class MainWindow {
         if (ServerUrl is null) {
             MessageBox(
                 lpCaption: "TurboDoc",
-                lpText: "TURBODOC_PORT environment variable is not set.",
+                lpText: "TURBODOC_PORT environment variable is required to start the app.",
                 uType: MB_FLAGS.MB_ICONERROR);
             Application.Current.Exit();
             return;

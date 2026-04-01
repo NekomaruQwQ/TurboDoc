@@ -1,3 +1,6 @@
+#![feature(try_blocks)]
+#![feature(exit_status_error)]
+
 //! TurboDoc Launcher — spawns both the Bun server and the WinUI app as child
 //! processes, forwarding their output and ensuring they are cleaned up together.
 //!
@@ -13,9 +16,9 @@
 
 use std::env;
 use std::fs;
-use std::io;
 use std::io::*;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::process;
 use std::process::*;
 use std::result::Result;
 use std::sync::mpsc;
@@ -24,97 +27,98 @@ use std::time::{Duration, Instant};
 
 use tap::prelude::*;
 
-fn main() {
+use anyhow::Context as _;
+
+fn main() -> anyhow::Result<()> {
     pretty_env_logger::init();
 
-    let job_object = create_job_object();
+    let job_object = create_job_object()?;
 
-    let root_dir = get_repo_root();
-    let data_dir = root_dir.join("target/data");
-    let lock_file = data_dir.join("lock.toml");
+    let self_path =
+        env::current_exe()
+            .context("std::env::current_exe() failed")
+            .context("failed to get executable path")?;
+    log::info!("executable path: {}", self_path.display());
+
+    // The executable path is expected to be `<repo>/target/debug/turbodoc.exe`.
+    // So we walk up three levels to find the repo root.
+    let root_dir =
+        self_path
+            .pipe_as_ref(Path::parent)
+            .and_then(Path::parent)
+            .and_then(Path::parent)
+            .map(Path::to_path_buf)
+            .ok_or_else(|| anyhow::anyhow!("unexpected executable path"))?;
+    let data_dir =
+        root_dir.join("target/data");
+    let app_exe =
+        root_dir.join("app/bin/TurboDoc/debug_win-x64/TurboDoc.exe");
     log::info!("root_dir: {}", root_dir.display());
     log::info!("data_dir: {}", data_dir.display());
-    log::info!("lock_file: {}", lock_file.display());
 
-    // -- Single-instance guard --
+    // -- Check for the single-instance lock --
+    let lock_file =
+        data_dir.join("lock.toml");
+    log::info!("checking for lock at {} ...", lock_file.display());
     if lock_file.exists() {
-        eprintln!(
-            "Error: lock file already exists at {}.\n\
+        log::error!(
+            "Lock file already exists at {}.\n\
              Another TurboDoc instance may be running. \
              If not, delete the file manually and try again.",
             lock_file.display());
-        std::process::exit(1);
+        process::exit(1);
     }
 
-    // -- Conditional rebuild --
-    let app_exe = root_dir.join("out/bin/TurboDoc/debug_win-x64/TurboDoc.exe");
-    if needs_rebuild(&root_dir, &app_exe) {
-        build_app(&root_dir);
+    // -- Conditional rebuild the WinUI app --
+    log::info!("checking if the WinUI app needs rebuild...");
+    // .NET 5+ emits both the .exe and a .dll, but the .dll is the one that
+    // actually gets updated on rebuilds and the .exe is just a thin host
+    // that doesn't get touched if the source changes.
+    // So here we check the .dll's timestamp to decide if a rebuild is needed.
+    if is_app_rebuild_needed(
+        &root_dir,
+        &app_exe.with_extension("dll")).unwrap_or(true) {
+        match build_app(&root_dir) {
+            Ok(()) =>
+                log::info!("app built successfully."),
+            Err(err) =>
+                log::error!("failed to build app: {err}"),
+        }
     }
 
     // -- Spawn server --
     // The server binds to $TURBODOC_PORT and writes `lock.toml` to the data dir
     // once ready. We poll for that file to confirm readiness.
-    let mut server = spawn_server(&root_dir, &data_dir);
-    let server_stderr = server.stderr.take().expect("failed to capture server stderr");
-    let server_stdout = server.stdout.take().expect("failed to capture server stdout");
-    forward_output(server_stderr, |line| eprintln!("@server stderr > {}", line));
-    forward_output(server_stdout, |line| eprintln!("@server stdout > {}", line));
-
-    let port = poll_lock_file(&lock_file, Duration::from_secs(10))
-        .expect("server failed to become ready within 10 seconds");
+    log::info!("starting server...");
+    let server =
+        spawn_server(&root_dir, &data_dir)?;
+    let port =
+        poll_lock_file(&lock_file, Duration::from_secs(10))
+            .context("server is not ready within 10 seconds timeout")?;
     log::info!("server ready on port {port}.");
 
     // -- Spawn app --
-    let mut app =
-        Command::new(&app_exe)
-            .env("TURBODOC_PORT", &port)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .expect("failed to start WinUI app");
-
-    let app_stdout = app.stdout.take().expect("failed to capture app stdout");
-    let app_stderr = app.stderr.take().expect("failed to capture app stderr");
-    forward_output(app_stdout, |line| eprintln!("@app stdout > {}", line));
-    forward_output(app_stderr, |line| eprintln!("@app stderr > {}", line));
+    log::info!("starting WinUI app...");
+    let app = spawn_app(&app_exe, &port)?;
+    log::info!("WinUI app started.");
 
     // -- Race for termination --
     // Whichever child exits first causes the launcher to exit. The Job Object
     // then kills the remaining child.
-    let (tx, rx) = mpsc::channel::<(&str, io::Result<ExitStatus>)>();
-
-    let tx_server = tx.clone();
-    let tx_app = tx;
-    thread::spawn(move || {
-        let _ = tx_server.send(("server", server.wait()));
-    });
-    thread::spawn(move || {
-        let _ = tx_app.send(("app", app.wait()));
-    });
-
-    match rx.recv() {
-        Ok((name, status)) => {
-            log::info!("{name} process exited with status: {status:?}");
-        },
-        _ => {
-            log::info!("unexpected child process exit");
-        }
-    }
+    log::info!("waiting for server or app to exit...");
+    wait_for_exit(server, app)?;
 
     // -- Cleanup --
-    let _ = fs::remove_file(&lock_file);
     drop(job_object);
+    Ok(())
 }
-
-// == Infrastructure ==
 
 /// Creates a Job Object and assigns the current process to it.
 ///
 /// This ensures that if the launcher process exits for any reason (including
 /// crashes), the OS will automatically terminate all child processes in the
 /// job, preventing orphaned server/app processes.
-fn create_job_object() -> win32job::Job {
+fn create_job_object() -> anyhow::Result<win32job::Job> {
     use win32job::{
         Job,
         ExtendedLimitInfo,
@@ -124,53 +128,90 @@ fn create_job_object() -> win32job::Job {
         ExtendedLimitInfo::new()
             .limit_kill_on_job_close()
             .pipe(|&mut ref info| Job::create_with_limit_info(info))
-            .expect("failed to create job object");
+            .context("failed to create job object")?;
     job_object
         .assign_current_process()
-        .expect("failed to assign current process to job object");
+        .context("failed to assign current process to job object")?;
     job_object
+        .pipe(Ok)
 }
 
-/// Walks up from the executable to find the repo root.
-/// Exe is at `<repo>/target/debug/turbodoc.exe` — 3 parents up.
-fn get_repo_root() -> PathBuf {
-    env::current_exe()
-        .ok()
-        .and_then(|executable_path| Some({
-            executable_path
-                .parent()?
-                .parent()?
-                .parent()?
-                .to_owned()
-        }))
-        .expect("failed to get repository root")
+/// Returns `true` if any app source file is newer than the compiled binary,
+/// or if the binary doesn't exist.
+fn is_app_rebuild_needed(repo_root: &Path, target: &Path) -> Result<bool, ()> {
+    let app_exe_modified_time =
+        fs::metadata(target)
+            .map_err(|_| ())?
+            .modified()
+            .map_err(|_| ())?;
+    let sources =
+        fs::read_dir(repo_root.join("app/src/"))
+            .map_err(|_| ())?
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.path());
+
+    for path in sources {
+        if  let Ok(meta) = fs::metadata(&path) &&
+            let Ok(modified_time) = meta.modified() &&
+            modified_time > app_exe_modified_time {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
 }
 
-// == Child Processes ==
+fn build_app(root_dir: &Path) -> anyhow::Result<()> {
+    let status =
+        Command::new("dotnet")
+            .args(["build"])
+            .current_dir(root_dir)
+            .status()
+            .context("`dotnet build` failed")?;
+    if !status.success() {
+        anyhow::bail!("`dotnet build` exited with status {status}");
+    }
 
-fn build_app(root_dir: &Path) {
-    Command::new("dotnet")
-        .args(["build", "app/TurboDoc.csproj", "-c", "Debug"])
-        .current_dir(root_dir)
-        .status()
-        .expect("failed to build the WinUI app")
-        .success()
-        .then_some(())
-        .expect("failed to build the WinUI app");
+    Ok(())
 }
 
-fn spawn_server(root_dir: &Path, data_dir: &Path) -> Child {
-    Command::new("bun")
-        .args(["--hot", "server"])
-        .current_dir(root_dir)
-        .env("TURBODOC_DATA", data_dir)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("failed to start server")
+fn spawn_server(root_dir: &Path, data_dir: &Path) -> anyhow::Result<Child> {
+    let mut child =
+        Command::new("bun")
+            .args(["--hot", "server"])
+            .current_dir(root_dir)
+            .env("TURBODOC_DATA", data_dir)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .context("failed to spawn server process")?;
+    forward_output(&mut child, "@server")?;
+    Ok(child)
 }
 
-fn forward_output<R, F>(read: R, line_callback: F)
+fn spawn_app(path: &Path, port: &str) -> anyhow::Result<Child> {
+    let mut child =
+        Command::new(path)
+            .env("TURBODOC_PORT", port)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .context("failed to start WinUI app")?;
+    forward_output(&mut child, "@app")?;
+    Ok(child)
+}
+
+fn forward_output(child: &mut Child, tag: &'static str) -> anyhow::Result<()> {
+    let stdout =
+        child.stdout.take().context("failed to capture stdout")?;
+    let stderr =
+        child.stderr.take().context("failed to capture stderr")?;
+    on_output(stdout, move |line| eprintln!("{tag} stdout> {line}"));
+    on_output(stderr, move |line| eprintln!("{tag} stderr> {line}"));
+    Ok(())
+}
+
+fn on_output<R, F>(read: R, line_callback: F)
 where
     R: Read + Send + 'static,
     F: Fn(&str) + Send + 'static {
@@ -187,7 +228,41 @@ where
     });
 }
 
-// == Lock File ==
+fn wait_for_exit(mut server: Child, mut app: Child) -> anyhow::Result<()> {
+    let (tx, rx) = mpsc::channel::<anyhow::Result<()>>();
+
+    let tx_server = tx.clone();
+    let tx_app = tx;
+
+    thread::spawn(move || tx_server.send(try {
+        server
+            .wait()
+            .context("failed to wait on server process")?
+            .exit_ok()
+            .context("server process exited with error")?;
+    }));
+
+    thread::spawn(move || tx_app.send(try {
+        app
+            .wait()
+            .context("failed to wait on WinUI app process")?
+            .exit_ok()
+            .context("WinUI app process exited with error")?;
+    }));
+
+    match rx.recv() {
+        Ok(Ok(())) =>
+            log::info!("child process exited successfully"),
+        Ok(Err(err)) =>
+            log::info!("child process exited with error: {}", err),
+        Err(_) =>
+            log::info!("unexpected child process exit"),
+    }
+
+    Ok(())
+}
+
+// -- Generated by Claude Code --
 
 /// Polls for `lock.toml` to appear and parses the port from it.
 /// Returns the port string on success, or an error if the timeout expires.
@@ -211,36 +286,4 @@ fn poll_lock_file(lock_file: &Path, timeout: Duration) -> anyhow::Result<String>
         }
         thread::sleep(Duration::from_millis(100));
     }
-}
-
-// == Helpers ==
-
-/// Returns `true` if any app source file is newer than the compiled binary,
-/// or if the binary doesn't exist.
-fn needs_rebuild(repo_root: &Path, app_exe: &Path) -> bool {
-    needs_rebuild_internal(repo_root, app_exe)
-        .unwrap_or(true)
-}
-
-fn needs_rebuild_internal(repo_root: &Path, app_exe: &Path) -> Result<bool, ()> {
-    let app_exe_modified_time =
-        fs::metadata(app_exe)
-            .map_err(|_| ())?
-            .modified()
-            .map_err(|_| ())?;
-    let sources =
-        fs::read_dir(repo_root.join("app"))
-            .map_err(|_| ())?
-            .filter_map(|entry| entry.ok())
-            .map(|entry| entry.path());
-
-    for path in sources {
-        if  let Ok(meta) = fs::metadata(&path) &&
-            let Ok(modified_time) = meta.modified() &&
-            modified_time > app_exe_modified_time {
-            return Ok(true);
-        }
-    }
-
-    Ok(false)
 }
