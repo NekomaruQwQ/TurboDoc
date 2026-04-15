@@ -137,7 +137,7 @@ WebView2 iframe navigates to https://docs.rs/serde/latest/serde/
 - **Styling**: Tailwind CSS v4 with OKLCH color space
 - **Icons**: Font Awesome
 - **Utilities**: remeda (functional), semver, zod
-- **Server**: Bun + Hono (API + HTTP proxy with SQLite cache) + Vite (middleware mode) on `$TURBODOC_PORT`, writes `lock.toml` for launcher readiness
+- **Server**: Bun + Hono (API + HTTP proxy with SQLite cache) + Vite (middleware mode) on `$TURBODOC_PORT`
 - **Host**: Rust (winit + WebView2) — window management, request forwarding, server lifecycle
 - **IPC**: Hono HTTP API for CRUD + WebView2 `PostWebMessageAsJson` for navigation events
 
@@ -293,7 +293,7 @@ just build     # Builds the Rust host app
 just run       # Launches the app (host spawns server, then opens the WebView2 window)
 ```
 
-The Rust host (`src/main.rs`) handles the full lifecycle: spawning the Bun server, waiting for server readiness (polls `lock.toml`), then opening the WebView2 window. A Windows Job Object ensures the server is killed when the host exits, and the lock file is cleaned up on shutdown.
+The Rust host (`src/main.rs`) handles the full lifecycle: spawning the Bun server, waiting for server readiness (probes the TCP port), then opening the WebView2 window. A Windows Job Object ensures the server is killed when the host exits.
 
 ### Mandatory Implementation Rules
 
@@ -425,7 +425,7 @@ Design decisions that shaped the current architecture. Organized by area.
 **Architectural Constraints**
 - No URL Rewriting: the WebView still believes it is browsing `docs.rs` directly
 - No SSL Proxy: proxying happens after WebView2 intercepts the request intent
-- Configurable Port: combined server (Hono API + proxy + Vite dev server) binds to `$TURBODOC_PORT`, writes `lock.toml` to data dir for launcher readiness
+- Configurable Port: combined server (Hono API + proxy + Vite dev server) binds to `$TURBODOC_PORT`
 
 **Dark Mode Injection (Serve-Time)**
 - Cache stores clean upstream content; dark mode injection applied at serve time
@@ -572,7 +572,7 @@ TurboDoc/
 ├── biome.json                  # Biome linter (formatter disabled)
 ├── Cargo.toml                  # Rust host app
 ├── src/
-│   ├── main.rs                 # Entry point (job object, server spawn, lock file polling, cleanup)
+│   ├── main.rs                 # Entry point (job object, server spawn, TCP readiness probe, cleanup)
 │   ├── app.rs                  # WebView2 window, event handlers, proxy forwarding
 │   └── webview.rs              # WebView2 COM wrapper (environment, controller, events)
 │
@@ -621,7 +621,7 @@ TurboDoc/
 ├── server/                     # Bun + Hono server (own package.json + tsconfig.json)
 │   ├── package.json            # Server dependencies (Hono, bun:sqlite, etc.)
 │   ├── tsconfig.json           # Extends root tsconfig
-│   ├── index.ts                # Hono router + Vite dev server ($TURBODOC_PORT, writes lock.toml)
+│   ├── index.ts                # Hono router + Vite dev server ($TURBODOC_PORT)
 │   ├── api.ts                  # API endpoints (split data CRUD, batch crate lookup, legacy migration)
 │   ├── proxy.ts                # /proxy?url= route handler + dark mode injection
 │   ├── http-cache.ts           # SQLite HTTP cache for doc pages (bun:sqlite, LRU eviction)
@@ -631,7 +631,6 @@ TurboDoc/
 ├── target/                     # Build output (Rust + runtime data)
 │   └── data/                       # Runtime data directory ($TURBODOC_DATA)
 │       ├── cache.sqlite            # SQLite database (HTTP proxy cache + crates metadata cache, WAL mode)
-│       ├── lock.toml               # Server readiness lock file (port = N)
 │       ├── preset.json             # Global app state (presets)
 │       └── <id>.json               # Per-provider user data
 │

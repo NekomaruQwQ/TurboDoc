@@ -1,12 +1,5 @@
 //! TurboDoc — spawns the Bun server and hosts the frontend in a WebView2 window,
 //! forwarding server output and ensuring cleanup on exit.
-//!
-//! Responsibilities:
-//! 1. Single-instance guard: refuse to start if `lock.toml` exists in the data dir.
-//! 2. Job Object: kernel-level guarantee that the server dies with the host.
-//! 3. Lock file polling: wait for the server to write `lock.toml` with its port.
-//! 4. Console forwarding: prefix server output with `@server`.
-//! 5. Cleanup: delete `lock.toml` on exit.
 
 mod prelude {
     pub type WebRequestBuilder = http::request::Builder;
@@ -77,8 +70,7 @@ mod main {
         SocketAddrV4::new(Ipv4Addr::LOCALHOST, port)
             .pipe(SocketAddr::from)
             .pipe(|addr| TcpStream::connect_timeout(&addr, Duration::from_secs(10)))
-            .expect("failed to connect to server within timeout")
-            .pipe(drop);
+            .expect("failed to connect to server within timeout");
         log::info!("server ready on port {port}.");
 
         // -- Spawn app --

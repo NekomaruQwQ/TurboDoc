@@ -141,14 +141,16 @@ function ExplorerGroup(props: ReadonlyDeep<{
             <ExplorerGroupHeader
                 variant="ungrouped"
                 expandedState={expandedState} />
-            {_.pipe(
-                _.entries(props.providerOutput.items),
-                _.filter(([itemId, __]) => (
-                    !Object
-                        .entries(providerData.groups)
-                        .some(([_, group]) => group.items.includes(itemId)))),
-                _.sortBy(([_, item]) => item.sortKey),
-                _.map(renderItem))}
+            <div className="flex flex-col gap-2">
+                {_.pipe(
+                    _.entries(props.providerOutput.items),
+                    _.filter(([itemId, __]) => (
+                        !Object
+                            .entries(providerData.groups)
+                            .some(([_, group]) => group.items.includes(itemId)))),
+                    _.sortBy(([_, item]) => item.sortKey),
+                    _.map(renderItem))}
+            </div>
         </>
         : <Collapsible open={expanded}>
             <ExplorerGroupHeader
