@@ -48,19 +48,19 @@
 
     // -- Eager orphan cleanup --
     // Items can disappear (e.g. crate deleted) while their IDs still
-    // linger in `groups[*].items`. After every render, drop dangling IDs.
+    // linger in `groups[*].items`. Drop dangling IDs after each render.
+    //
+    // Critical: only assign back when the filtered array actually
+    // shrinks. Always writing (even when the filter is a no-op) flips
+    // the `$state` proxy and invalidates `output`, which would re-run
+    // this effect indefinitely.
     $effect(() => {
         const validIds = new Set(Object.keys(output.items));
         const groups = (store.data as ProviderData).groups;
-        let dirty = false;
         for (const group of Object.values(groups)) {
-            const before = group.items.length;
-            group.items = group.items.filter(id => validIds.has(id));
-            if (group.items.length !== before) dirty = true;
+            const next = group.items.filter(id => validIds.has(id));
+            if (next.length !== group.items.length) group.items = next;
         }
-        // No persistence trigger needed — autoSave $effect picks up the
-        // mutation through the same proxy.
-        void dirty;
     });
 </script>
 

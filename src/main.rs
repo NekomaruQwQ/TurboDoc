@@ -42,14 +42,29 @@ mod main {
     use std::thread;
     use std::time::Duration;
 
+    use clap::Parser;
     use tap::prelude::*;
 
+    /// TurboDoc — universal documentation viewer.
+    #[derive(Parser)]
+    #[command(version, about)]
+    struct Args {
+        /// Runtime data directory (caches, presets, per-provider data).
+        /// Falls back to the `TURBODOC_DATA` environment variable.
+        #[arg(short = 'd', long = "data", env = "TURBODOC_DATA")]
+        data_dir: PathBuf,
+
+        /// Local port the Bun server binds to.
+        /// Falls back to the `TURBODOC_PORT` environment variable.
+        #[arg(short = 'p', long = "port", env = "TURBODOC_PORT")]
+        port: u16,
+    }
+
     pub fn main() {
-        let port =
-            env::var("TURBODOC_PORT")
-                .expect("TURBODOC_PORT is required to run TurboDoc")
-                .parse::<u16>()
-                .expect("TURBODOC_PORT must be a valid port number");
+        let args = Args::parse();
+        let port = args.port;
+        let data_dir = args.data_dir;
+
         let self_path =
             env::current_exe()
                 .expect("failed to get executable path");
@@ -57,8 +72,6 @@ mod main {
         let root_dir =
             get_root_dir_from_self_path(&self_path)
                 .expect("unexpected executable path");
-        let data_dir =
-            root_dir.join("target/data");
         log::info!("root_dir: {}", root_dir.display());
         log::info!("data_dir: {}", data_dir.display());
 
@@ -66,7 +79,7 @@ mod main {
 
         // -- Spawn server --
         log::info!("starting server...");
-        let server = spawn_server(&root_dir, &data_dir);
+        let server = spawn_server(&root_dir, &data_dir, port);
         SocketAddrV4::new(Ipv4Addr::LOCALHOST, port)
             .pipe(SocketAddr::from)
             .pipe(|addr| TcpStream::connect_timeout(&addr, Duration::from_secs(10)))
@@ -116,11 +129,12 @@ mod main {
             .pipe(Some)
     }
 
-    fn spawn_server(root_dir: &Path, data_dir: &Path) -> Child {
+    fn spawn_server(root_dir: &Path, data_dir: &Path, port: u16) -> Child {
         Command::new("bun")
             .args(["--hot", "server"])
             .current_dir(root_dir)
             .env("TURBODOC_DATA", data_dir)
+            .env("TURBODOC_PORT", port.to_string())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()

@@ -70,6 +70,15 @@ impl WebView {
         api_call!(unsafe { self.core.Navigate(PCWSTR(url.as_ptr())) })
     }
 
+    /// Open the Edge DevTools window for this WebView2 instance. Useful as
+    /// a development affordance — the in-iframe right-click menu is owned
+    /// by the docs-site's CSS/JS and may suppress the WebView2 default
+    /// context menu, so this gives a reliable path to inspect the host UI.
+    #[expect(dead_code, reason = "may be useful in the future")]
+    pub fn open_devtools(&self) -> anyhow::Result<()> {
+        api_call!(unsafe { self.core.OpenDevToolsWindow() })
+    }
+
     #[expect(dead_code, reason = "may be useful in the future")]
     pub fn post_message_as_string(&self, message: &str) -> anyhow::Result<()> {
         let message =
