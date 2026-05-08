@@ -1,9 +1,11 @@
-import type { IconProp as FontAwesomeIconProp } from "@fortawesome/fontawesome-svg-core";
-export type IconProp = ReadonlyDeep<
-    | { type: "fontawesome"; name: FontAwesomeIconProp }>;
+import type { Component } from "svelte";
+import type { LucideProps } from "@lucide/svelte";
 
-import type { ReadonlyDeep } from "type-fest";
-import type { ReactNode } from "react";
+/** A renderable icon. Currently the only implementation is an `@lucide/svelte`
+ *  icon component; the discriminated union leaves room to add other icon
+ *  sources later (e.g., raw SVG paths) without changing call sites. */
+export type IconProp =
+    | { type: "lucide"; icon: Component<LucideProps> };
 
 import * as z from "zod";
 
@@ -88,10 +90,20 @@ export type ProviderData =
 /** The uniform interface for documentation providers. */
 export interface Provider<T = unknown>
     extends ProviderInfo {
-    /** Render a full view model from provider-specific data storage.
-     *  Called at the top level of `ExplorerProvider` on every React render —
-     *  logically a hook, so implementations may call React hooks. */
+    /** Derive a fresh view model from provider-specific data storage.
+     *  Called from `ExplorerProvider.svelte` inside a `$derived`, so it
+     *  re-runs whenever its dependencies (e.g. `ctx.data`, `ctx.currentUrl`)
+     *  change. Must be a pure data derivation — no side effects, no Svelte
+     *  runes. Per-provider effects go in `setupEffects` instead. */
     render(provider: ProviderContext<T>): ProviderOutput,
+
+    /** Optional. Called once during `ExplorerProvider`'s component init.
+     *  Implementations should use Svelte 5 `$effect` runes inside to wire
+     *  up reactive side effects (URL sync, batch fetches, seeding, etc.).
+     *  Because this runs synchronously during init, the runes bind to the
+     *  host component's lifecycle. The body must therefore live in a
+     *  `*.svelte.ts` module so the compiler accepts the rune calls. */
+    setupEffects?(provider: ProviderContext<T>): void,
 }
 
 /** Metadata about a provider. */
@@ -110,28 +122,44 @@ export interface ProviderInfo {
 }
 
 export interface ProviderContext<T = unknown> {
-    /** Provider-specific data storage. */
+    /** Provider-specific data storage, backed by a Svelte 5 `$state` proxy.
+     *  Mutate properties directly (e.g. `ctx.data.crates[name] = …`); the
+     *  proxy makes all nested mutations reactive automatically — no Immer
+     *  draft, no `updateData(updater)` ceremony. */
     readonly data: T,
-
-    /** Update the provider-specific data storage. */
-    updateData(updater: (draft: T) => void): void,
 
     /** The current URL being viewed in the app. HTTPS protocol assumed. */
     readonly currentUrl: string,
 
     /** Navigate the viewer iframe to a URL. The WebView2 host fires a
      *  `navigated` IPC event in response, which persists the URL to
-     *  localStorage and propagates to all `useCurrentUrl()` consumers. */
+     *  localStorage and propagates to all `currentUrl.value` consumers. */
     navigateTo(url: string): void,
 }
 
-export type ProviderOutput = ReadonlyDeep<{
+export type ProviderOutput = {
     items: Record<string, Item>,
     actions?: ProviderAction[],
-}>;
+};
 
+/** A provider-level action, rendered by the Explorer above the items list.
+ *
+ *  - `"input"` — an action that opens a generic dialog with a text field
+ *    (or textarea, if `multiline`). The Explorer owns the dialog UI; the
+ *    provider supplies labels and the callback that consumes the typed value.
+ *  - `"menu"` — a flat menu entry; clicking calls `invoke()`. */
 export type ProviderAction =
-    | { type: "node", render(): ReactNode }
+    | {
+        type: "input",
+        name: string,
+        icon: IconProp,
+        dialogTitle: string,
+        dialogDescription: string,
+        placeholder?: string,
+        multiline?: boolean,
+        confirmLabel?: string,
+        invoke(value: string): void,
+    }
     | { type: "menu", name: string, icon: IconProp, invoke(): void };
 
 /** The uniform view model of a documentation item. */

@@ -1,11 +1,11 @@
 import * as vite from "vite";
-import react from "@vitejs/plugin-react-swc";
 import tailwindcss from "@tailwindcss/vite";
+import { svelte } from "@sveltejs/vite-plugin-svelte";
 
 export default vite.defineConfig({
     root: __dirname,
     plugins: [
-        react(),
+        svelte(),
         tailwindcss(),
     ],
     resolve: {

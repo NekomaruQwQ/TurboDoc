@@ -104,7 +104,7 @@ TurboDoc is an "enhanced tabbed browser with inactive tab resources released" �
 |---|---|---|---|
 | **Host** | Rust (winit + WebView2) | **The Shell** | Window management. Intercepts doc URL requests and forwards them to the server's `/proxy?url=` endpoint. Sends `navigated` events to frontend via `PostWebMessageAsJson`. Opens external URLs in system browser. Spawns the server and ensures cleanup via Job Object. |
 | **Server** | TypeScript (Bun + Hono) | **The Brain** | REST endpoints for split data persistence (`/api/v1/data/preset`, `/data/:providerId`). Batch crate metadata lookup with dedicated SQLite cache (`POST /api/v1/crates`). HTTP proxy with SQLite caching and LRU eviction (`/proxy?url=`). Dark mode injection at serve time. Serves frontend assets via Vite middleware. |
-| **Frontend** | React + Vite | **The Face** | UI rendering (Explorer, Navigation). Fetches data from `/api/v1/*` via `hono/client`. Provider-based architecture for multi-source docs. |
+| **Frontend** | Svelte 5 + Vite | **The Face** | UI rendering (Explorer, Navigation). Fetches data from `/api/v1/*` via `hono/client`. Provider-based architecture for multi-source docs. |
 
 ### Request Flow
 
@@ -129,17 +129,17 @@ WebView2 iframe navigates to https://docs.rs/serde/latest/serde/
 
 ### Technology Stack
 
-- **Frontend**: React 19 + TypeScript (strict mode)
-- **Build**: Vite 7 with React SWC plugin
-- **State Management**: Immer (`useImmer`) for immutable updates
-- **Type Utilities**: type-fest for `ReadonlyDeep` type-level immutability
-- **UI Components**: shadcn/ui — vendored Radix primitives in `frontend/3rdparty/shadcn/`; `@radix-ui/react-collapsible` for item collapse
-- **Styling**: Tailwind CSS v4 with OKLCH color space
-- **Icons**: Font Awesome
+- **Frontend**: Svelte 5 + TypeScript (strict mode); reactivity via runes (`$state`, `$derived`, `$effect`)
+- **Build**: Vite 7 with `@sveltejs/vite-plugin-svelte`
+- **State Management**: Svelte 5 `$state` proxies (deep reactive); direct mutation, no Immer
+- **Type Utilities**: type-fest (used by `ReadonlyDeep` markers in a few places)
+- **UI Components**: shadcn-svelte — vendored Bits UI primitives in `frontend/3rdparty/shadcn/`; paneforge (via the Resizable wrapper) for split panes
+- **Styling**: Tailwind CSS v4 with OKLCH color space; `class={[...]}` for conditional classes (no `cn()` in app code)
+- **Icons**: `@lucide/svelte` (icons imported individually for tree-shaking)
 - **Utilities**: remeda (functional), semver, zod
 - **Server**: Bun + Hono (API + HTTP proxy with SQLite cache) + Vite (middleware mode) on `$TURBODOC_PORT`
 - **Host**: Rust (winit + WebView2) — window management, request forwarding, server lifecycle
-- **IPC**: Hono HTTP API for CRUD + WebView2 `PostWebMessageAsJson` for navigation events
+- **IPC**: Hono HTTP API for CRUD + WebView2 `PostWebMessageAsJson` for navigation events; mitt-based event bus inside the frontend (`createSubscriber` bridges into Svelte reactivity)
 
 ### Sidebar Layout
 
@@ -159,45 +159,47 @@ WebView2 iframe navigates to https://docs.rs/serde/latest/serde/
 ### Component Hierarchy
 
 ```
-frontend/index.tsx (entry point, appData loading, uiState from localStorage, auto-save)
-└── NavigateToProvider
-    └── App (ResizablePanelGroup; receives viewerRef + appDataState as props)
-        ├── Explorer (left panel; receives appDataState as prop)
-        │   └── ExplorerProvider (per provider in preset; owns provider data + cache)
-        │       ├── ProviderAction nodes (e.g., Import dialog)
-        │       ├── ExplorerGroup (variant="ungrouped")
-        │       │   ├── ExplorerGroupHeader (variant="ungrouped")
-        │       │   └── ExplorerItem[] (sorted by sortKey)
-        │       ├── ExplorerGroup[] (variant="default", per group in groupOrder)
-        │       │   ├── ExplorerGroupHeader (collapsible, editable name, dropdown menu)
-        │       │   └── ExplorerItem[] (sorted by sortKey, shown when group expanded)
-        │       └── ExplorerCreateGroupComponent
-        └── iframe (right panel, docs viewer)
+frontend/index.ts (entry point: mount(App, ...))
+└── App.svelte (owns appData $state, navigateTo context, IPC `navigated` listener,
+                ResizablePanelGroup layout)
+    ├── Explorer.svelte (left panel; receives appData as prop, iterates providers in preset)
+    │   └── ExplorerProvider.svelte (per provider; owns ProviderDataStore, derives view
+    │                                model via provider.render(ctx), wires up effects)
+    │       ├── InputActionDialog.svelte (renders provider-supplied "input" actions, e.g. Import)
+    │       ├── ExplorerGroup (variant="ungrouped")
+    │       │   ├── ExplorerGroupHeader (variant="ungrouped")
+    │       │   └── ExplorerItem[] (sorted by sortKey)
+    │       ├── ExplorerGroup[] (variant="default", per group in groupOrder)
+    │       │   ├── ExplorerGroupHeader (collapsible, editable name, dropdown menu)
+    │       │   └── ExplorerItem[] (sorted by sortKey, shown when group expanded)
+    │       └── ExplorerCreateGroupComponent
+    └── iframe (right panel, docs viewer)
 ```
 
-**ExplorerItem structure:**
+**ExplorerItem.svelte structure:**
 ```
-ExplorerItem (Radix Collapsible)
-├── Item name (clickable, toggles collapse)
-├── ExplorerItemVersionSelector (shadcn Select, if item.versions exists)
-├── ExplorerItemMenu (shadcn DropdownMenu: move to group, links, actions)
-└── CollapsibleContent
+ExplorerItem (shadcn-svelte Collapsible.Root, backed by Bits UI)
+├── Item name (Collapsible.Trigger, clickable, toggles collapse)
+├── Version selector (shadcn-svelte Select.Root, if item.versions exists)
+├── ExplorerItemMenu (shadcn-svelte DropdownMenu.Root: move to group, links, actions)
+└── Collapsible.Content
     └── ExplorerPageList
         └── ExplorerPage[] (sorted by sortKey)
             ├── ExplorerPageName (text or symbol with color coding)
-            └── ExplorerPagePinningButton (pin/unpin icon)
+            └── Pin/unpin icon
 ```
 
 ### Component Responsibilities
 
-- **Explorer** (`frontend/ui/explorer/index.tsx`): Top-level container; iterates providers in current preset
-- **ExplorerProvider** (inline): Owns per-provider data (`useProviderData`), constructs `ProviderContext`, calls `provider.render()`, renders provider actions and groups
-- **ExplorerGroup** (inline): Renders group header + filtered/sorted items; handles ungrouped vs named variants
-- **ExplorerGroupHeader** (`ExplorerGroupHeader.tsx`): Chevron toggle, rename input, dropdown menu (expand/collapse all, move up/down/under, delete with confirmation)
-- **ExplorerCreateGroupComponent** (`ExplorerCreateGroupComponent.tsx`): Button that transforms to inline input for creating new groups
-- **ExplorerItem** (`ExplorerItem.tsx`): Collapsible card with name, version selector, menu; expansion state via `useProviderUiState`
-- **ExplorerItemMenu** (`ExplorerItemMenu.tsx`): Move to group submenu, external links, custom actions
-- **ExplorerPageList** (`ExplorerPageList.tsx`): Sorted page list with symbol color coding and pinning buttons
+- **Explorer** (`frontend/ui/explorer/Explorer.svelte`): Top-level container; iterates providers in current preset
+- **ExplorerProvider** (`ExplorerProvider.svelte`): Owns per-provider data via `ProviderDataStore` (Svelte 5 `$state` class), constructs `ProviderContext`, calls `provider.render()` inside a `$derived`, wires up the optional `provider.setupEffects(ctx)` hook in component init
+- **ExplorerGroup** (`ExplorerGroup.svelte`): Renders group header + filtered/sorted items; handles ungrouped vs named variants
+- **ExplorerGroupHeader** (`ExplorerGroupHeader.svelte`): Chevron toggle, rename input, dropdown menu (expand/collapse all, move up/down/under, delete with confirmation)
+- **ExplorerCreateGroupComponent** (`ExplorerCreateGroupComponent.svelte`): Button that transforms to inline input for creating new groups
+- **ExplorerItem** (`ExplorerItem.svelte`): Collapsible card with name, version selector, menu; expansion state via `itemExpanded(providerId, itemId)` accessor
+- **ExplorerItemMenu** (`ExplorerItemMenu.svelte`): Move to group submenu, external links, custom actions
+- **ExplorerPageList** (`ExplorerPageList.svelte`): Sorted page list with symbol color coding and pinning buttons
+- **InputActionDialog** (`InputActionDialog.svelte`): Generic dialog for `ProviderAction` of type `"input"` — provider supplies labels and an `invoke(value)` callback; the dialog owns the textarea/input UI
 
 ### Identification Scheme
 
@@ -220,18 +222,18 @@ Providers register in `frontend/providers/index.ts` and implement the `Provider<
 - `items: Record<string, Item>` — uniform view models with pages, links, actions, versions
 - `actions?: ProviderAction[]` — provider-level UI (e.g., import dialog)
 
-View models contain callbacks (e.g., `setPinned`, `setCurrentVersion`, `invoke`) that update provider data via Immer. View models are derived on every render — never memoized, never serialized. See `frontend/core/data.ts` for the full type definitions.
+View models contain callbacks (e.g., `setPinned`, `setCurrentVersion`, `invoke`) that update provider data by directly mutating the `$state`-proxied store. View models are derived inside a `$derived` block — never memoized manually, never serialized. See `frontend/core/data.ts` for the full type definitions.
 
 **Current:** `rust` (docs.rs + doc.rust-lang.org + windows-docs-rs). **Planned:** `rust.cargo`, `cpp.cppreference`, `cpp.msdocs`, etc.
 
 **Data flow:**
 ```
 [Disk/Storage]                         [Deserialization]         [Runtime]
-preset.json ───────────────────► useAppRoot (index.tsx) ──► appDataState prop (presets)
-<providerId>.json ──────────► useProviderData ────────► ProviderOutput (View Model)
-localStorage (turbodoc:current-url) ──► useCurrentUrl ──────────► current URL (direct hook)
-localStorage (turbodoc:expanded) ────► useGroupExpanded/useItemExpanded ► expansion state
-Dedicated crates_cache SQLite table ──► useSyncExternalStore ──► in-memory API response cache (per-provider)
+preset.json ───────────────────► App.svelte $state ────────► appData prop (presets)
+<providerId>.json ──────────► ProviderDataStore.load() ────► ProviderOutput (View Model)
+localStorage (turbodoc:current-url) ──► currentUrl.value ──────► current URL (createSubscriber)
+localStorage (turbodoc:expanded) ────► groupExpanded/itemExpanded ► expansion state
+Dedicated crates_cache SQLite table ──► cache.svelte.ts ──────► in-memory API response $state (per-provider)
 ```
 
 **Navigation flow:**
@@ -240,9 +242,10 @@ navigateTo(url) ──► iframe.src = url
                         │
                         └─► WebView2 fires "navigated" IPC event
                               │
-                              └─► index.tsx handler: storage.save("currentUrl", url)
+                              └─► App.svelte handler: storage.save("currentUrl", url)
                                     │
-                                    └─► mitt event ──► all useCurrentUrl() hooks update
+                                    └─► mitt event ──► createSubscriber wakes every
+                                          `currentUrl.value` reader in the component tree
 ```
 
 #### Unified Rust Provider
@@ -404,9 +407,9 @@ Design decisions that shaped the current architecture. Organized by area.
 - rust.std version handling: stable/nightly for now; specific version selection (1.83.0, etc.) supported later
 
 **Import Mechanism**
-- No `importItem` method on the `Provider` interface — import UI varies too much between providers
-- Instead, providers render custom import UI via `ProviderAction` with `type: "node"` (React components)
-- More flexible than a standardized import method
+- No `importItem` method on the `Provider` interface — import UI varies too much between providers.
+- Instead, providers expose a `ProviderAction` with `type: "input"`: pure data (label, icon, dialog title/description, placeholder, multiline, callback). The Explorer renders the dialog via the generic `InputActionDialog.svelte`.
+- Earlier (React) iterations of this codebase used `type: "node"` carrying a `ReactNode` — the Svelte migration replaced that with the declarative `"input"` shape, eliminating the need for providers to ship UI components.
 
 **Migration & Compatibility**
 - Server-side auto-migration: on startup, if legacy `workspace.json` exists, splits it into `preset.json` and `<providerId>.json`, then renames the original to `workspace.json.migrated` (UI state is dropped — starts fresh from localStorage)
@@ -476,24 +479,23 @@ Design decisions that shaped the current architecture. Organized by area.
 **View Model Derivation**
 
 ```
-AppData + ProviderData (React state) ──► provider.render() ──► React render
+AppData + ProviderData ($state) ──► provider.render() inside $derived ──► render
               │
-              └── Immer updates (new refs only for changed parts)
+              └── direct mutation on the $state proxy
 ```
 
-- `provider.render()` called on every React render — logically a hook (may call React hooks like `useSyncExternalStore`), no memoization
-- View models contain callbacks (closures over Immer updaters) — never serialized
-- Immer ensures immutable updates with minimal reference changes
-- Object creation is fast; DOM updates are the bottleneck — no memoization needed yet
-- View model derivation is a pure function of data model — easy to reason about
-- `ProviderContext` constructed in `ExplorerProvider` using `useProviderData` hook from `frontend/core/context.ts`
+- `provider.render()` is a pure data-derivation function called inside a `$derived` block in `ExplorerProvider.svelte`. It re-runs whenever its dependencies (`ctx.data`, `ctx.currentUrl`, the `cache.svelte.ts` store) change — Svelte 5 tracks reads automatically.
+- Per-provider effects (URL sync, batch fetches, seeding) live in the optional `provider.setupEffects(ctx)` method, called once at host init. Implementations live in `*.svelte.ts` modules so their `$effect` runes bind to the host component's lifecycle.
+- View models contain callbacks (closures over `$state`-mutating functions) — never serialized.
+- Direct mutation on `$state` proxies replaces Immer drafts — `ctx.data.crates[name] = …` is reactive.
+- `ProviderContext` is constructed once in `ExplorerProvider.svelte` with reactive getters over the `ProviderDataStore` (`@/core/providerData.svelte`).
 
 **Independent State Atoms**
-- `frontend/index.tsx` owns `appData` (presets, async from server) and the `navigated` IPC event handler (writes `currentUrl` to localStorage)
-- `currentUrl` consumed via `useCurrentUrl()` hook directly in components that need it (`ExplorerProvider`, `ExplorerPageList`) — not routed through AppContext
-- Expansion state managed per-component via `useGroupExpanded`/`useItemExpanded` hooks — each hook reads/writes its own key in the `turbodoc:expanded` localStorage slot, synced across components via mitt events
-- Provider data is lazily loaded per-provider inside `ExplorerProvider` via `useProviderData` hook
-- Each atom has independent auto-save — a change in one slice doesn't trigger writes to others
+- `App.svelte` owns `appData` ($state, async from server) and the `navigated` IPC event handler (writes `currentUrl` to localStorage).
+- `currentUrl` consumed via the `currentUrl.value` reactive accessor (`@/core/uiState.svelte`) in components that need it (`ExplorerPageList`, etc.) — not routed through any global state container.
+- Expansion state managed per-component via the `groupExpanded`/`itemExpanded` factories — each accessor reads/writes its own key in the `turbodoc:expanded` localStorage slot. mitt events filter by element so only the matching subscribers re-render.
+- Provider data is lazily loaded per-provider inside `ExplorerProvider.svelte` via `ProviderDataStore.load()`.
+- Each atom has independent auto-save — a change in one slice doesn't trigger writes to others.
 
 **Hybrid IPC**
 - App data CRUD via Hono HTTP API (`/api/v1/data/preset`)
@@ -504,11 +506,11 @@ AppData + ProviderData (React state) ──► provider.render() ──► React
 - All operations except app data are non-fatal (log errors, don't crash)
 
 **Decomposed Root State (no AppContext class)**
-- `appDataState` (presets) passed as prop from `index.tsx` → `App` → `Explorer` — only one consumer, no context needed
-- `navigateTo(url)` provided via `NavigateToProvider` context — stable `useCallback` over iframe ref; consumed by `ExplorerProvider`, `ExplorerItemMenuLink`, `ExplorerPage`
-- `viewerRef` passed as prop from `index.tsx` → `App` — only consumer is the `<iframe>` element
-- `currentUrl` read via `useCurrentUrl()` hook directly — not part of root state
-- Provider data loaded lazily per-provider inside `ExplorerProvider`
+- `appData` ($state) lives in `App.svelte`; passed as prop to `Explorer.svelte` (only consumer; no context needed).
+- `navigateTo(url)` is a Svelte context entry (`navigateTo.set` / `navigateTo.get`) published by `App.svelte` and consumed by `ExplorerProvider`, `ExplorerItemMenu`, `ExplorerPageList`.
+- The iframe ref is captured via `bind:this` inside `App.svelte` — only consumer is the `<iframe>` element itself.
+- `currentUrl` read via the `currentUrl.value` accessor — not part of root state.
+- Provider data loaded lazily per-provider inside `ExplorerProvider.svelte`.
 
 **Graceful Degradation**
 - Stale proxy cache preferred over no data: if upstream refetch fails, the proxy serves the cached response
@@ -576,48 +578,52 @@ TurboDoc/
 │   ├── app.rs                  # WebView2 window, event handlers, proxy forwarding
 │   └── webview.rs              # WebView2 COM wrapper (environment, controller, events)
 │
-├── frontend/                   # React frontend (own package.json + tsconfig.json)
-│   ├── package.json            # Frontend dependencies (React, Radix UI, Font Awesome, lucide-react, etc.)
+├── frontend/                   # Svelte 5 frontend (own package.json + tsconfig.json)
+│   ├── package.json            # Frontend dependencies (Svelte, bits-ui, paneforge, @lucide/svelte, etc.)
 │   ├── tsconfig.json           # Extends root tsconfig
 │   ├── vite.config.ts          # Root: frontend/, aliases: @/ → frontend/, @server/ → server/, @shadcn/ → frontend/3rdparty/shadcn/
-│   ├── components.json         # shadcn/ui CLI config (style: new-york, baseColor: zinc)
-│   ├── core.ts                 # Shared utility (throwError)
+│   ├── svelte.config.ts        # Svelte preprocessor + global warning suppression for a11y/state-ref rules
+│   ├── components.json         # shadcn-svelte CLI config (baseColor: zinc, framework: svelte)
 │   ├── index.html              # Entry HTML
-│   ├── index.tsx               # React entry point (preset loading, auto-save, IPC listener)
-│   ├── global.css              # Tailwind imports, shadcn Zinc OKLCH palette (`:root` + `.dark`), `@theme inline` token mapping, One Dark symbol palette, Collapsible animation
+│   ├── index.ts                # Svelte entry point (`mount(App, ...)`)
+│   ├── global.css              # Tailwind imports, shadcn Zinc OKLCH palette (`:root` + `.dark`), `@theme inline` token mapping, One Dark symbol palette, Bits UI Collapsible animation
 │   │
 │   ├── core/
-│   │   ├── data.ts             # Zod schemas + inferred types (AppData, ProviderData, Provider, Item, Page, etc.)
-│   │   ├── context.ts          # React context providers and hooks (useNavigateTo, useProvider, useProviderData)
-│   │   ├── ipc.ts              # Hono HTTP client (data + cache CRUD) + WebView2 event listener (navigated)
-│   │   ├── localStorage.ts    # Typed localStorage abstraction (Zod validation, mitt events, primitive + array APIs)
-│   │   ├── uiState.ts         # Self-contained UI state hooks (useCurrentUrl, useGroupExpanded, useItemExpanded) + imperative helpers
-│   │   └── prelude.ts          # State<T> type helper + cn() utility
+│   │   ├── data.ts                 # Zod schemas + inferred types (AppData, ProviderData, Provider, Item, Page, IconProp, ProviderAction)
+│   │   ├── context.ts              # Svelte setContext/getContext keys (`navigateTo`, `provider`, `providerData`)
+│   │   ├── providerData.svelte.ts  # `ProviderDataStore` reactive class — `$state` data + load + autosave
+│   │   ├── ipc.ts                  # Hono HTTP client (data CRUD) + WebView2 event listener (navigated)
+│   │   ├── localStorage.ts         # Typed localStorage abstraction (Zod validation, mitt events, primitive + array APIs)
+│   │   └── uiState.svelte.ts       # Reactive accessors over mitt+localStorage (currentUrl, groupExpanded, itemExpanded) + imperative helpers
 │   │
 │   ├── providers/
 │   │   ├── index.ts            # Provider registry (Record<string, Provider>)
 │   │   └── rust/               # Unified Rust provider
-│   │       ├── index.tsx       # Provider implementation (render, URL handling, page parsing, crate metadata fetching)
-│   │       ├── url.ts          # URL parsing/building (docs.rs, doc.rust-lang.org, windows-docs-rs)
-│   │       ├── url.test.ts
-│   │       └── import.tsx      # Import dialog (ProviderAction with type: "node")
+│   │       ├── index.ts            # Provider implementation (render, URL handling, page parsing, getImportCratesAction inlined)
+│   │       ├── effects.svelte.ts   # Per-provider $effect setup (URL sync, batch fetches, seed crates)
+│   │       ├── cache.svelte.ts     # `$state` singleton: in-memory crate metadata cache + batch fetch
+│   │       ├── url.ts              # URL parsing/building (docs.rs, doc.rust-lang.org, windows-docs-rs)
+│   │       └── url.test.ts
 │   │
 │   ├── 3rdparty/
-│   │   └── shadcn/             # Vendored shadcn/ui primitives (Radix-based)
-│   │       ├── components/ui/  # button, card, dialog, dropdown-menu, input, resizable, select, separator
-│   │       └── lib/utils.ts    # cn() — clsx + tailwind-merge wrapper
+│   │   └── shadcn/             # Vendored shadcn-svelte primitives (Bits UI / paneforge)
+│   │       ├── components/ui/  # button, card, dialog, dropdown-menu, input, resizable, select, separator, collapsible
+│   │       └── lib/utils.ts    # cn() — clsx + tailwind-merge wrapper (used internally by vendored components only)
 │   │
 │   ├── ui/
-│   │   ├── App.tsx             # Main layout (ResizablePanelGroup: explorer + iframe viewer)
+│   │   ├── App.svelte          # Root: appData $state, navigateTo context, IPC `navigated` listener, Resizable layout
 │   │   ├── common/
-│   │   │   └── Icon.tsx        # Icon wrapper (FontAwesome)
+│   │   │   └── Icon.svelte     # Icon wrapper (lucide-svelte)
 │   │   └── explorer/
-│   │       ├── index.tsx                       # Explorer, ExplorerProvider, ExplorerGroup
-│   │       ├── ExplorerGroupHeader.tsx         # Group header (collapse, rename, dropdown menu)
-│   │       ├── ExplorerCreateGroupComponent.tsx # Add group button/input
-│   │       ├── ExplorerItem.tsx                # Collapsible item card with version selector
-│   │       ├── ExplorerItemMenu.tsx            # Item menu (move to group, links, actions)
-│   │       └── ExplorerPageList.tsx            # Page list with symbol colors + pinning
+│   │       ├── Explorer.svelte                  # Top-level: iterates providers in current preset
+│   │       ├── ExplorerProvider.svelte          # Owns ProviderDataStore, derives view model, sets up effects
+│   │       ├── ExplorerGroup.svelte             # Group renderer (default + ungrouped variants)
+│   │       ├── ExplorerGroupHeader.svelte       # Group header (collapse, rename, dropdown menu)
+│   │       ├── ExplorerCreateGroupComponent.svelte # Add group button/input
+│   │       ├── ExplorerItem.svelte              # Collapsible item card with version selector
+│   │       ├── ExplorerItemMenu.svelte          # Item menu (move to group, links, actions)
+│   │       ├── ExplorerPageList.svelte          # Page list with symbol colors + pinning
+│   │       └── InputActionDialog.svelte         # Generic dialog for `"input"` ProviderAction
 │   │
 │   ├── utils/
 │   │   ├── version-group.ts    # Semver version grouping
@@ -697,6 +703,7 @@ TurboDoc/
 
 ## Change History
 
+- **2026-05**: Migrate frontend from React 19 to Svelte 5: replace React+useImmer state with Svelte 5 runes (`$state` proxies for deep reactivity, `$derived` for view models, `$effect` for side effects); replace shadcn/ui (vendored Radix) with shadcn-svelte (vendored Bits UI / paneforge) at the same `frontend/3rdparty/shadcn/` path and `@shadcn/*` alias; replace FontAwesome icons with `@lucide/svelte`; replace React contexts with Svelte `setContext`/`getContext` exposed as `navigateTo.get()/set()`, `provider.get()/set()`, `providerData.get()/set()`; new `ProviderDataStore` reactive class (`frontend/core/providerData.svelte.ts`) replaces `useProviderDataLoader`; new reactive accessors over mitt+localStorage in `frontend/core/uiState.svelte.ts` (`currentUrl.value`, `groupExpanded(p,g)`, `itemExpanded(p,i)`) using `createSubscriber` from `svelte/reactivity` instead of `useSyncExternalStore`; redesign `ProviderAction` — drop the generic `"node"` (ReactNode) variant, replace with declarative `"input"` shape rendered by a generic `InputActionDialog.svelte`; redesign `ProviderContext` — drop `updateData(updater)` since direct `$state` mutation is now reactive; add optional `Provider.setupEffects(ctx)` method (lives in `*.svelte.ts` modules) for per-provider URL sync / cache fetches; rust provider's module-level cache becomes a `$state` singleton in `cache.svelte.ts`; `IconProp` redefined as `{ type: "lucide"; icon: Component<LucideProps> }`; entry `index.tsx` → `index.ts` with `mount(App, ...)`; vite-plugin-react-swc replaced by `@sveltejs/vite-plugin-svelte`; drop `@radix-ui/*`, `react`, `react-dom`, `@vitejs/plugin-react-swc`, `use-immer`, `immer`, `lucide-react`, `@fortawesome/*`, `react-resizable-panels`; keep `clsx`/`tailwind-merge` for vendored `cn` helper but app code uses Svelte's native `class={[...]}`; drop `frontend/core/prelude.ts` (no more `State<T>` tuple); `tsc --noEmit` removed from frontend's check pipeline (svelte-check now covers all .ts and .svelte files); `svelte.config.ts` adds global warning suppression for a11y rules and `state_referenced_locally` (matching existing biome-disabled a11y rules)
 - **2026-05**: Migrate frontend back from HeroUI v3 to shadcn/ui: restore vendored Radix primitives in `frontend/3rdparty/shadcn/` (Button, Card, Dialog, DropdownMenu, Input, Resizable, Select, Separator, lib/utils.ts) and `components.json` from jj history (parent of HeroUI migration); replace HeroUI compound APIs with Radix-based shadcn equivalents (`Select`/`SelectTrigger`/`SelectContent`/`SelectItem`, `DropdownMenu`/`DropdownMenuContent`/`DropdownMenuItem`/`DropdownMenuSub*`, `Dialog`/`DialogContent`/`DialogHeader`/`DialogFooter`); replace `useOverlayState` with `useState<boolean>`; rewrite `global.css` with the shadcn Zinc OKLCH palette in `:root`/`.dark`, drop `@heroui/styles` and `global.theme.css`; switch `<html data-theme="dark">` to `<html class="dark">` + `@custom-variant dark (&:is(.dark *))`; revert HeroUI-native styling tweaks (`rounded-3xl` cards / `rounded-2xl` icon buttons → `rounded-md`); drop `useDeferredMount` since Radix mounts cheaply; preserve every post-migration improvement (group-header decomposition, `useGroupExpanded`/`useItemExpanded` localStorage hooks, `NavigateToProvider`, orphan-cleanup `useEffect`, Refresh Metadata menu item, Collapsible animation); add `@shadcn/*` paths entry to root `tsconfig.json`; drop deps `@heroui/react`, `@heroui/styles`; re-add `@radix-ui/react-dialog`, `@radix-ui/react-dropdown-menu`, `@radix-ui/react-select`, `@radix-ui/react-separator`, `@radix-ui/react-slot`, `class-variance-authority`, `lucide-react`
 - **2026-04**: Replace WinUI host with Rust host: revive Rust webview host (`src/app.rs`, `src/webview.rs`) using winit + webview2-com; merge launcher into host process (`src/main.rs` spawns server, polls lock file, opens window, cleans up lock on exit); remove `app/` directory (C# WinUI 3), `.slnx`, `Directory.Build.props`, `out/`; proxy delegation preserved (host forwards doc URLs to server's `/proxy?url=` endpoint); IPC removed (frontend uses Hono HTTP API); `HOSTED_URL` and `PROXIED_URL` split into separate constants for future flexibility
 - **2026-03**: Add force-refresh for crates.io metadata: `POST /api/v1/crates?refresh=true` bypasses cache freshness and always fetches upstream; limited to a single crate per request (server returns 400 for multiple); "Refresh Metadata" menu item added to crate actions in explorer (skipped for std-library crates); new `deleteCrateCache()` helper evicts a crate from the in-memory store so `useSyncExternalStore` triggers a re-render while the fresh fetch is in flight
