@@ -4,7 +4,8 @@ import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 
 import path from "node:path";
-import fs from "node:fs/promises";
+
+import * as TOML from "smol-toml";
 
 import { dataDir } from "@server/common";
 import * as cratesCache from "@server/crates-cache";
@@ -12,21 +13,28 @@ import { type CrateMetadata, parseCrateMetadata } from "@server/crates-cache";
 
 export type { CrateMetadata } from "@server/crates-cache";
 
-/** Load a JSON file and return it as the response body. Returns `{}` if the
- *  file doesn't exist (e.g., first launch). */
-async function loadDataAsJson(c: HonoContext, dataPath: string) {
+/** Load a TOML data file, parse it, and return as a JSON response body. The
+ *  on-disk format is TOML; the wire format is JSON, so the frontend (and the
+ *  Hono client typing) sees no difference from the old JSON-on-disk era.
+ *  Returns `{}` if the file doesn't exist (e.g., first launch). */
+async function loadDataFile(c: HonoContext, dataPath: string) {
     const file = Bun.file(path.resolve(dataPath));
     if (!await file.exists())
         return c.json({});
-    return c.body(await file.arrayBuffer(), {
-        headers: { "Content-Type": "application/json" },
-    });
+    const text = await file.text();
+    // Cast smol-toml's recursive `TomlObject` to a simpler shape so Hono's
+    // client-type inference doesn't blow past its instantiation depth limit.
+    return c.json(TOML.parse(text) as Record<string, unknown>);
 }
 
-async function saveDataAsJson(
+/** Serialize `data` (a plain object received as JSON over the wire) to TOML
+ *  and write it to disk. Both `AppData` and `ProviderData` have object roots
+ *  by schema, which `smol-toml` requires for the top level. */
+async function saveDataFile(
     c: HonoContext, dataPath: string, data: unknown,
 ) {
-    await Bun.write(path.resolve(dataPath), JSON.stringify(data, undefined, 4));
+    const text = TOML.stringify(data as Record<string, unknown>);
+    await Bun.write(path.resolve(dataPath), text);
     return c.json({ success: true });
 }
 
@@ -39,14 +47,15 @@ const DATA_LOSS_MIN_SIZE = 256;
  *  the write is rejected as likely accidental data loss. */
 const DATA_LOSS_RATIO = 0.3;
 
-/** Compare the size of `newJson` against the existing file at `filePath`.
+/** Compare the size of `newPayload` against the existing file at `filePath`.
  *  Returns an error message if the write looks like accidental data loss,
- *  or `null` if the write is safe.
+ *  or `null` if the write is safe. The byte-length comparison is format-
+ *  agnostic — works equally for the JSON era and the current TOML files.
  *
  *  Future: a `?force=true` query parameter could bypass this check for
  *  legitimate bulk deletions. */
 async function guardAgainstDataLoss(
-    filePath: string, newJson: string,
+    filePath: string, newPayload: string,
 ): Promise<string | null> {
     const file = Bun.file(filePath);
     if (!await file.exists()) return null;
@@ -54,72 +63,13 @@ async function guardAgainstDataLoss(
     const existingSize = file.size;
     if (existingSize < DATA_LOSS_MIN_SIZE) return null;
 
-    const ratio = newJson.length / existingSize;
+    const ratio = newPayload.length / existingSize;
     if (ratio < DATA_LOSS_RATIO)
-        return `Write rejected: new payload (${newJson.length} B) is ${(ratio * 100).toFixed(1)}% ` +
+        return `Write rejected: new payload (${newPayload.length} B) is ${(ratio * 100).toFixed(1)}% ` +
             `of existing file (${existingSize} B), which is below the ${DATA_LOSS_RATIO * 100}% safety threshold.`;
 
     return null;
 }
-
-// -- One-time migrations (run before any requests are served) --
-
-/** Migrate legacy `workspace.json` into split files if it still exists.
- *  Extracts app data and per-provider data into separate files, then
- *  renames the original to `workspace.json.migrated`.
- *  UI state (expandedItems/expandedGroups) is dropped — it now lives
- *  in the frontend's localStorage and will start fresh. */
-async function migrateFromMonolithic(): Promise<void> {
-    const oldPath = path.resolve(`${dataDir}/workspace.json`);
-    const oldFile = Bun.file(oldPath);
-    if (!await oldFile.exists()) return;
-
-    // biome-ignore lint/suspicious/noExplicitAny: migration deals with unknown legacy shape.
-    const workspace = await oldFile.json() as any;
-
-    // Write preset data.
-    if (workspace.app) {
-        await Bun.write(
-            path.resolve(`${dataDir}/preset.json`),
-            JSON.stringify(workspace.app, undefined, 4));
-    }
-
-    for (const [pid, pd] of Object.entries(workspace.providers ?? {})) {
-        // biome-ignore lint/suspicious/noExplicitAny: same as above.
-        const provider = pd as any;
-        // Strip UI-only fields before writing per-provider data.
-        const { expandedItems, expandedGroups, ...providerData } = provider;
-        await Bun.write(
-            path.resolve(`${dataDir}/${pid}.json`),
-            JSON.stringify(providerData, undefined, 4));
-    }
-
-    // Rename the old file so migration doesn't run again.
-    await fs.rename(oldPath, `${oldPath}.migrated`);
-    console.log("Migrated workspace.json → split files.");
-}
-
-/** Rename `workspace.*.json` files to drop the `workspace.` prefix.
- *  Handles the transition from `workspace.preset.json` → `preset.json`
- *  and `workspace.<providerId>.json` → `<providerId>.json`. */
-async function migrateFromWorkspacePrefix(): Promise<void> {
-    const dir = path.resolve(dataDir);
-    const entries = await fs.readdir(dir);
-    for (const entry of entries) {
-        if (!entry.startsWith("workspace.") || !entry.endsWith(".json"))
-            continue;
-        // Strip "workspace." prefix.
-        const newName = entry.slice("workspace.".length);
-        const oldPath = path.join(dir, entry);
-        const newPath = path.join(dir, newName);
-        await fs.rename(oldPath, newPath);
-        console.log(`Renamed ${entry} → ${newName}`);
-    }
-}
-
-await migrateFromMonolithic();
-await migrateFromWorkspacePrefix();
-
 
 export default new Hono()
     .use(async (c, next) => {
@@ -131,27 +81,27 @@ export default new Hono()
     })
     // Static data routes (registered before :providerId to avoid shadowing).
     .get("/data/preset", async c =>
-        loadDataAsJson(c, `${dataDir}/preset.json`))
+        loadDataFile(c, `${dataDir}/preset.toml`))
     .put("/data/preset", zValidator("json", z.unknown()), async c =>
-        saveDataAsJson(c, `${dataDir}/preset.json`, c.req.valid("json")))
+        saveDataFile(c, `${dataDir}/preset.toml`, c.req.valid("json")))
     // Per-provider data.
     .get("/data/:providerId", async c => {
         const { providerId } = c.req.param();
-        return loadDataAsJson(c, `${dataDir}/${providerId}.json`);
+        return loadDataFile(c, `${dataDir}/${providerId}.toml`);
     })
     .put("/data/:providerId", zValidator("json", z.unknown()), async c => {
         const { providerId } = c.req.param();
-        const filePath = path.resolve(`${dataDir}/${providerId}.json`);
+        const filePath = path.resolve(`${dataDir}/${providerId}.toml`);
         const data = c.req.valid("json");
-        const json = JSON.stringify(data, undefined, 4);
+        const text = TOML.stringify(data as Record<string, unknown>);
 
-        const rejection = await guardAgainstDataLoss(filePath, json);
+        const rejection = await guardAgainstDataLoss(filePath, text);
         if (rejection) {
             console.warn(rejection);
             return c.json({ success: false, error: rejection }, 409);
         }
 
-        await Bun.write(filePath, json);
+        await Bun.write(filePath, text);
         return c.json({ success: true });
     })
     // Batch crate metadata lookup. Returns normalized metadata for each

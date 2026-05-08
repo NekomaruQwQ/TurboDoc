@@ -8,8 +8,7 @@ version = "0.1.0"
 edition = "2024"
 
 [workspace.dependencies.nkcore]
-git = "git://nekomaru-ubuntu/Nekomaru-Rust.git"
-rev = "853fbe37"
+path = "../Nekomaru-Rust/nkcore/"
 features = ["debug", "winit"]
 
 [dependencies]

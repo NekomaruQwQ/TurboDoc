@@ -229,8 +229,8 @@ View models contain callbacks (e.g., `setPinned`, `setCurrentVersion`, `invoke`)
 **Data flow:**
 ```
 [Disk/Storage]                         [Deserialization]         [Runtime]
-preset.json ───────────────────► App.svelte $state ────────► appData prop (presets)
-<providerId>.json ──────────► ProviderDataStore.load() ────► ProviderOutput (View Model)
+preset.toml ───────────────────► App.svelte $state ────────► appData prop (presets)
+<providerId>.toml ──────────► ProviderDataStore.load() ────► ProviderOutput (View Model)
 localStorage (turbodoc:current-url) ──► currentUrl.value ──────► current URL (createSubscriber)
 localStorage (turbodoc:expanded) ────► groupExpanded/itemExpanded ► expansion state
 Dedicated crates_cache SQLite table ──► cache.svelte.ts ──────► in-memory API response $state (per-provider)
@@ -412,7 +412,6 @@ Design decisions that shaped the current architecture. Organized by area.
 - Earlier (React) iterations of this codebase used `type: "node"` carrying a `ReactNode` — the Svelte migration replaced that with the declarative `"input"` shape, eliminating the need for providers to ship UI components.
 
 **Migration & Compatibility**
-- Server-side auto-migration: on startup, if legacy `workspace.json` exists, splits it into `preset.json` and `<providerId>.json`, then renames the original to `workspace.json.migrated` (UI state is dropped — starts fresh from localStorage)
 - On startup, if data files don't exist or don't match expected format, initialize with empty defaults
 - Provider ID `"preset"` is reserved (collides with static endpoint path)
 
@@ -428,7 +427,7 @@ Design decisions that shaped the current architecture. Organized by area.
 **Architectural Constraints**
 - No URL Rewriting: the WebView still believes it is browsing `docs.rs` directly
 - No SSL Proxy: proxying happens after WebView2 intercepts the request intent
-- Configurable Port: combined server (Hono API + proxy + Vite dev server) binds to `$TURBODOC_PORT`
+- Configurable Port and Data Directory: required at startup via clap CLI args on the host (`--port`/`-p`, `--data`/`-d`) with env-var fallbacks (`TURBODOC_PORT`, `TURBODOC_DATA`); no defaults — the host fails fast if neither flag nor env var is supplied. The host forwards both as explicit env vars to the spawned Bun child, so server-side code reads them from `process.env` as before.
 
 **Dark Mode Injection (Serve-Time)**
 - Cache stores clean upstream content; dark mode injection applied at serve time
@@ -438,9 +437,9 @@ Design decisions that shaped the current architecture. Organized by area.
 ### Data Model
 
 **Split Data Persistence**
-- Workspace split into two server-persisted file categories:
-  - `preset.json` — global app state (presets). Loaded eagerly in `frontend/index.tsx`.
-  - `<providerId>.json` — per-provider user data (groups, provider-specific data). Loaded lazily per-provider by `useProviderData` hook.
+- Workspace split into two server-persisted file categories. On-disk format is **TOML** (parsed/serialized via `smol-toml` in `server/api.ts`); the HTTP wire format remains JSON, so the frontend sees no difference:
+  - `preset.toml` — global app state (presets). Loaded eagerly in `frontend/index.tsx`.
+  - `<providerId>.toml` — per-provider user data (groups, provider-specific data). Loaded lazily per-provider by `useProviderData` hook.
 - Transient UI state stored in **localStorage** as individual slots, not on the server. Two slot types managed by `frontend/core/localStorage.ts`:
   - **Primitive** (`turbodoc:current-url`): current URL, simple get/set
   - **Array** (`turbodoc:expanded`): flat string array of expanded item/group keys. Key format: `<providerId>:<itemId>` for items, `<providerId>:group:<groupId>` for groups. Membership-check hooks (`useGroupExpanded`, `useItemExpanded`) with selective re-rendering via mitt events — only hooks whose specific key changed re-render.
@@ -450,8 +449,7 @@ Design decisions that shaped the current architecture. Organized by area.
 - `"preset"` is a reserved path segment — cannot be used as a provider ID
 - Auto-save on every state change (no debouncing — files are small)
 - App data save failures are fatal (throw); provider data failures are non-fatal (log + return `{}`)
-- Server-side migration: on startup, if legacy `workspace.json` exists, auto-splits into new files and renames original to `.migrated`
-- **Provider data write guard**: the server rejects a PUT to `/data/:providerId` if the new JSON payload is less than 30% the size of the existing file on disk (HTTP 409). This prevents accidental data loss from frontend bugs or state resets. The check is skipped when the existing file is smaller than 256 bytes, since small files can legitimately shrink by large ratios. Future: a `?force=true` query parameter could bypass the guard for legitimate bulk deletions.
+- **Provider data write guard**: the server rejects a PUT to `/data/:providerId` if the serialized TOML payload is less than 30% the size of the existing file on disk (HTTP 409). This prevents accidental data loss from frontend bugs or state resets. The check is skipped when the existing file is smaller than 256 bytes, since small files can legitimately shrink by large ratios. Future: a `?force=true` query parameter could bypass the guard for legitimate bulk deletions.
 
 **Preview Page (Derived State)**
 - Preview state derived from `currentUrl` (localStorage) and per-item `pinnedPages`
@@ -633,7 +631,7 @@ TurboDoc/
 │   ├── package.json            # Server dependencies (Hono, bun:sqlite, etc.)
 │   ├── tsconfig.json           # Extends root tsconfig
 │   ├── index.ts                # Hono router + Vite dev server ($TURBODOC_PORT)
-│   ├── api.ts                  # API endpoints (split data CRUD, batch crate lookup, legacy migration)
+│   ├── api.ts                  # API endpoints (split data CRUD with TOML on disk via smol-toml, batch crate lookup)
 │   ├── proxy.ts                # /proxy?url= route handler + dark mode injection
 │   ├── http-cache.ts           # SQLite HTTP cache for doc pages (bun:sqlite, LRU eviction)
 │   ├── crates-cache.ts         # Dedicated SQLite cache for crates.io API responses (TTL-based)
@@ -642,8 +640,8 @@ TurboDoc/
 ├── target/                     # Build output (Rust + runtime data)
 │   └── data/                       # Runtime data directory ($TURBODOC_DATA)
 │       ├── cache.sqlite            # SQLite database (HTTP proxy cache + crates metadata cache, WAL mode)
-│       ├── preset.json             # Global app state (presets)
-│       └── <id>.json               # Per-provider user data
+│       ├── preset.toml             # Global app state (presets)
+│       └── <id>.toml               # Per-provider user data
 │
 └── docs/
     ├── README.md               # This file
@@ -703,6 +701,8 @@ TurboDoc/
 
 ## Change History
 
+- **2026-05**: Switch server-persisted data files from JSON to TOML — `preset.toml` + `<providerId>.toml` parsed/serialized via `smol-toml` in `server/api.ts`; HTTP wire format unchanged (still JSON over Hono, frontend untouched); legacy `workspace.json` and `workspace.*.json` migration code (`migrateFromMonolithic`, `migrateFromWorkspacePrefix`) removed since they only produced now-obsolete `.json` outputs; `loadDataAsJson`/`saveDataAsJson` renamed to `loadDataFile`/`saveDataFile`; data-loss-guard threshold (30%, min 256 B) preserved against the TOML byte length; no runtime migration — existing `.json` files in `target/data/` are abandoned and the app cold-starts with default presets
+- **2026-05**: Parameterize host startup config as clap CLI args: `--data`/`-d` (env fallback `TURBODOC_DATA`) for runtime data directory and `--port`/`-p` (env fallback `TURBODOC_PORT`) for server port; both required, no defaults (replaces the hardcoded `root_dir.join("target/data")` default and the raw `env::var("TURBODOC_PORT").expect(...)` parse); `Args::parse()` becomes the first call in `main::main()` so `--help`/`--version`/missing-arg errors abort cleanly before any side effects; `spawn_server` now explicitly sets `TURBODOC_PORT` on the bun child (the var was previously only inherited from the parent's env, which breaks once `--port` makes parent env optional); add `clap = { version = "4.6.1", features = ["derive", "env"] }` to `Cargo.toml` (the `env` feature provides the env-var fallback declaratively via `#[arg(env = "...")]`); `.justfile` `run` recipe updated to `cargo run --release -- --data data`
 - **2026-05**: Migrate frontend from React 19 to Svelte 5: replace React+useImmer state with Svelte 5 runes (`$state` proxies for deep reactivity, `$derived` for view models, `$effect` for side effects); replace shadcn/ui (vendored Radix) with shadcn-svelte (vendored Bits UI / paneforge) at the same `frontend/3rdparty/shadcn/` path and `@shadcn/*` alias; replace FontAwesome icons with `@lucide/svelte`; replace React contexts with Svelte `setContext`/`getContext` exposed as `navigateTo.get()/set()`, `provider.get()/set()`, `providerData.get()/set()`; new `ProviderDataStore` reactive class (`frontend/core/providerData.svelte.ts`) replaces `useProviderDataLoader`; new reactive accessors over mitt+localStorage in `frontend/core/uiState.svelte.ts` (`currentUrl.value`, `groupExpanded(p,g)`, `itemExpanded(p,i)`) using `createSubscriber` from `svelte/reactivity` instead of `useSyncExternalStore`; redesign `ProviderAction` — drop the generic `"node"` (ReactNode) variant, replace with declarative `"input"` shape rendered by a generic `InputActionDialog.svelte`; redesign `ProviderContext` — drop `updateData(updater)` since direct `$state` mutation is now reactive; add optional `Provider.setupEffects(ctx)` method (lives in `*.svelte.ts` modules) for per-provider URL sync / cache fetches; rust provider's module-level cache becomes a `$state` singleton in `cache.svelte.ts`; `IconProp` redefined as `{ type: "lucide"; icon: Component<LucideProps> }`; entry `index.tsx` → `index.ts` with `mount(App, ...)`; vite-plugin-react-swc replaced by `@sveltejs/vite-plugin-svelte`; drop `@radix-ui/*`, `react`, `react-dom`, `@vitejs/plugin-react-swc`, `use-immer`, `immer`, `lucide-react`, `@fortawesome/*`, `react-resizable-panels`; keep `clsx`/`tailwind-merge` for vendored `cn` helper but app code uses Svelte's native `class={[...]}`; drop `frontend/core/prelude.ts` (no more `State<T>` tuple); `tsc --noEmit` removed from frontend's check pipeline (svelte-check now covers all .ts and .svelte files); `svelte.config.ts` adds global warning suppression for a11y rules and `state_referenced_locally` (matching existing biome-disabled a11y rules)
 - **2026-05**: Migrate frontend back from HeroUI v3 to shadcn/ui: restore vendored Radix primitives in `frontend/3rdparty/shadcn/` (Button, Card, Dialog, DropdownMenu, Input, Resizable, Select, Separator, lib/utils.ts) and `components.json` from jj history (parent of HeroUI migration); replace HeroUI compound APIs with Radix-based shadcn equivalents (`Select`/`SelectTrigger`/`SelectContent`/`SelectItem`, `DropdownMenu`/`DropdownMenuContent`/`DropdownMenuItem`/`DropdownMenuSub*`, `Dialog`/`DialogContent`/`DialogHeader`/`DialogFooter`); replace `useOverlayState` with `useState<boolean>`; rewrite `global.css` with the shadcn Zinc OKLCH palette in `:root`/`.dark`, drop `@heroui/styles` and `global.theme.css`; switch `<html data-theme="dark">` to `<html class="dark">` + `@custom-variant dark (&:is(.dark *))`; revert HeroUI-native styling tweaks (`rounded-3xl` cards / `rounded-2xl` icon buttons → `rounded-md`); drop `useDeferredMount` since Radix mounts cheaply; preserve every post-migration improvement (group-header decomposition, `useGroupExpanded`/`useItemExpanded` localStorage hooks, `NavigateToProvider`, orphan-cleanup `useEffect`, Refresh Metadata menu item, Collapsible animation); add `@shadcn/*` paths entry to root `tsconfig.json`; drop deps `@heroui/react`, `@heroui/styles`; re-add `@radix-ui/react-dialog`, `@radix-ui/react-dropdown-menu`, `@radix-ui/react-select`, `@radix-ui/react-separator`, `@radix-ui/react-slot`, `class-variance-authority`, `lucide-react`
 - **2026-04**: Replace WinUI host with Rust host: revive Rust webview host (`src/app.rs`, `src/webview.rs`) using winit + webview2-com; merge launcher into host process (`src/main.rs` spawns server, polls lock file, opens window, cleans up lock on exit); remove `app/` directory (C# WinUI 3), `.slnx`, `Directory.Build.props`, `out/`; proxy delegation preserved (host forwards doc URLs to server's `/proxy?url=` endpoint); IPC removed (frontend uses Hono HTTP API); `HOSTED_URL` and `PROXIED_URL` split into separate constants for future flexibility
