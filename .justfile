@@ -14,7 +14,16 @@ install:
     cargo build
     cd server;   bun i
     cd frontend; bun i
-    cd frontend; bunx --bun shadcn-svelte@latest add -y --no-deps --overwrite button card dialog dropdown-menu input resizable select separator collapsible
+    cd frontend; bunx --bun shadcn-svelte@latest add -y --no-deps --overwrite \
+        button \
+        card \
+        dialog \
+        dropdown-menu \
+        input \
+        resizable \
+        select \
+        separator \
+        collapsible
 
 # Run the specified `svelte-check` command in the frontend directory.
 svc *args:

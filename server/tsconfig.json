@@ -1,6 +1,10 @@
 {
-    "extends": "../tsconfig.json",
+    "extends": "@tsconfig/bun",
     "compilerOptions": {
-        "types": ["bun"],
-    },
+        "paths": {
+            "@/*": ["../frontend/*"],
+            "@shadcn/*": ["../frontend/3rdparty/shadcn/*"],
+            "@server/*": ["../server/*"],
+        },
+    }
 }

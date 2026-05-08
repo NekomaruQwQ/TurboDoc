@@ -17,14 +17,14 @@ const SVELTE_LIBS = [
 export default vite.defineConfig({
     root: __dirname,
     plugins: [
-        svelte(),
         tailwindcss(),
+        svelte(),
     ],
     resolve: {
         alias: {
             "@": __dirname,
-            "@server": __dirname + "/../server",
-            "@shadcn": __dirname + "/3rdparty/shadcn",
+            "@server": `${__dirname}/../server/`,
+            "@shadcn": `${__dirname}/3rdparty/shadcn/`,
         },
     },
     optimizeDeps: { exclude: SVELTE_LIBS },

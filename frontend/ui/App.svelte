@@ -69,7 +69,7 @@
         <Resizable.PaneGroup direction="horizontal">
             <Resizable.Pane defaultSize={20} class="px-2">
                 <!-- Clip the explorer content with rounded corners. -->
-                <div class="w-full h-full rounded-t-lg overflow-clip">
+                <div class="w-full h-full rounded-t-md overflow-clip">
                     <Explorer {appData} />
                 </div>
             </Resizable.Pane>
@@ -79,7 +79,7 @@
                     bind:this={viewer}
                     src={initialUrl}
                     title="Documentation viewer"
-                    class="w-full h-full border border-white/30 rounded-tl-3xl"></iframe>
+                    class="w-full h-full border border-white/30 rounded-tl-md"></iframe>
             </Resizable.Pane>
         </Resizable.PaneGroup>
     </div>

@@ -1,10 +1,15 @@
 {
-    "extends": "../tsconfig.json",
+    "extends": "@tsconfig/svelte",
     "exclude": [
         "node_modules",
         "dist",
     ],
     "compilerOptions": {
-        "types": ["bun"],
+        "paths": {
+            "@/*": ["../frontend/*"],
+            "@shadcn": ["../frontend/3rdparty/shadcn"],
+            "@shadcn/*": ["../frontend/3rdparty/shadcn/*"],
+            "@server/*": ["../server/*"],
+        },
     },
 }
