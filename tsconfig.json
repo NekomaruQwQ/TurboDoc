@@ -3,6 +3,7 @@
         "paths": {
             "@/*": ["./frontend/*"],
             "@server/*": ["./server/*"],
+            "@shadcn/*": ["./frontend/3rdparty/shadcn/*"],
         },
 
         "target": "ESNext",

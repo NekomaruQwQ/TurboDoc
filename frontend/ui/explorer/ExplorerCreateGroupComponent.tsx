@@ -4,7 +4,8 @@ import { useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheck, faPlus } from "@fortawesome/free-solid-svg-icons";
 
-import { Button, Input } from "@heroui/react";
+import { Button } from "@shadcn/components/ui/button";
+import { Input } from "@shadcn/components/ui/input";
 
 import { useProvider, useProviderData } from "@/core/context";
 import { expandGroup } from "@/core/uiState";
@@ -69,16 +70,17 @@ export default function ExplorerCreateGroupComponent() {
                     className="h-8 flex-1 ml-1"/>
                 {/* Use onMouseDown to prevent onBlur fired before onClick */}
                 <Button
-                    variant="tertiary"
-                    className="size-8 min-w-0 border cursor-pointer"
+                    variant="secondary"
+                    size="icon"
+                    className="size-8 border cursor-pointer"
                     onMouseDown={e => onOK(e)}>
                     <FontAwesomeIcon icon={faCheck}/>
                 </Button>
             </> : <>
                 <Button
-                    variant="tertiary"
+                    variant="secondary"
                     className="w-full h-8 border cursor-pointer"
-                    onPress={() => setInputMode(true)}>
+                    onClick={() => setInputMode(true)}>
                     <FontAwesomeIcon icon={faPlus}/>
                     <span>Add Group</span>
                 </Button>

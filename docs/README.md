@@ -133,7 +133,7 @@ WebView2 iframe navigates to https://docs.rs/serde/latest/serde/
 - **Build**: Vite 7 with React SWC plugin
 - **State Management**: Immer (`useImmer`) for immutable updates
 - **Type Utilities**: type-fest for `ReadonlyDeep` type-level immutability
-- **UI Components**: HeroUI v3 (beta) — React Aria-based component library; `@radix-ui/react-collapsible` for item collapse
+- **UI Components**: shadcn/ui — vendored Radix primitives in `frontend/3rdparty/shadcn/`; `@radix-ui/react-collapsible` for item collapse
 - **Styling**: Tailwind CSS v4 with OKLCH color space
 - **Icons**: Font Awesome
 - **Utilities**: remeda (functional), semver, zod
@@ -179,8 +179,8 @@ frontend/index.tsx (entry point, appData loading, uiState from localStorage, aut
 ```
 ExplorerItem (Radix Collapsible)
 ├── Item name (clickable, toggles collapse)
-├── ExplorerItemVersionSelector (HeroUI Select, if item.versions exists)
-├── ExplorerItemMenu (HeroUI Dropdown: move to group, links, actions)
+├── ExplorerItemVersionSelector (shadcn Select, if item.versions exists)
+├── ExplorerItemMenu (shadcn DropdownMenu: move to group, links, actions)
 └── CollapsibleContent
     └── ExplorerPageList
         └── ExplorerPage[] (sorted by sortKey)
@@ -316,11 +316,11 @@ The Rust host (`src/main.rs`) handles the full lifecycle: spawning the Bun serve
 ## Visual Design System
 
 ### Colors
-- All styling consolidated in `frontend/global.css` (Tailwind + HeroUI imports, theme tokens, component overrides)
+- All styling consolidated in `frontend/global.css` (Tailwind, theme tokens, Zinc palette in `:root` + `.dark`, Radix Collapsible animation)
 - OKLCH color space for perceptual uniformity
 - Dark background with high-contrast text
-- HeroUI semantic tokens overridden for dark-only OKLCH palette (surface, overlay, default, muted, accent, danger, border, etc.)
-- Custom `--color-input` token (15% transparent white) for interactive element highlights — no HeroUI equivalent
+- shadcn Zinc palette (`--background`, `--foreground`, `--card`, `--popover`, `--primary`, `--secondary`, `--muted`, `--accent`, `--destructive`, `--border`, `--input`, `--ring`); dark mode triggered by `class="dark"` on `<html>` plus `@custom-variant dark (&:is(.dark *))`
+- `--input` token at 15% transparent white doubles as the interactive-highlight color (used as `bg-input/50` for hover states and `border-input` for field borders)
 
 ### One Dark Symbol Colors (CSS variables in `frontend/global.css`)
 - Yellow (`--color-yellow`): type (struct, enum)
@@ -527,7 +527,7 @@ AppData + ProviderData (React state) ──► provider.render() ──► React
 - Separate types enforce different UI treatment
 
 **Collapsible Items**
-- Items use Radix Collapsible (simple DOM, no HeroUI equivalent)
+- Items use Radix Collapsible directly (not part of shadcn's standard component set; bundled separately as `@radix-ui/react-collapsible`)
 - Expansion state managed per-component via `useItemExpanded(providerId, itemId)` hook from `frontend/core/uiState.ts`
 - Groups use `useGroupExpanded(providerId, groupId)` — same underlying `useExpanded` hook
 - Default: collapsed (both items and groups)
@@ -577,13 +577,14 @@ TurboDoc/
 │   └── webview.rs              # WebView2 COM wrapper (environment, controller, events)
 │
 ├── frontend/                   # React frontend (own package.json + tsconfig.json)
-│   ├── package.json            # Frontend dependencies (React, HeroUI, Font Awesome, etc.)
+│   ├── package.json            # Frontend dependencies (React, Radix UI, Font Awesome, lucide-react, etc.)
 │   ├── tsconfig.json           # Extends root tsconfig
-│   ├── vite.config.ts          # Root: frontend/, aliases: @/ → frontend/, @server/ → server/
+│   ├── vite.config.ts          # Root: frontend/, aliases: @/ → frontend/, @server/ → server/, @shadcn/ → frontend/3rdparty/shadcn/
+│   ├── components.json         # shadcn/ui CLI config (style: new-york, baseColor: zinc)
 │   ├── core.ts                 # Shared utility (throwError)
 │   ├── index.html              # Entry HTML
 │   ├── index.tsx               # React entry point (preset loading, auto-save, IPC listener)
-│   ├── global.css              # Tailwind + HeroUI imports, OKLCH theme, One Dark palette, HeroUI component overrides
+│   ├── global.css              # Tailwind imports, shadcn Zinc OKLCH palette (`:root` + `.dark`), `@theme inline` token mapping, One Dark symbol palette, Collapsible animation
 │   │
 │   ├── core/
 │   │   ├── data.ts             # Zod schemas + inferred types (AppData, ProviderData, Provider, Item, Page, etc.)
@@ -601,11 +602,15 @@ TurboDoc/
 │   │       ├── url.test.ts
 │   │       └── import.tsx      # Import dialog (ProviderAction with type: "node")
 │   │
+│   ├── 3rdparty/
+│   │   └── shadcn/             # Vendored shadcn/ui primitives (Radix-based)
+│   │       ├── components/ui/  # button, card, dialog, dropdown-menu, input, resizable, select, separator
+│   │       └── lib/utils.ts    # cn() — clsx + tailwind-merge wrapper
+│   │
 │   ├── ui/
 │   │   ├── App.tsx             # Main layout (ResizablePanelGroup: explorer + iframe viewer)
 │   │   ├── common/
-│   │   │   ├── Icon.tsx        # Icon wrapper (FontAwesome)
-│   │   │   └── Resizable.tsx   # Thin wrapper around react-resizable-panels
+│   │   │   └── Icon.tsx        # Icon wrapper (FontAwesome)
 │   │   └── explorer/
 │   │       ├── index.tsx                       # Explorer, ExplorerProvider, ExplorerGroup
 │   │       ├── ExplorerGroupHeader.tsx         # Group header (collapse, rename, dropdown menu)
@@ -692,6 +697,7 @@ TurboDoc/
 
 ## Change History
 
+- **2026-05**: Migrate frontend back from HeroUI v3 to shadcn/ui: restore vendored Radix primitives in `frontend/3rdparty/shadcn/` (Button, Card, Dialog, DropdownMenu, Input, Resizable, Select, Separator, lib/utils.ts) and `components.json` from jj history (parent of HeroUI migration); replace HeroUI compound APIs with Radix-based shadcn equivalents (`Select`/`SelectTrigger`/`SelectContent`/`SelectItem`, `DropdownMenu`/`DropdownMenuContent`/`DropdownMenuItem`/`DropdownMenuSub*`, `Dialog`/`DialogContent`/`DialogHeader`/`DialogFooter`); replace `useOverlayState` with `useState<boolean>`; rewrite `global.css` with the shadcn Zinc OKLCH palette in `:root`/`.dark`, drop `@heroui/styles` and `global.theme.css`; switch `<html data-theme="dark">` to `<html class="dark">` + `@custom-variant dark (&:is(.dark *))`; revert HeroUI-native styling tweaks (`rounded-3xl` cards / `rounded-2xl` icon buttons → `rounded-md`); drop `useDeferredMount` since Radix mounts cheaply; preserve every post-migration improvement (group-header decomposition, `useGroupExpanded`/`useItemExpanded` localStorage hooks, `NavigateToProvider`, orphan-cleanup `useEffect`, Refresh Metadata menu item, Collapsible animation); add `@shadcn/*` paths entry to root `tsconfig.json`; drop deps `@heroui/react`, `@heroui/styles`; re-add `@radix-ui/react-dialog`, `@radix-ui/react-dropdown-menu`, `@radix-ui/react-select`, `@radix-ui/react-separator`, `@radix-ui/react-slot`, `class-variance-authority`, `lucide-react`
 - **2026-04**: Replace WinUI host with Rust host: revive Rust webview host (`src/app.rs`, `src/webview.rs`) using winit + webview2-com; merge launcher into host process (`src/main.rs` spawns server, polls lock file, opens window, cleans up lock on exit); remove `app/` directory (C# WinUI 3), `.slnx`, `Directory.Build.props`, `out/`; proxy delegation preserved (host forwards doc URLs to server's `/proxy?url=` endpoint); IPC removed (frontend uses Hono HTTP API); `HOSTED_URL` and `PROXIED_URL` split into separate constants for future flexibility
 - **2026-03**: Add force-refresh for crates.io metadata: `POST /api/v1/crates?refresh=true` bypasses cache freshness and always fetches upstream; limited to a single crate per request (server returns 400 for multiple); "Refresh Metadata" menu item added to crate actions in explorer (skipped for std-library crates); new `deleteCrateCache()` helper evicts a crate from the in-memory store so `useSyncExternalStore` triggers a re-render while the fresh fetch is in flight
 - **2026-03**: Extract crates.io caching into dedicated system: new `server/crates-cache.ts` with `crates_cache` SQLite table (stores raw upstream response bodies, 24-hour TTL, no LRU); `POST /api/v1/crates` now reads from dedicated cache and fetches directly to crates.io (not through HTTP proxy); stale entries served as fallback on upstream failure; removed synthetic `Cache-Control` injection for crates.io URLs from `server/proxy.ts`; `handleProxy` un-exported (only used internally by proxy route); `CrateMetadata` type and `parseCrateMetadata` moved from `api.ts` to `crates-cache.ts` (re-exported from `api.ts` for frontend compatibility)

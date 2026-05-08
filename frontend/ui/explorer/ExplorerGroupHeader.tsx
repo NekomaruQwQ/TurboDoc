@@ -17,8 +17,26 @@ import {
     faTrash,
 } from "@fortawesome/free-solid-svg-icons";
 
-import { Button, Dropdown, Input, Modal, Separator } from "@heroui/react";
-import { useOverlayState } from "@heroui/react";
+import { Button } from "@shadcn/components/ui/button";
+import { Input } from "@shadcn/components/ui/input";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@shadcn/components/ui/dialog";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    DropdownMenuSub,
+    DropdownMenuSubContent,
+    DropdownMenuSubTrigger,
+    DropdownMenuTrigger,
+} from "@shadcn/components/ui/dropdown-menu";
 
 import type { State } from "@/core/prelude";
 import { useProvider, useProviderData } from "@/core/context";
@@ -47,7 +65,7 @@ function ExplorerGroupHeaderCore(props: {
     const { groupName } = props;
     const providerId = useProvider().id;
     const [, updateProviderData] = useProviderData();
-    const deleteDialogState = useOverlayState();
+    const [deleteOpen, setDeleteOpen] = useState(false);
     const [isRenaming, setIsRenaming] = useState(false);
 
     function confirmRename(newName: string) {
@@ -92,16 +110,17 @@ function ExplorerGroupHeaderCore(props: {
             {/* Rename button */}
             <Button
                 variant="ghost"
-                isIconOnly
-                className="size-7 min-w-0 invisible group-hover/header:visible"
+                size="icon"
+                className="size-7 rounded-md invisible group-hover/header:visible"
                 aria-label="Rename group"
-                onPress={() => setIsRenaming(true)}>
+                onClick={() => setIsRenaming(true)}>
                 <FontAwesomeIcon icon={faPencil} />
             </Button>
-            <ExplorerGroupMenu groupName={groupName} onDelete={deleteDialogState.open} />
+            <ExplorerGroupMenu groupName={groupName} onDelete={() => setDeleteOpen(true)} />
             <ExplorerGroupDeletionDialog
                 groupName={groupName}
-                state={deleteDialogState}
+                open={deleteOpen}
+                onOpenChange={setDeleteOpen}
                 onConfirm={deleteGroup} />
         </ExplorerGroupHeaderContainer>);
 }
@@ -111,7 +130,7 @@ function ExplorerGroupHeaderCore(props: {
 /** Shared outer shell for both default and ungrouped group headers. */
 function ExplorerGroupHeaderContainer(props: { children: React.ReactNode }) {
     return (
-        <div className="group/header flex flex-row h-12 items-center gap-0.5 text-muted">
+        <div className="group/header flex flex-row h-8 py-0.5 items-center gap-0.5 text-muted-foreground">
             {props.children}
         </div>);
 }
@@ -134,36 +153,33 @@ function ExplorerGroupNameLabel(props: {
 /** Confirmation dialog for deleting a group. */
 function ExplorerGroupDeletionDialog(props: {
     groupName: string,
-    state: ReturnType<typeof useOverlayState>,
+    open: boolean,
+    onOpenChange(open: boolean): void,
     onConfirm(): void,
 }) {
     return (
-        <Modal state={props.state}>
-            <Modal.Backdrop>
-                <Modal.Container>
-                    <Modal.Dialog>
-                        <Modal.Header>
-                            <Modal.Heading>Delete Group?</Modal.Heading>
-                        </Modal.Header>
-                        <Modal.Body>
-                            Are you sure you want to delete group "{props.groupName}"?
-                            This action cannot be undone.
-                        </Modal.Body>
-                        <Modal.Footer>
-                            <Button
-                                variant="outline"
-                                onPress={props.state.close}>Cancel</Button>
-                            <Button
-                                variant="danger"
-                                onPress={() => {
-                                    props.onConfirm();
-                                    props.state.close();
-                                }}>Delete</Button>
-                        </Modal.Footer>
-                    </Modal.Dialog>
-                </Modal.Container>
-            </Modal.Backdrop>
-        </Modal>);
+        <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+            <DialogContent showCloseButton={false}>
+                <DialogHeader>
+                    <DialogTitle>Delete Group?</DialogTitle>
+                    <DialogDescription>
+                        Are you sure you want to delete group "{props.groupName}"?
+                        This action cannot be undone.
+                    </DialogDescription>
+                </DialogHeader>
+                <DialogFooter>
+                    <Button
+                        variant="outline"
+                        onClick={() => props.onOpenChange(false)}>Cancel</Button>
+                    <Button
+                        variant="destructive"
+                        onClick={() => {
+                            props.onConfirm();
+                            props.onOpenChange(false);
+                        }}>Delete</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>);
 }
 
 /** Dropdown menu with expand/collapse all, move operations, and delete. Reads provider state via context hooks. */
@@ -230,89 +246,73 @@ function ExplorerGroupMenu(props: {
     }
 
     return (
-        <Dropdown>
-            <Dropdown.Trigger>
+        <DropdownMenu>
+            <DropdownMenuTrigger asChild>
                 <Button
                     variant="ghost"
-                    isIconOnly
-                    className="size-7 min-w-0">
+                    size="icon"
+                    className="size-7 rounded-md">
                     <FontAwesomeIcon icon={faEllipsisVertical} />
                 </Button>
-            </Dropdown.Trigger>
-            <Dropdown.Popover placement="bottom end">
-                <Dropdown.Menu>
-                    <Dropdown.Section>
-                        <Dropdown.Item textValue="Expand All" onAction={doExpandAll}>
-                            <FontAwesomeIcon icon={faAnglesDown} />
-                            <span>Expand All</span>
-                        </Dropdown.Item>
-                        <Dropdown.Item textValue="Collapse All" onAction={doCollapseAll}>
-                            <FontAwesomeIcon icon={faAnglesUp} />
-                            <span>Collapse All</span>
-                        </Dropdown.Item>
-                    </Dropdown.Section>
-                    <Separator />
-                    <Dropdown.Section>
-                        <Dropdown.Item
-                            textValue="Move to Top"
-                            isDisabled={isFirstGroup}
-                            onAction={moveToTop}>
-                            <FontAwesomeIcon icon={faArrowUpFromBracket} />
-                            <span>Move to Top</span>
-                        </Dropdown.Item>
-                        <Dropdown.Item
-                            textValue="Move Up"
-                            isDisabled={isFirstGroup}
-                            onAction={moveUp}>
-                            <FontAwesomeIcon icon={faArrowUp} />
-                            <span>Move Up</span>
-                        </Dropdown.Item>
-                        <Dropdown.Item
-                            textValue="Move Down"
-                            isDisabled={isLastGroup}
-                            onAction={moveDown}>
-                            <FontAwesomeIcon icon={faArrowDown} />
-                            <span>Move Down</span>
-                        </Dropdown.Item>
-                        {/* "Move Under" submenu - only show if there are other groups */}
-                        {providerData.groupOrder.length > 1 && (
-                            <Dropdown.SubmenuTrigger>
-                                <Dropdown.Item textValue="Move Under" className="cursor-pointer">
-                                    <FontAwesomeIcon icon={faRightToBracket} />
-                                    <span>Move Under</span>
-                                    <Dropdown.SubmenuIndicator />
-                                </Dropdown.Item>
-                                <Dropdown.Popover>
-                                    <Dropdown.Menu>
-                                        {providerData
-                                            .groupOrder
-                                            .filter(name => name in providerData.groups)
-                                            .filter(name => name !== groupName)
-                                            .map(targetName => (
-                                                <Dropdown.Item
-                                                    key={targetName}
-                                                    textValue={targetName}
-                                                    className="cursor-pointer"
-                                                    onAction={() => moveUnder(targetName)}>
-                                                    {targetName}
-                                                </Dropdown.Item>))}
-                                    </Dropdown.Menu>
-                                </Dropdown.Popover>
-                            </Dropdown.SubmenuTrigger>)}
-                    </Dropdown.Section>
-                    <Separator />
-                    <Dropdown.Section>
-                        <Dropdown.Item
-                            textValue="Delete Group"
-                            className="text-danger"
-                            onAction={props.onDelete}>
-                            <FontAwesomeIcon icon={faTrash} />
-                            <span>Delete Group</span>
-                        </Dropdown.Item>
-                    </Dropdown.Section>
-                </Dropdown.Menu>
-            </Dropdown.Popover>
-        </Dropdown>);
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={doExpandAll}>
+                    <FontAwesomeIcon icon={faAnglesDown} />
+                    <span>Expand All</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={doCollapseAll}>
+                    <FontAwesomeIcon icon={faAnglesUp} />
+                    <span>Collapse All</span>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                    disabled={isFirstGroup}
+                    onClick={moveToTop}>
+                    <FontAwesomeIcon icon={faArrowUpFromBracket} />
+                    <span>Move to Top</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                    disabled={isFirstGroup}
+                    onClick={moveUp}>
+                    <FontAwesomeIcon icon={faArrowUp} />
+                    <span>Move Up</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                    disabled={isLastGroup}
+                    onClick={moveDown}>
+                    <FontAwesomeIcon icon={faArrowDown} />
+                    <span>Move Down</span>
+                </DropdownMenuItem>
+                {/* "Move Under" submenu - only show if there are other groups */}
+                {providerData.groupOrder.length > 1 && (
+                    <DropdownMenuSub>
+                        <DropdownMenuSubTrigger className="cursor-pointer">
+                            <FontAwesomeIcon icon={faRightToBracket} />
+                            <span>Move Under</span>
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent>
+                            {providerData
+                                .groupOrder
+                                .filter(name => name in providerData.groups)
+                                .filter(name => name !== groupName)
+                                .map(targetName => (
+                                    <DropdownMenuItem
+                                        key={targetName}
+                                        className="cursor-pointer"
+                                        onClick={() => moveUnder(targetName)}>
+                                        {targetName}
+                                    </DropdownMenuItem>))}
+                        </DropdownMenuSubContent>
+                    </DropdownMenuSub>)}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                    variant="destructive"
+                    onClick={props.onDelete}>
+                    <FontAwesomeIcon icon={faTrash} />
+                    <span>Delete Group</span>
+                </DropdownMenuItem>
+            </DropdownMenuContent>
+        </DropdownMenu>);
 }
 
 /** Inline rename input shown when the user clicks the pencil icon. */
@@ -343,11 +343,12 @@ function GroupRenameInput(props: {
                 onKeyDown={onKeyDown}
                 onBlur={confirm}
                 autoFocus
-                className="flex-1 h-7 mx-1 font-semibold" />
+                className="flex-1 h-7 mx-1 rounded-md font-semibold" />
             <Button
-                isIconOnly
-                className="size-7 min-w-0"
-                onPress={confirm}>
+                variant="secondary"
+                size="icon"
+                className="size-7 rounded-md"
+                onClick={confirm}>
                 <FontAwesomeIcon icon={faCheck} />
             </Button>
         </div>);

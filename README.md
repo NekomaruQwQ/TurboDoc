@@ -45,7 +45,7 @@ cargo run      # Run TurboDoc
 |-------|-------------|
 | **Host** | Rust · winit · webview2-com · WebView2 |
 | **Server** | TypeScript · Bun · Hono · SQLite (bun:sqlite) |
-| **Frontend** | React 19 · Vite 7 · Tailwind CSS v4 · HeroUI v3 · Immer |
+| **Frontend** | React 19 · Vite 7 · Tailwind CSS v4 · shadcn/ui (Radix) · Immer |
 | **Tooling** | just (task runner) · Biome (linter) |
 
 ## Architecture

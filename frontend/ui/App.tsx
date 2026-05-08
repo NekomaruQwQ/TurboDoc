@@ -2,7 +2,7 @@ import {
     ResizableHandle,
     ResizablePanel,
     ResizablePanelGroup,
-} from "@/ui/common/Resizable";
+} from "@shadcn/components/ui/resizable";
 
 import { useRef } from "react";
 

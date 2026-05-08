@@ -7,7 +7,17 @@ import {
     faRightToBracket,
 } from "@fortawesome/free-solid-svg-icons";
 
-import { Button, Dropdown } from "@heroui/react";
+import { Button } from "@shadcn/components/ui/button";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    DropdownMenuSub,
+    DropdownMenuSubContent,
+    DropdownMenuSubTrigger,
+    DropdownMenuTrigger,
+} from "@shadcn/components/ui/dropdown-menu";
 
 import type { Item, ItemLink, ItemAction, ProviderData } from "@/core/data";
 import Icon from "@/ui/common/Icon";
@@ -38,51 +48,39 @@ export default function ExplorerItemMenu({ item, itemGroupName }: ReadonlyDeep<{
                     targetGroupName,
                     updateProviderData)))
     return (
-        <Dropdown>
-            <Dropdown.Trigger>
+        <DropdownMenu>
+            <DropdownMenuTrigger asChild>
                 <Button
                     variant="ghost"
-                    isIconOnly
-                    className="size-6 min-w-0 border rounded-2xl hover:bg-input/50 cursor-pointer">
+                    size="icon"
+                    className="size-6 border rounded-md hover:bg-input/50 cursor-pointer">
                     <FontAwesomeIcon icon={faEllipsisVertical} size="sm" />
                 </Button>
-            </Dropdown.Trigger>
-            <Dropdown.Popover>
-                <Dropdown.Menu>
-                    <Dropdown.SubmenuTrigger>
-                        <Dropdown.Item textValue="Move to group" className="cursor-pointer">
-                            <FontAwesomeIcon icon={faRightToBracket} size="sm" />
-                            <span>Move to group</span>
-                            <Dropdown.SubmenuIndicator />
-                        </Dropdown.Item>
-                        <Dropdown.Popover>
-                            <Dropdown.Menu>
-                                <Dropdown.Section>
-                                    <ExplorerItemMenuAction action={moveItemToUngroupedAction} />
-                                </Dropdown.Section>
-                                <Dropdown.Section>
-                                    {moveItemActions.map(action => (
-                                        <ExplorerItemMenuAction key={action.name} action={action} />
-                                    ))}
-                                </Dropdown.Section>
-                            </Dropdown.Menu>
-                        </Dropdown.Popover>
-                    </Dropdown.SubmenuTrigger>
-                    {item.links && (
-                        <Dropdown.Section>
-                            {item.links?.map(link => (
-                                <ExplorerItemMenuLink key={link.name} link={link} />
-                            ))}
-                        </Dropdown.Section>)}
-                    {item.actions && (
-                        <Dropdown.Section>
-                            {item.actions?.map(action => (
-                                <ExplorerItemMenuAction key={action.name} action={action} />
-                            ))}
-                        </Dropdown.Section>)}
-                </Dropdown.Menu>
-            </Dropdown.Popover>
-        </Dropdown>);
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+                <DropdownMenuSub>
+                    <DropdownMenuSubTrigger className="cursor-pointer">
+                        <FontAwesomeIcon icon={faRightToBracket} size="sm" />
+                        <span>Move to group</span>
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                        <ExplorerItemMenuAction action={moveItemToUngroupedAction} />
+                        <DropdownMenuSeparator />
+                        {moveItemActions.map(action => (
+                            <ExplorerItemMenuAction key={action.name} action={action} />
+                        ))}
+                    </DropdownMenuSubContent>
+                </DropdownMenuSub>
+                {item.links && <DropdownMenuSeparator />}
+                {item.links?.map(link => (
+                    <ExplorerItemMenuLink key={link.name} link={link} />
+                ))}
+                {item.actions && <DropdownMenuSeparator />}
+                {item.actions?.map(action => (
+                    <ExplorerItemMenuAction key={action.name} action={action} />
+                ))}
+            </DropdownMenuContent>
+        </DropdownMenu>);
 }
 
 function ExplorerItemMenuLink({ link }: ReadonlyDeep<{ link: ItemLink }>) {
@@ -92,25 +90,24 @@ function ExplorerItemMenuLink({ link }: ReadonlyDeep<{ link: ItemLink }>) {
         name: faArrowUpRightFromSquare,
     } as const;
     return (
-        <Dropdown.Item
-            textValue={link.name}
+        <DropdownMenuItem
             className="cursor-pointer"
-            onAction={() => navigateTo(link.url)}>
+            onClick={() => navigateTo(link.url)}>
             <Icon icon={link.icon ?? defaultLinkIcon} size="sm" />
             <span>{link.name}</span>
-        </Dropdown.Item>);
+        </DropdownMenuItem>);
 }
 
 function ExplorerItemMenuAction({ action }: ReadonlyDeep<{ action: ItemAction }>) {
     return (
-        <Dropdown.Item
-            isDisabled={action.disabled ?? false}
-            textValue={action.name}
-            className={"cursor-pointer" + (action.destructive ? " text-danger" : "")}
-            onAction={() => action.invoke()}>
+        <DropdownMenuItem
+            variant={action.destructive ? "destructive" : undefined}
+            disabled={action.disabled}
+            className="cursor-pointer"
+            onClick={() => action.invoke()}>
             {action.icon && <Icon icon={action.icon} size="sm" />}
             <span>{action.name}</span>
-        </Dropdown.Item>);
+        </DropdownMenuItem>);
 }
 
 function getMoveItemAction(
