@@ -1,6 +1,9 @@
 :root {
-    /* Smaller base font size and corner radius for a more compact UI. */
+    /* Smaller base font size for a more compact UI. */
     font-size: 14px;
+
+    /* Smaller border radius for a more compact UI. */
+    --radius: 0.4rem;
 
     /* Ubuntu fonts. */
     --font-sans: 'Ubuntu Light', sans-serif;
@@ -19,6 +22,12 @@
 
 button {
     /* Ensure all buttons have a pointer cursor by default */
+    cursor: pointer;
+}
+
+[data-slot="dropdown-menu-item"],
+[data-slot="dropdown-menu-sub-trigger"] {
+    /* Ensure dropdown menu items have a pointer cursor */
     cursor: pointer;
 }
 

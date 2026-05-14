@@ -1,3 +1,12 @@
+<script lang="ts" module>
+    export const OUTER_STYLE =
+        "flex flex-row h-8 my-1 gap-0.5 " +
+        "items-center text-muted-foreground";
+    export const INNER_STYLE =
+        "flex flex-row flex-1 gap-2 pl-1 " +
+        "items-center font-semibold text-lg text-left truncate";
+</script>
+
 <script lang="ts">
     import ChevronsDown from "@lucide/svelte/icons/chevrons-down";
     import ChevronsUp from "@lucide/svelte/icons/chevrons-up";
@@ -12,7 +21,8 @@
     import LogIn from "@lucide/svelte/icons/log-in";
     import Trash2 from "@lucide/svelte/icons/trash-2";
 
-    import { Button } from "@shadcn/components/ui/button";
+    import { cn } from "@/3rdparty/shadcn/utils";
+    import { Button, buttonVariants } from "@shadcn/components/ui/button";
     import { Input } from "@shadcn/components/ui/input";
     import * as Dialog from "@shadcn/components/ui/dialog";
     import * as DropdownMenu from "@shadcn/components/ui/dropdown-menu";
@@ -20,41 +30,27 @@
     import * as ctxKeys from "@/core/context";
     import { expandItems, collapseItems, removeGroup, renameGroup, groupExpanded } from "@/core/uiState.svelte";
 
-    type Props =
-        | { variant: "ungrouped" }
-        | { variant: "default"; groupName: string };
-    let props: Props = $props();
+    let { groupName }: { groupName: string } = $props();
 
     const provider = ctxKeys.provider.get();
     const store = ctxKeys.providerData.get();
 
-    // Local UI state for the named-group case. (Always declared at top
-    // level so the runes are statically discoverable; no-ops for the
-    // "ungrouped" branch.)
     let deleteOpen = $state(false);
     let renaming = $state(false);
     let renameValue = $state("");
 
-    // Reactive expansion accessor; only meaningful for variant="default".
-    const expanded = $derived(
-        props.variant === "default"
-            ? groupExpanded(provider.id, props.variant === "default" ? props.groupName : "")
-            : null);
-
-    const isFirst = $derived(
-        props.variant === "default"
-            ? store.data.groupOrder[0] === props.groupName
-            : false);
-    const isLast = $derived(
-        props.variant === "default"
-            ? store.data.groupOrder[store.data.groupOrder.length - 1] === props.groupName
-            : false);
-    const otherGroups = $derived(
-        props.variant === "default"
-            ? store.data.groupOrder
+    const expanded =
+        $derived(groupExpanded(provider.id, groupName));
+    const isFirst =
+        $derived(store.data.groupOrder[0] === groupName);
+    const isLast =
+        $derived(store.data.groupOrder[store.data.groupOrder.length - 1] === groupName);
+    const otherGroups =
+        $derived(
+            store.data
+                .groupOrder
                 .filter(name => name in store.data.groups)
-                .filter(name => name !== props.groupName)
-            : []);
+                .filter(name => name !== groupName));
 
     function startRename(currentName: string) {
         renameValue = currentName;
@@ -119,106 +115,115 @@
     }
 </script>
 
-{#if props.variant === "ungrouped"}
-    <div class="group/header flex flex-row h-8 py-0.5 items-center gap-0.5 text-muted-foreground">
-        <p class="flex flex-row flex-1 gap-2 items-center text-lg pl-1 font-semibold cursor-pointer truncate">
-            <span class="flex-1 truncate">Ungrouped</span>
-        </p>
-    </div>
-{:else if renaming}
-    <!-- Inline rename input. Confirms on Enter, cancels on Escape or blur. -->
-    <div class="flex flex-row items-center h-8 py-0.5">
+{#if renaming}
+    <div class={OUTER_STYLE}>
+        <!-- Inline rename input. Confirms on Enter, cancels on Escape or blur. -->
         <Input
             bind:value={renameValue}
-            class="flex-1 h-7 mx-1 rounded-md font-semibold"
+            class="flex-1 h-8 font-semibold"
             onkeydown={e => {
-                if (e.key === "Enter") confirmRename(props.variant === "default" ? props.groupName : "");
+                if (e.key === "Enter") confirmRename(groupName);
                 else if (e.key === "Escape") renaming = false;
             }}
-            onblur={() => confirmRename(props.variant === "default" ? props.groupName : "")} />
+            onblur={() => confirmRename(groupName)} />
         <Button
             variant="secondary"
-            size="icon-sm"
-            class="rounded-md"
-            onclick={() => confirmRename(props.variant === "default" ? props.groupName : "")}>
+            class="size-8"
+            onclick={() => confirmRename(groupName)}>
             <Check />
         </Button>
     </div>
 {:else}
-    {@const groupName = props.groupName}
-    <div class="group/header flex flex-row h-8 py-0.5 items-center gap-0.5 text-muted-foreground">
-        <p
-            class="flex flex-row flex-1 gap-2 items-center text-lg pl-1 font-semibold cursor-pointer truncate"
+    <div class={`group/header ${OUTER_STYLE}`}>
+        <button
+            class={INNER_STYLE}
             onclick={() => expanded && (expanded.value = !expanded.value)}>
-            {#if expanded?.value}<ChevronDown size={14} />
-            {:else}<ChevronRight size={14} />{/if}
+            {#if expanded?.value}
+                <ChevronDown class="size-4" />
+            {:else}
+                <ChevronRight class="size-4" />
+            {/if}
             <span class="flex-1 truncate">{groupName}</span>
-        </p>
+        </button>
 
         <!-- Rename pencil; visible on header hover. -->
         <Button
             variant="ghost"
-            size="icon-sm"
-            class="rounded-md invisible group-hover/header:visible"
+            class="size-8 rounded-md invisible group-hover/header:visible"
             aria-label="Rename group"
             onclick={() => startRename(groupName)}>
             <Pencil />
         </Button>
 
         <!-- Group dropdown menu: expand/collapse all, move ops, delete. -->
-        <DropdownMenu.Root>
-            <DropdownMenu.Trigger
-                class="size-7 rounded-md inline-flex items-center justify-center hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground transition-colors"
-                aria-label="Group actions">
-                <EllipsisVertical />
-            </DropdownMenu.Trigger>
-            <DropdownMenu.Content align="end">
-                <DropdownMenu.Item onSelect={() => expandAll(groupName)}>
-                    <ChevronsDown />
-                    <span>Expand All</span>
-                </DropdownMenu.Item>
-                <DropdownMenu.Item onSelect={() => collapseAll(groupName)}>
-                    <ChevronsUp />
-                    <span>Collapse All</span>
-                </DropdownMenu.Item>
-                <DropdownMenu.Separator />
-                <DropdownMenu.Item disabled={isFirst} onSelect={() => moveToTop(groupName)}>
-                    <ArrowUpToLine />
-                    <span>Move to Top</span>
-                </DropdownMenu.Item>
-                <DropdownMenu.Item disabled={isFirst} onSelect={() => moveUp(groupName)}>
-                    <ArrowUp />
-                    <span>Move Up</span>
-                </DropdownMenu.Item>
-                <DropdownMenu.Item disabled={isLast} onSelect={() => moveDown(groupName)}>
-                    <ArrowDown />
-                    <span>Move Down</span>
-                </DropdownMenu.Item>
-                {#if store.data.groupOrder.length > 1}
-                    <DropdownMenu.Sub>
-                        <DropdownMenu.SubTrigger>
-                            <LogIn />
-                            <span>Move Under</span>
-                        </DropdownMenu.SubTrigger>
-                        <DropdownMenu.SubContent>
-                            {#each otherGroups as targetName (targetName)}
-                                <DropdownMenu.Item onSelect={() => moveUnder(groupName, targetName)}>
-                                    {targetName}
-                                </DropdownMenu.Item>
-                            {/each}
-                        </DropdownMenu.SubContent>
-                    </DropdownMenu.Sub>
-                {/if}
-                <DropdownMenu.Separator />
-                <DropdownMenu.Item variant="destructive" onSelect={() => deleteOpen = true}>
-                    <Trash2 />
-                    <span>Delete Group</span>
-                </DropdownMenu.Item>
-            </DropdownMenu.Content>
-        </DropdownMenu.Root>
-    </div>
+        {@render GroupMenu(groupName, isFirst, isLast, otherGroups)}
 
-    <!-- Delete confirmation. -->
+        <!-- Delete confirmation. -->
+        {@render GroupConfirmDeleteDialog(groupName)}
+    </div>
+{/if}
+
+{#snippet GroupMenu(
+    groupName: string,
+    isFirst: boolean,
+    isLast: boolean,
+    otherGroups: string[])}
+    <!-- Group dropdown menu: expand/collapse all, move ops, delete. -->
+    <DropdownMenu.Root>
+        <DropdownMenu.Trigger
+            class={cn(
+                buttonVariants({ variant: "ghost" }),
+                "size-8 invisible group-hover/header:visible")}
+            aria-label="Group actions">
+            <EllipsisVertical class="size-4" />
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Content align="end">
+            <DropdownMenu.Item onSelect={() => expandAll(groupName)}>
+                <ChevronsDown />
+                <span>Expand All</span>
+            </DropdownMenu.Item>
+            <DropdownMenu.Item onSelect={() => collapseAll(groupName)}>
+                <ChevronsUp />
+                <span>Collapse All</span>
+            </DropdownMenu.Item>
+            <DropdownMenu.Separator />
+            <DropdownMenu.Item disabled={isFirst} onSelect={() => moveToTop(groupName)}>
+                <ArrowUpToLine />
+                <span>Move to Top</span>
+            </DropdownMenu.Item>
+            <DropdownMenu.Item disabled={isFirst} onSelect={() => moveUp(groupName)}>
+                <ArrowUp />
+                <span>Move Up</span>
+            </DropdownMenu.Item>
+            <DropdownMenu.Item disabled={isLast} onSelect={() => moveDown(groupName)}>
+                <ArrowDown />
+                <span>Move Down</span>
+            </DropdownMenu.Item>
+            {#if store.data.groupOrder.length > 1}
+                <DropdownMenu.Sub>
+                    <DropdownMenu.SubTrigger>
+                        <LogIn />
+                        <span>Move Under</span>
+                    </DropdownMenu.SubTrigger>
+                    <DropdownMenu.SubContent>
+                        {#each otherGroups as targetName (targetName)}
+                            <DropdownMenu.Item onSelect={() => moveUnder(groupName, targetName)}>
+                                {targetName}
+                            </DropdownMenu.Item>
+                        {/each}
+                    </DropdownMenu.SubContent>
+                </DropdownMenu.Sub>
+            {/if}
+            <DropdownMenu.Separator />
+            <DropdownMenu.Item variant="destructive" onSelect={() => deleteOpen = true}>
+                <Trash2 />
+                <span>Delete Group</span>
+            </DropdownMenu.Item>
+        </DropdownMenu.Content>
+    </DropdownMenu.Root>
+{/snippet}
+
+{#snippet GroupConfirmDeleteDialog(groupName: string)}
     <Dialog.Root bind:open={deleteOpen}>
         <Dialog.Content>
             <Dialog.Header>
@@ -238,4 +243,4 @@
             </Dialog.Footer>
         </Dialog.Content>
     </Dialog.Root>
-{/if}
+{/snippet}

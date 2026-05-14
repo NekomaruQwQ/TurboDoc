@@ -1,7 +1,10 @@
 <script lang="ts">
+    import { cn } from "@/3rdparty/shadcn/utils";
+    import { buttonVariants } from "@/3rdparty/shadcn/components/ui/button";
+
     import EllipsisVertical from "@lucide/svelte/icons/ellipsis-vertical";
-    import LogIn from "@lucide/svelte/icons/log-in";
     import ExternalLink from "@lucide/svelte/icons/external-link";
+    import LogIn from "@lucide/svelte/icons/log-in";
 
     import type { Item, ItemAction, ProviderData } from "@/core/data";
     import * as DropdownMenu from "@shadcn/components/ui/dropdown-menu";
@@ -73,11 +76,11 @@
 
 <DropdownMenu.Root>
     <DropdownMenu.Trigger
-        class="size-6 border rounded-md hover:bg-input/50 cursor-pointer inline-flex items-center justify-center"
+        class={cn(buttonVariants({ variant: "outline" }), "size-6")}
         aria-label="Item actions">
         <EllipsisVertical class="size-3.5" />
     </DropdownMenu.Trigger>
-    <DropdownMenu.Content>
+    <DropdownMenu.Content class="min-w-42">
         <DropdownMenu.Sub>
             <DropdownMenu.SubTrigger>
                 <LogIn class="size-3.5" />

@@ -78,6 +78,8 @@
         {#each store.data.groupOrder.filter(g => g in store.data.groups) as groupName (groupName)}
             <ExplorerGroup variant="default" {groupName} providerOutput={output} />
         {/each}
+        <!-- Extra spacing to separate from create group component -->
+        <div class="w-full h-2"></div>
         <ExplorerCreateGroupComponent />
     {:else}
         {#each Object.entries(output.items) as [itemId, item] (itemId)}

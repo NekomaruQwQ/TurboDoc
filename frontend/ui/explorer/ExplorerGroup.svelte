@@ -1,12 +1,16 @@
 <script lang="ts">
-    import type { Item, ProviderOutput } from "@/core/data";
     import * as Collapsible from "@shadcn/components/ui/collapsible";
 
+    import type { Item, ProviderOutput } from "@/core/data";
     import * as ctxKeys from "@/core/context";
     import { groupExpanded } from "@/core/uiState.svelte";
 
     import ExplorerItem from "@/ui/explorer/ExplorerItem.svelte";
     import ExplorerGroupHeader from "@/ui/explorer/ExplorerGroupHeader.svelte";
+    import {
+        INNER_STYLE as GROUP_HEADER_INNER_STYLE,
+        OUTER_STYLE as GROUP_HEADER_OUTER_STYLE,
+    } from "@/ui/explorer/ExplorerGroupHeader.svelte";
 
     type Props =
         | { variant: "ungrouped"; providerOutput: ProviderOutput }
@@ -16,12 +20,6 @@
 
     const provider = ctxKeys.provider.get();
     const store = ctxKeys.providerData.get();
-
-    // Group expansion state. The "ungrouped" pseudo-group uses a fixed
-    // sentinel key so its expanded flag persists across sessions just
-    // like a real group.
-    const groupKey = $derived(props.variant === "default" ? props.groupName : "__ungrouped__");
-    const expanded = $derived(groupExpanded(provider.id, groupKey));
 
     /** All items belonging to this group, sorted by `sortKey`. */
     const groupItems = $derived.by((): [string, Item][] => {
@@ -34,20 +32,26 @@
     });
 </script>
 
-{#if props.variant === "ungrouped"}
-    <ExplorerGroupHeader variant="ungrouped" />
+{#if props.variant === "default"}
+    {@const groupName = props.groupName}
+    {@const expanded = groupExpanded(provider.id, props.groupName).value}
+    <Collapsible.Root open={expanded}>
+        <ExplorerGroupHeader groupName={groupName} />
+        <Collapsible.Content class="flex flex-col gap-2">
+            {#each groupItems as [itemId, item] (itemId)}
+                <ExplorerItem {item} itemGroupName={groupName} />
+            {/each}
+            <div class="w-full h-0"></div>
+        </Collapsible.Content>
+    </Collapsible.Root>
+{:else}
+    <div class={GROUP_HEADER_OUTER_STYLE}>
+        <p class={GROUP_HEADER_INNER_STYLE}>Ungrouped</p>
+    </div>
     <div class="flex flex-col gap-2">
         {#each groupItems as [itemId, item] (itemId)}
             <ExplorerItem {item} itemGroupName="" />
         {/each}
+        <div class="w-full h-0"></div>
     </div>
-{:else}
-    <Collapsible.Root open={expanded.value}>
-        <ExplorerGroupHeader variant="default" groupName={props.groupName} />
-        <Collapsible.Content class="flex flex-col gap-2">
-            {#each groupItems as [itemId, item] (itemId)}
-                <ExplorerItem {item} itemGroupName={props.groupName} />
-            {/each}
-        </Collapsible.Content>
-    </Collapsible.Root>
 {/if}

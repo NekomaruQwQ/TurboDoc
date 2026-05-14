@@ -24,37 +24,38 @@
     open={expanded.value}
     onOpenChange={v => expanded.value = v}>
     <div class="flex flex-row gap-1">
-        <Collapsible.Trigger class="flex-1 pl-1.5 truncate text-left font-mono cursor-pointer">
+        <Collapsible.Trigger
+            class="flex-1 pl-1.5 truncate text-left font-mono cursor-pointer">
             {item.name}
         </Collapsible.Trigger>
-        {#if item.versions}
-            {@const versions: ItemVersions = item.versions}
-            <Select.Root type="single" value={versions.current} onValueChange={versions.setCurrentVersion}>
-                <Select.Trigger
-                    size="sm"
-                    class="pl-2 pr-1 py-0 w-24 h-6 rounded-sm shadow-none text-xs text-foreground/60 cursor-pointer">
-                    {versions.current}
-                </Select.Trigger>
-                <Select.Content>
-                    {#each versions.recommended as version (version)}
-                        <Select.Item value={version} class="text-sm h-7 cursor-pointer">
-                            {version}
-                        </Select.Item>
-                    {/each}
-                    <Select.Separator class="m-0.5" />
-                    <!-- Placeholder for future full version list popup. -->
-                    <Select.Item value="..." disabled class="h-7 px-2 text-sm">
-                        <Ellipsis class="mr-1 inline" />
-                        <span>More versions</span>
-                    </Select.Item>
-                </Select.Content>
-            </Select.Root>
-        {/if}
+        {#if item.versions}{@render ExplorerItemVersionSelect(item.versions)}{/if}
         <ExplorerItemMenu {item} {itemGroupName} />
     </div>
     <Collapsible.Content class="flex flex-col">
-        <Separator />
-        <div class="h-1"></div>
+        <Separator class="mb-1"/>
         <ExplorerPageList pages={item.pages} />
     </Collapsible.Content>
 </Collapsible.Root>
+
+{#snippet ExplorerItemVersionSelect(versions: ItemVersions)}
+    <Select.Root type="single" value={versions.current} onValueChange={versions.setCurrentVersion}>
+        <Select.Trigger
+            size="sm"
+            class="pl-2 pr-1 py-0 w-24 h-6! rounded-sm shadow-none text-xs text-foreground/60 cursor-pointer">
+            {versions.current}
+        </Select.Trigger>
+        <Select.Content>
+            {#each versions.recommended as version (version)}
+                <Select.Item value={version} class="text-sm h-8 px-3 cursor-pointer">
+                    {version}
+                </Select.Item>
+            {/each}
+            <Select.Separator class="m-0.5" />
+            <!-- Placeholder for future full version list popup. -->
+            <Select.Item value="..." disabled class="text-sm h-8 px-3">
+                <Ellipsis class="mr-1 inline" />
+                <span>More versions</span>
+            </Select.Item>
+        </Select.Content>
+    </Select.Root>
+{/snippet}

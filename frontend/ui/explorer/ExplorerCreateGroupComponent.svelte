@@ -48,7 +48,6 @@
         <!-- onmousedown so the click registers before the Input's onblur. -->
         <Button
             variant="secondary"
-            size="icon"
             class="size-8 border cursor-pointer"
             onmousedown={ok}>
             <Check />

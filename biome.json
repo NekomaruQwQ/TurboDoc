@@ -6,6 +6,9 @@
     "linter": {
         "rules": {
             "a11y": "off",
+            "correctness": {
+                "noUnusedFunctionParameters": "off"
+            },
             "suspicious": {
                 "noAssignInExpressions": "off"
             }

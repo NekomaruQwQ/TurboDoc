@@ -42,7 +42,7 @@
         }]}>
         <button
             onclick={() => navigateTo(page.url)}
-            class={["flex-1 inline-flex px-2 truncate font-mono", {
+            class={["flex-1 inline-flex px-1.5 truncate font-mono", {
                 "italic": page.pinned === false,
             }]}>
             {#if page.name.type === "symbol"}
