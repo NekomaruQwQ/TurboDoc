@@ -5,7 +5,10 @@
     },
     "linter": {
         "rules": {
-            "a11y": "off"
+            "a11y": "off",
+            "suspicious": {
+                "noAssignInExpressions": "off"
+            }
         }
     },
     "formatter": {

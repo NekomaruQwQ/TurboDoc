@@ -17,6 +17,11 @@
     --color-red:    #E06C75;
 }
 
+button {
+    /* Ensure all buttons have a pointer cursor by default */
+    cursor: pointer;
+}
+
 /* Bits UI Collapsible slide animation: uses --bits-collapsible-content-height
  * exposed by CollapsibleContent to animate between 0 and the measured content
  * height. Bits delays unmount until animationend fires. Targeted via the
