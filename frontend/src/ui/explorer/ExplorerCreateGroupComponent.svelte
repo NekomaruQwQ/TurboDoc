@@ -5,11 +5,11 @@
     import { Button } from "@shadcn/components/ui/button";
     import { Input } from "@shadcn/components/ui/input";
 
-    import * as ctxKeys from "@/core/context";
+    import * as ctx from "@/core/context.svelte";
     import { expandGroup } from "@/core/uiState.svelte";
 
-    const provider = ctxKeys.provider.get();
-    const store = ctxKeys.providerData.get();
+    const provider = ctx.getProviderInfo();
+    const store = ctx.getProviderData();
 
     let inputMode = $state(false);
     let inputText = $state("");

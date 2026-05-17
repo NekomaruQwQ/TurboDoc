@@ -1,5 +1,6 @@
 import type { CrateMetadata } from "@/server/api";
 import * as Utils from "@/utils/version-group";
+
 import { getBaseUrlForCrate } from "./url";
 
 /** Cached metadata for a single crate, fetched from crates.io API via the

@@ -1,6 +1,6 @@
 <script lang="ts">
     import type { Provider, ProviderContext, ProviderData } from "@/core/data";
-    import * as ctxKeys from "@/core/context";
+    import * as ctx from "@/core/context.svelte";
     import { ProviderDataStore } from "@/core/providerData.svelte";
     import { currentUrl } from "@/core/uiState.svelte";
 
@@ -11,20 +11,17 @@
 
     let { provider }: { provider: Provider } = $props();
 
-    // Publish to descendants.
-    ctxKeys.provider.set(provider);
-    const store = new ProviderDataStore(provider.id);
-    ctxKeys.providerData.set(store);
+    const store = $derived(new ProviderDataStore(provider.id));
+    ctx.setProvider({
+        info: () => provider,
+        data: () => store,
+    });
 
-    const navigate = ctxKeys.navigateTo.get();
-
-    // Build the provider context once. Getters keep the values reactive —
-    // `$derived` blocks reading `ctx.data` or `ctx.currentUrl` retrack on
-    // every change.
-    const ctx: ProviderContext = {
+    const providerContext: ProviderContext = {
         get data() { return store.data.data; },
+        set data(next) { store.data.data = next; },
         get currentUrl() { return currentUrl.value; },
-        navigateTo: navigate,
+        navigateTo: ctx.navigateTo,
     };
 
     // -- Lifecycle effects --
@@ -40,11 +37,11 @@
     // Provider-specific effects (e.g. URL sync, batch fetches). Defined
     // in a `*.svelte.ts` module so its inner `$effect` calls bind to this
     // host component's lifecycle.
-    if (provider.setupEffects) provider.setupEffects(ctx);
+    $effect(() => provider.setupEffects?.(providerContext));
 
     // -- Derived view model --
 
-    const output = $derived(provider.render(ctx));
+    const output = $derived(provider.render(providerContext));
 
     // -- Eager orphan cleanup --
     // Items can disappear (e.g. crate deleted) while their IDs still

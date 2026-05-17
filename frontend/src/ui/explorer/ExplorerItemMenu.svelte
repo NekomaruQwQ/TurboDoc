@@ -10,12 +10,12 @@
     import * as DropdownMenu from "@shadcn/components/ui/dropdown-menu";
     import Icon from "@/ui/common/Icon.svelte";
 
-    import * as ctxKeys from "@/core/context";
+    import * as ctx from "@/core/context.svelte";
 
     let { item, itemGroupName }: { item: Item; itemGroupName: string } = $props();
 
-    const navigate = ctxKeys.navigateTo.get();
-    const store = ctxKeys.providerData.get();
+    const navigate = ctx.navigateTo;
+    const store = ctx.getProviderData();
 
     /** Build a ItemAction that moves this item from its current group to
      *  the given target group. Used both for the top-level "Ungrouped"

@@ -2,7 +2,7 @@
     import * as Collapsible from "@shadcn/components/ui/collapsible";
 
     import type { Item, ProviderOutput } from "@/core/data";
-    import * as ctxKeys from "@/core/context";
+    import * as ctx from "@/core/context.svelte";
     import { groupExpanded } from "@/core/uiState.svelte";
 
     import ExplorerItem from "@/ui/explorer/ExplorerItem.svelte";
@@ -18,8 +18,8 @@
 
     let props: Props = $props();
 
-    const provider = ctxKeys.provider.get();
-    const store = ctxKeys.providerData.get();
+    const provider = ctx.getProviderInfo();
+    const store = ctx.getProviderData();
 
     /** All items belonging to this group, sorted by `sortKey`. */
     const groupItems = $derived.by((): [string, Item][] => {

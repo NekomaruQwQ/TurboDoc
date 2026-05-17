@@ -27,13 +27,13 @@
     import * as Dialog from "@shadcn/components/ui/dialog";
     import * as DropdownMenu from "@shadcn/components/ui/dropdown-menu";
 
-    import * as ctxKeys from "@/core/context";
+    import * as ctx from "@/core/context.svelte";
     import { expandItems, collapseItems, removeGroup, renameGroup, groupExpanded } from "@/core/uiState.svelte";
 
     let { groupName }: { groupName: string } = $props();
 
-    const provider = ctxKeys.provider.get();
-    const store = ctxKeys.providerData.get();
+    const provider = ctx.getProviderInfo();
+    const store = ctx.getProviderData();
 
     let deleteOpen = $state(false);
     let renaming = $state(false);

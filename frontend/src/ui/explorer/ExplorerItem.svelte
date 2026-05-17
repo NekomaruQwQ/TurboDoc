@@ -7,7 +7,7 @@
     import * as Collapsible from "@shadcn/components/ui/collapsible";
     import * as Select from "@shadcn/components/ui/select";
 
-    import * as ctxKeys from "@/core/context";
+    import * as ctx from "@/core/context.svelte";
     import { itemExpanded } from "@/core/uiState.svelte";
 
     import ExplorerItemMenu from "@/ui/explorer/ExplorerItemMenu.svelte";
@@ -15,7 +15,8 @@
 
     let { item, itemGroupName }: { item: Item; itemGroupName: string } = $props();
 
-    const provider = ctxKeys.provider.get();
+    const provider = ctx.getProviderInfo();
+    const store = ctx.getProviderData();
     const expanded = $derived(itemExpanded(provider.id, item.id));
 </script>
 

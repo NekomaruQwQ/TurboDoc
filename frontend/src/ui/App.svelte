@@ -3,14 +3,10 @@
 
     import type { AppData } from "@/core/data";
     import * as storage from "@/core/localStorage";
-    import * as ctx from "@/core/context";
+    import * as ctx from "@/core/context.svelte";
     import * as IPC from "@/core/ipc";
 
     import Explorer from "@/ui/explorer/Explorer.svelte";
-
-    /** Bound to the iframe element; navigation calls write to `viewer.src`
-     *  imperatively so the WebView2 host fires its `navigated` event. */
-    let viewer: HTMLIFrameElement | undefined = $state();
 
     /** Captured once at mount; the iframe's `src` is set from this on first
      *  render and never re-bound. All subsequent navigation goes through
@@ -19,11 +15,6 @@
 
     let appData: AppData | null = $state(null);
     let lastAppDataJson = "";
-
-    // The navigateTo context callback: writes to the iframe `src`
-    // imperatively. The viewer ref is captured by closure, so the
-    // function picks up the latest binding even after the iframe mounts.
-    // ctx.setViewer(viewer);
 
     // Load preset data once on mount. Defaults are applied lazily so a
     // fresh install renders with the Rust preset preselected.
@@ -74,7 +65,7 @@
             <Resizable.Handle class="w-0"/>
             <Resizable.Pane defaultSize={80}>
                 <iframe
-                    bind:this={viewer}
+                    bind:this={ctx.viewerRef.value}
                     src={initialUrl}
                     title="Documentation viewer"
                     class="w-full h-full border border-white/30 rounded-tl-md"></iframe>

@@ -18,8 +18,8 @@
     import { Pin } from "@lucide/svelte/icons";
 
     import { currentUrl } from "@/core/uiState.svelte";
-    import * as ctxKeys from "@/core/context";
-    const navigateTo = ctxKeys.navigateTo.get();
+    import * as ctx from "@/core/context.svelte";
+    const navigateTo = ctx.navigateTo;
 
     import type { Page } from "@/core/data";
     const props: { pages: Page[] } = $props();
