@@ -191,8 +191,8 @@ ExplorerItem (shadcn-svelte Collapsible.Root, backed by Bits UI)
 
 ### Component Responsibilities
 
-- **Explorer** (`frontend/ui/explorer/Explorer.svelte`): Top-level container; iterates providers in current preset
-- **ExplorerProvider** (`ExplorerProvider.svelte`): Owns per-provider data via `ProviderDataStore` (Svelte 5 `$state` class), constructs `ProviderContext`, calls `provider.render()` inside a `$derived`, wires up the optional `provider.setupEffects(ctx)` hook in component init
+- **Explorer** (`frontend/src/ui/explorer/Explorer.svelte`): Top-level container; iterates providers in current preset
+- **ExplorerProvider** (`ExplorerProvider.svelte`): Owns per-provider data via `ProviderDataStore` (Svelte 5 `$state` class), constructs `ProviderContext`, calls `provider.render()` inside a `$derived`, wires up the optional `provider.setupEffects(ctx)` hook inside a `$effect` so any inner `$effect`s the provider creates are bound to this component's lifecycle
 - **ExplorerGroup** (`ExplorerGroup.svelte`): Renders group header + filtered/sorted items; handles ungrouped vs named variants
 - **ExplorerGroupHeader** (`ExplorerGroupHeader.svelte`): Chevron toggle, rename input, dropdown menu (expand/collapse all, move up/down/under, delete with confirmation)
 - **ExplorerCreateGroupComponent** (`ExplorerCreateGroupComponent.svelte`): Button that transforms to inline input for creating new groups
@@ -218,11 +218,11 @@ ExplorerItem (shadcn-svelte Collapsible.Root, backed by Bits UI)
 
 ### Provider System
 
-Providers register in `frontend/providers/index.ts` and implement the `Provider<T>` interface from `frontend/core/data.ts`. Each provider's `render()` returns a `ProviderOutput` containing:
+Providers register in `frontend/src/providers/index.ts` and implement the `Provider<T>` interface from `frontend/src/core/data.ts`. Each provider's `render()` returns a `ProviderOutput` containing:
 - `items: Record<string, Item>` — uniform view models with pages, links, actions, versions
 - `actions?: ProviderAction[]` — provider-level UI (e.g., import dialog)
 
-View models contain callbacks (e.g., `setPinned`, `setCurrentVersion`, `invoke`) that update provider data by directly mutating the `$state`-proxied store. View models are derived inside a `$derived` block — never memoized manually, never serialized. See `frontend/core/data.ts` for the full type definitions.
+View models contain callbacks (e.g., `setPinned`, `setCurrentVersion`, `invoke`) that update provider data by directly mutating the `$state`-proxied store. View models are derived inside a `$derived` block — never memoized manually, never serialized. See `frontend/src/core/data.ts` for the full type definitions.
 
 **Current:** `rust` (docs.rs + doc.rust-lang.org + windows-docs-rs). **Planned:** `rust.cargo`, `cpp.cppreference`, `cpp.msdocs`, etc.
 
@@ -250,7 +250,7 @@ navigateTo(url) ──► iframe.src = url
 
 #### Unified Rust Provider
 
-The `rust` provider (`frontend/providers/rust/`) handles three documentation domains as a single provider. Originally planned as separate `rust.crate` and `rust.std` providers, merged for simplicity:
+The `rust` provider (`frontend/src/providers/rust/`) handles three documentation domains as a single provider. Originally planned as separate `rust.crate` and `rust.std` providers, merged for simplicity:
 - Both handle Rust documentation with identical page structure
 - Symbol parsing and color coding are the same
 - Simpler mental model for users (one "Rust" section in sidebar)
@@ -381,8 +381,8 @@ Design decisions that shaped the current architecture. Organized by area.
 - Separation of concerns is enforced by the type system, not just convention
 
 **API Response Caching**
-- Crate metadata (crates.io API) uses a dedicated `crates_cache` SQLite table (`server/crates-cache.ts`) — stores raw upstream response bodies with a simple 24-hour TTL. No LRU eviction needed (entries are small). On upstream failure, stale entries are served as fallback. Fetches use plain `fetch()` directly to crates.io, not through the HTTP proxy.
-- Documentation page caching uses the HTTP proxy's SQLite cache (`server/http-cache.ts`) — RFC 7234 freshness, conditional revalidation, LRU eviction, stale-while-revalidate
+- Crate metadata (crates.io API) uses a dedicated `crates_cache` SQLite table (`server/src/crates-cache.ts`) — stores raw upstream response bodies with a simple 24-hour TTL. No LRU eviction needed (entries are small). On upstream failure, stale entries are served as fallback. Fetches use plain `fetch()` directly to crates.io, not through the HTTP proxy.
+- Documentation page caching uses the HTTP proxy's SQLite cache (`server/src/http-cache.ts`) — RFC 7234 freshness, conditional revalidation, LRU eviction, stale-while-revalidate
 - Each provider manages its own in-memory cache for within-session state — not persisted, starts empty on each app launch (e.g., Rust provider uses a module-level store subscribed to via `useSyncExternalStore`)
 - On provider load, the frontend batch-fetches all uncached crate metadata via `POST /api/v1/crates` — the server serves fresh cache hits from the `crates_cache` table and fetches upstream (in parallel) for stale/missing entries, returning normalized `CrateMetadata` for all requested crates. The frontend never constructs crates.io URLs or parses raw crates.io responses.
 - Force-refresh: `POST /api/v1/crates?refresh=true` bypasses the cache freshness check and always fetches upstream. Limited to a single crate per request to prevent bulk hits to crates.io. Triggered from the "Refresh Metadata" action in the crate's explorer menu.
@@ -437,13 +437,13 @@ Design decisions that shaped the current architecture. Organized by area.
 ### Data Model
 
 **Split Data Persistence**
-- Workspace split into two server-persisted file categories. On-disk format is **TOML** (parsed/serialized via `smol-toml` in `server/api.ts`); the HTTP wire format remains JSON, so the frontend sees no difference:
-  - `preset.toml` — global app state (presets). Loaded eagerly in `frontend/index.tsx`.
+- Workspace split into two server-persisted file categories. On-disk format is **TOML** (parsed/serialized via `smol-toml` in `server/src/api.ts`); the HTTP wire format remains JSON, so the frontend sees no difference:
+  - `preset.toml` — global app state (presets). Loaded eagerly in `frontend/index.ts`.
   - `<providerId>.toml` — per-provider user data (groups, provider-specific data). Loaded lazily per-provider by `useProviderData` hook.
-- Transient UI state stored in **localStorage** as individual slots, not on the server. Two slot types managed by `frontend/core/localStorage.ts`:
+- Transient UI state stored in **localStorage** as individual slots, not on the server. Two slot types managed by `frontend/src/core/localStorage.ts`:
   - **Primitive** (`turbodoc:current-url`): current URL, simple get/set
   - **Array** (`turbodoc:expanded`): flat string array of expanded item/group keys. Key format: `<providerId>:<itemId>` for items, `<providerId>:group:<groupId>` for groups. Membership-check hooks (`useGroupExpanded`, `useItemExpanded`) with selective re-rendering via mitt events — only hooks whose specific key changed re-render.
-  - Each slot validated with Zod on load; invalid/missing data falls back to empty defaults (default URL `https://docs.rs/`, nothing expanded). See `frontend/core/localStorage.ts` and `frontend/core/uiState.ts`.
+  - Each slot validated with Zod on load; invalid/missing data falls back to empty defaults (default URL `https://docs.rs/`, nothing expanded). See `frontend/src/core/localStorage.ts` and `frontend/src/core/uiState.svelte.ts`.
 - Crate metadata caching uses a dedicated `crates_cache` SQLite table with 24-hour TTL (separate from the HTTP proxy cache). Each provider manages its own in-memory cache for within-session state, populated on demand from the batch endpoint (e.g., Rust provider uses a module-level store with `useSyncExternalStore`).
 - Server-persisted via Hono HTTP API (`/api/v1/data/preset`, `/data/:providerId`)
 - `"preset"` is a reserved path segment — cannot be used as a provider ID
@@ -505,8 +505,8 @@ AppData + ProviderData ($state) ──► provider.render() inside $derived ─�
 
 **Decomposed Root State (no AppContext class)**
 - `appData` ($state) lives in `App.svelte`; passed as prop to `Explorer.svelte` (only consumer; no context needed).
-- `navigateTo(url)` is a Svelte context entry (`navigateTo.set` / `navigateTo.get`) published by `App.svelte` and consumed by `ExplorerProvider`, `ExplorerItemMenu`, `ExplorerPageList`.
-- The iframe ref is captured via `bind:this` inside `App.svelte` — only consumer is the `<iframe>` element itself.
+- `navigateTo(url)` is a plain function exported from `@/core/context.svelte` that imperatively writes `viewerRef.value.src`. Any module can `import * as ctx from "@/core/context.svelte"` and call `ctx.navigateTo(url)` — no provider/consumer pairing needed.
+- `viewerRef` (`{ value: HTMLIFrameElement | undefined }` with a `$state` field) lives in `@/core/context.svelte`. `App.svelte` writes to it via `bind:this={ctx.viewerRef.value}`; `navigateTo` in the same module reads it. No context entry needed because module-level `$state` is already a singleton.
 - `currentUrl` read via the `currentUrl.value` accessor — not part of root state.
 - Provider data loaded lazily per-provider inside `ExplorerProvider.svelte`.
 
@@ -528,7 +528,7 @@ AppData + ProviderData ($state) ──► provider.render() inside $derived ─�
 
 **Collapsible Items**
 - Items use Radix Collapsible directly (not part of shadcn's standard component set; bundled separately as `@radix-ui/react-collapsible`)
-- Expansion state managed per-component via `useItemExpanded(providerId, itemId)` hook from `frontend/core/uiState.ts`
+- Expansion state managed per-component via `useItemExpanded(providerId, itemId)` hook from `frontend/src/core/uiState.svelte.ts`
 - Groups use `useGroupExpanded(providerId, groupId)` — same underlying `useExpanded` hook
 - Default: collapsed (both items and groups)
 - Toggled by clicking item name (items) or group header (groups)
@@ -578,64 +578,66 @@ TurboDoc/
 │
 ├── frontend/                   # Svelte 5 frontend (own package.json + tsconfig.json)
 │   ├── package.json            # Frontend dependencies (Svelte, bits-ui, paneforge, @lucide/svelte, etc.)
-│   ├── tsconfig.json           # Extends root tsconfig
-│   ├── vite.config.ts          # Root: frontend/, aliases: @/ → frontend/, @server/ → server/, @shadcn/ → frontend/3rdparty/shadcn/
+│   ├── tsconfig.json           # Extends `@tsconfig/svelte`; `target: ES2022`, `types: ["bun"]`; `include: ["src"]`; paths: `@/*` → frontend/src/, `@/server/*` → server/src/, `@shadcn/*` → frontend/3rdparty/shadcn/
+│   ├── vite.config.ts          # Root: frontend/, aliases: `@/` → frontend/src/, `@/server/` → server/src/, `@shadcn/` → frontend/3rdparty/shadcn/
 │   ├── svelte.config.ts        # Svelte preprocessor + global warning suppression for a11y/state-ref rules
 │   ├── components.json         # shadcn-svelte CLI config (baseColor: zinc, framework: svelte)
 │   ├── index.html              # Entry HTML
-│   ├── index.ts                # Svelte entry point (`mount(App, ...)`)
+│   ├── index.ts                # Svelte entry point (`mount(App, ...)`); lives at the frontend root, not under src/
 │   ├── global.css              # Tailwind imports, shadcn Zinc OKLCH palette (`:root` + `.dark`), `@theme inline` token mapping, One Dark symbol palette, Bits UI Collapsible animation
-│   │
-│   ├── core/
-│   │   ├── data.ts                 # Zod schemas + inferred types (AppData, ProviderData, Provider, Item, Page, IconProp, ProviderAction)
-│   │   ├── context.ts              # Svelte setContext/getContext keys (`navigateTo`, `provider`, `providerData`)
-│   │   ├── providerData.svelte.ts  # `ProviderDataStore` reactive class — `$state` data + load + autosave
-│   │   ├── ipc.ts                  # Hono HTTP client (data CRUD) + WebView2 event listener (navigated)
-│   │   ├── localStorage.ts         # Typed localStorage abstraction (Zod validation, mitt events, primitive + array APIs)
-│   │   └── uiState.svelte.ts       # Reactive accessors over mitt+localStorage (currentUrl, groupExpanded, itemExpanded) + imperative helpers
-│   │
-│   ├── providers/
-│   │   ├── index.ts            # Provider registry (Record<string, Provider>)
-│   │   └── rust/               # Unified Rust provider
-│   │       ├── index.ts            # Provider implementation (render, URL handling, page parsing, getImportCratesAction inlined)
-│   │       ├── effects.svelte.ts   # Per-provider $effect setup (URL sync, batch fetches, seed crates)
-│   │       ├── cache.svelte.ts     # `$state` singleton: in-memory crate metadata cache + batch fetch
-│   │       ├── url.ts              # URL parsing/building (docs.rs, doc.rust-lang.org, windows-docs-rs)
-│   │       └── url.test.ts
 │   │
 │   ├── 3rdparty/
 │   │   └── shadcn/             # Vendored shadcn-svelte primitives (Bits UI / paneforge)
 │   │       ├── components/ui/  # button, card, dialog, dropdown-menu, input, resizable, select, separator, collapsible
 │   │       └── lib/utils.ts    # cn() — clsx + tailwind-merge wrapper (used internally by vendored components only)
 │   │
-│   ├── ui/
-│   │   ├── App.svelte          # Root: appData $state, navigateTo context, IPC `navigated` listener, Resizable layout
-│   │   ├── common/
-│   │   │   └── Icon.svelte     # Icon wrapper (lucide-svelte)
-│   │   └── explorer/
-│   │       ├── Explorer.svelte                  # Top-level: iterates providers in current preset
-│   │       ├── ExplorerProvider.svelte          # Owns ProviderDataStore, derives view model, sets up effects
-│   │       ├── ExplorerGroup.svelte             # Group renderer (default + ungrouped variants)
-│   │       ├── ExplorerGroupHeader.svelte       # Group header (collapse, rename, dropdown menu)
-│   │       ├── ExplorerCreateGroupComponent.svelte # Add group button/input
-│   │       ├── ExplorerItem.svelte              # Collapsible item card with version selector
-│   │       ├── ExplorerItemMenu.svelte          # Item menu (move to group, links, actions)
-│   │       ├── ExplorerPageList.svelte          # Page list with symbol colors + pinning
-│   │       └── InputActionDialog.svelte         # Generic dialog for `"input"` ProviderAction
-│   │
-│   ├── utils/
-│   │   ├── version-group.ts    # Semver version grouping
-│   │   └── version-group.test.ts
+│   └── src/                    # All application TS/Svelte source (referenced via `@/*` alias)
+│       ├── core/
+│       │   ├── data.ts                 # Zod schemas + inferred types (AppData, ProviderData, Provider, Item, Page, IconProp, ProviderAction)
+│       │   ├── context.svelte.ts       # Single Svelte context for the provider pair (`ProviderContext = { info, data }`) with `setProvider` setter and `getProviderInfo` / `getProviderData` accessors; plus the shared `viewerRef` ($state-wrapped iframe handle) and the plain `navigateTo(url)` function that writes `viewerRef.value.src`
+│       │   ├── providerData.svelte.ts  # `ProviderDataStore` reactive class — `$state` data + load + autosave
+│       │   ├── ipc.ts                  # Hono HTTP client (data CRUD) + WebView2 event listener (navigated)
+│       │   ├── localStorage.ts         # Typed localStorage abstraction (Zod validation, mitt events, primitive + array APIs)
+│       │   └── uiState.svelte.ts       # Reactive accessors over mitt+localStorage (currentUrl, groupExpanded, itemExpanded) + imperative helpers
+│       │
+│       ├── providers/
+│       │   ├── index.ts            # Provider registry (Record<string, Provider>)
+│       │   └── rust/               # Unified Rust provider
+│       │       ├── index.ts            # Provider implementation (render, URL handling, page parsing, getImportCratesAction inlined)
+│       │       ├── effects.svelte.ts   # Per-provider $effect setup (URL sync, batch fetches, seed crates)
+│       │       ├── cache.svelte.ts     # `$state` singleton: in-memory crate metadata cache + batch fetch
+│       │       ├── url.ts              # URL parsing/building (docs.rs, doc.rust-lang.org, windows-docs-rs)
+│       │       └── url.test.ts
+│       │
+│       ├── ui/
+│       │   ├── App.svelte          # Root: appData $state, IPC `navigated` listener, Resizable layout; iframe binds via `bind:this={ctx.viewerRef.value}`
+│       │   ├── common/
+│       │   │   └── Icon.svelte     # Icon wrapper (lucide-svelte)
+│       │   └── explorer/
+│       │       ├── Explorer.svelte                  # Top-level: iterates providers in current preset
+│       │       ├── ExplorerProvider.svelte          # Owns ProviderDataStore, derives view model, sets up effects
+│       │       ├── ExplorerGroup.svelte             # Group renderer (default + ungrouped variants)
+│       │       ├── ExplorerGroupHeader.svelte       # Group header (collapse, rename, dropdown menu)
+│       │       ├── ExplorerCreateGroupComponent.svelte # Add group button/input
+│       │       ├── ExplorerItem.svelte              # Collapsible item card with version selector
+│       │       ├── ExplorerItemMenu.svelte          # Item menu (move to group, links, actions)
+│       │       ├── ExplorerPageList.svelte          # Page list with symbol colors + pinning
+│       │       └── InputActionDialog.svelte         # Generic dialog for `"input"` ProviderAction
+│       │
+│       └── utils/
+│           ├── version-group.ts    # Semver version grouping
+│           └── version-group.test.ts
 │
 ├── server/                     # Bun + Hono server (own package.json + tsconfig.json)
-│   ├── package.json            # Server dependencies (Hono, bun:sqlite, etc.)
-│   ├── tsconfig.json           # Extends root tsconfig
-│   ├── index.ts                # Hono router + Vite dev server ($TURBODOC_PORT)
-│   ├── api.ts                  # API endpoints (split data CRUD with TOML on disk via smol-toml, batch crate lookup)
-│   ├── proxy.ts                # /proxy?url= route handler + dark mode injection
-│   ├── http-cache.ts           # SQLite HTTP cache for doc pages (bun:sqlite, LRU eviction)
-│   ├── crates-cache.ts         # Dedicated SQLite cache for crates.io API responses (TTL-based)
-│   └── common.ts               # Shared config, database setup, utilities
+│   ├── package.json            # Server dependencies (Hono, bun:sqlite, etc.); `main: "src/index.ts"`
+│   ├── tsconfig.json           # Extends `@tsconfig/bun`; `types: ["bun"]`; `include: ["src"]`
+│   └── src/
+│       ├── index.ts            # Hono router + Vite dev server ($TURBODOC_PORT)
+│       ├── api.ts              # API endpoints (split data CRUD with TOML on disk via smol-toml, batch crate lookup)
+│       ├── proxy.ts            # /proxy?url= route handler + dark mode injection
+│       ├── http-cache.ts       # SQLite HTTP cache for doc pages (bun:sqlite, LRU eviction)
+│       ├── crates-cache.ts     # Dedicated SQLite cache for crates.io API responses (TTL-based)
+│       └── common.ts           # Shared config, database setup, utilities
 │
 ├── target/                     # Build output (Rust + runtime data)
 │   └── data/                       # Runtime data directory ($TURBODOC_DATA)
@@ -644,8 +646,7 @@ TurboDoc/
 │       └── <id>.toml               # Per-provider user data
 │
 └── docs/
-    ├── README.md               # This file
-    └── Bug-v0.2-Migration.md   # Bug tracker for v0.2 migration
+    └── README.md               # This file
 ```
 
 ---
@@ -670,6 +671,10 @@ TurboDoc/
 2. **Preset picker UI**: Not yet built — switching presets requires manual workspace edit
 3. **Loading/error states**: Not yet implemented — no skeletons, spinners, or error boundaries
 4. **Prod build**: Vite prod build not configured — dev mode only via `just server`
+
+### Known Limitations
+
+1. **URL `index.html` not normalized**: `buildUrl`/`parseUrl` in `frontend/src/providers/rust/url.ts` treat `tokio/runtime/` and `tokio/runtime/index.html` as distinct paths. Pin-matching uses the raw path as the key, so the same logical page can be pinned twice if the user reaches it from both forms. An earlier normalization attempt broke root-module detection (which compares against the `"crate/"` form in `rust/index.ts` and the import action) and produced an undefined-name bug for bare version-root URLs — was reverted.
 
 ---
 
@@ -701,6 +706,8 @@ TurboDoc/
 
 ## Change History
 
+- **2026-05**: Reorganize TypeScript files under per-package `src/` subdirectories: move every application/source TS and Svelte file in `frontend/` from `frontend/{core,providers,ui,utils}/` to `frontend/src/{core,providers,ui,utils}/`, and every TS file in `server/` from `server/` to `server/src/`; config (`package.json`, `tsconfig.json`, `vite.config.ts`, `svelte.config.ts`, `components.json`), entry HTML/JS (`index.html`, `index.ts`), styles (`global.css`), and vendored deps (`3rdparty/`) stay at the frontend root; rename Vite/TS alias `@server/` → `@/server/` (now resolves to `server/src/`), keep `@/` mapped to `frontend/src/` and `@shadcn/` mapped to `frontend/3rdparty/shadcn/`; frontend `tsconfig.json` extends `@tsconfig/svelte` with explicit paths (`include: ["src"]`); server `tsconfig.json` extends `@tsconfig/bun` (`include: ["src"]`); server `package.json` `main` pointed at `src/index.ts`; no behavioral changes — purely a layout cleanup so both TypeScript packages mirror the Cargo `src/` convention already used by the Rust host
+- **2026-05**: Refactor frontend context management: collapse the two separate Svelte contexts (`provider`, `providerData`) into a single `createContext<ProviderContext>()` whose local interface is `{ info: () => Provider; data: () => ProviderDataStore }`; only `setProvider` is exported as a setter, and consumer-side accessors are the named helpers `getProviderInfo()` / `getProviderData()`; remove `navigateTo` from being a Svelte context entry — it's now a plain exported function in `@/core/context.svelte` that reads the module-level `viewerRef` ($state-wrapped iframe handle); merge `frontend/src/core/context.ts` into `frontend/src/core/context.svelte.ts` (the file already owned `viewerRef` as a `$state` rune, so the merge unifies the module); consumer migration — every component that imported `ctxKeys.provider.get()` / `ctxKeys.providerData.get()` / `ctxKeys.navigateTo.get()` switched to `import * as ctx from "@/core/context.svelte"` + `ctx.getProviderInfo()` / `ctx.getProviderData()` / `ctx.navigateTo`; `ExplorerProvider.svelte` — `store` switched to `$derived(new ProviderDataStore(provider.id))` (recreates if `provider.id` changes), `setupEffects` invocation wrapped in `$effect(() => provider.setupEffects?.(providerContext))` so inner effects bind to this component's lifecycle, `providerContext.data` gained a setter alongside the getter; `frontend/tsconfig.json` — added `"target": "ES2022"` and `"types": ["bun"]` for modern-JS lib coverage and Bun globals
 - **2026-05**: Switch server-persisted data files from JSON to TOML — `preset.toml` + `<providerId>.toml` parsed/serialized via `smol-toml` in `server/api.ts`; HTTP wire format unchanged (still JSON over Hono, frontend untouched); legacy `workspace.json` and `workspace.*.json` migration code (`migrateFromMonolithic`, `migrateFromWorkspacePrefix`) removed since they only produced now-obsolete `.json` outputs; `loadDataAsJson`/`saveDataAsJson` renamed to `loadDataFile`/`saveDataFile`; data-loss-guard threshold (30%, min 256 B) preserved against the TOML byte length; no runtime migration — existing `.json` files in `target/data/` are abandoned and the app cold-starts with default presets
 - **2026-05**: Parameterize host startup config as clap CLI args: `--data`/`-d` (env fallback `TURBODOC_DATA`) for runtime data directory and `--port`/`-p` (env fallback `TURBODOC_PORT`) for server port; both required, no defaults (replaces the hardcoded `root_dir.join("target/data")` default and the raw `env::var("TURBODOC_PORT").expect(...)` parse); `Args::parse()` becomes the first call in `main::main()` so `--help`/`--version`/missing-arg errors abort cleanly before any side effects; `spawn_server` now explicitly sets `TURBODOC_PORT` on the bun child (the var was previously only inherited from the parent's env, which breaks once `--port` makes parent env optional); add `clap = { version = "4.6.1", features = ["derive", "env"] }` to `Cargo.toml` (the `env` feature provides the env-var fallback declaratively via `#[arg(env = "...")]`); `.justfile` `run` recipe updated to `cargo run --release -- --data data`
 - **2026-05**: Migrate frontend from React 19 to Svelte 5: replace React+useImmer state with Svelte 5 runes (`$state` proxies for deep reactivity, `$derived` for view models, `$effect` for side effects); replace shadcn/ui (vendored Radix) with shadcn-svelte (vendored Bits UI / paneforge) at the same `frontend/3rdparty/shadcn/` path and `@shadcn/*` alias; replace FontAwesome icons with `@lucide/svelte`; replace React contexts with Svelte `setContext`/`getContext` exposed as `navigateTo.get()/set()`, `provider.get()/set()`, `providerData.get()/set()`; new `ProviderDataStore` reactive class (`frontend/core/providerData.svelte.ts`) replaces `useProviderDataLoader`; new reactive accessors over mitt+localStorage in `frontend/core/uiState.svelte.ts` (`currentUrl.value`, `groupExpanded(p,g)`, `itemExpanded(p,i)`) using `createSubscriber` from `svelte/reactivity` instead of `useSyncExternalStore`; redesign `ProviderAction` — drop the generic `"node"` (ReactNode) variant, replace with declarative `"input"` shape rendered by a generic `InputActionDialog.svelte`; redesign `ProviderContext` — drop `updateData(updater)` since direct `$state` mutation is now reactive; add optional `Provider.setupEffects(ctx)` method (lives in `*.svelte.ts` modules) for per-provider URL sync / cache fetches; rust provider's module-level cache becomes a `$state` singleton in `cache.svelte.ts`; `IconProp` redefined as `{ type: "lucide"; icon: Component<LucideProps> }`; entry `index.tsx` → `index.ts` with `mount(App, ...)`; vite-plugin-react-swc replaced by `@sveltejs/vite-plugin-svelte`; drop `@radix-ui/*`, `react`, `react-dom`, `@vitejs/plugin-react-swc`, `use-immer`, `immer`, `lucide-react`, `@fortawesome/*`, `react-resizable-panels`; keep `clsx`/`tailwind-merge` for vendored `cn` helper but app code uses Svelte's native `class={[...]}`; drop `frontend/core/prelude.ts` (no more `State<T>` tuple); `tsc --noEmit` removed from frontend's check pipeline (svelte-check now covers all .ts and .svelte files); `svelte.config.ts` adds global warning suppression for a11y rules and `state_referenced_locally` (matching existing biome-disabled a11y rules)
