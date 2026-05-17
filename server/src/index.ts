@@ -31,8 +31,7 @@ const honoApp =
         .route("/api/v1", api);
 export type HonoApp = typeof honoApp;
 
-const honoServer =
-    hono.getRequestListener(honoApp.fetch);
+const honoServer = hono.getRequestListener(honoApp.fetch);
 const viteServer =
     await vite.createServer({
         configFile: path.resolve(__dirname, "../../frontend/vite.config.ts"),
@@ -43,6 +42,7 @@ const viteServer =
             }
         },
     });
+
 const httpServer =
     http.createServer(async (req, res) => {
         if (req.url?.startsWith("/api") ||

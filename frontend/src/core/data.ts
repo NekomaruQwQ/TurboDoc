@@ -15,24 +15,10 @@ import * as z from "zod";
 // These schemas define the serializable data model for the application.
 // The types are inferred from the schemas via `z.infer<>`.
 //
-// Persistence is split into three independent files:
-//   - preset.json               — global app state (presets)
+// Persistence is split into two independent stores:
 //   - <provider>.json           — per-provider user data (groups, provider data)
 //   - localStorage             — transient UI state (expansion states, current URL)
 // ============================================================================
-
-// Global app state. Persisted to `preset.json`.
-export const appDataSchema = z.object({
-    // Preset definitions. Each preset is a named collection of active
-    // providers.
-    presets: z.record(z.string(), z.object({
-        // List of active provider IDs in this preset.
-        providers: z.array(z.string()),
-    })),
-
-    // Currently active preset name.
-    currentPreset: z.string(),
-});
 
 // Per-provider user data. Persisted to `<providerId>.json`.
 //
@@ -75,8 +61,6 @@ export const providerDataSchema = z.object({
     groupOrder: z.array(z.string()),
 });
 
-export type AppData =
-    z.infer<typeof appDataSchema>;
 export type ProviderData =
     z.infer<typeof providerDataSchema>;
 

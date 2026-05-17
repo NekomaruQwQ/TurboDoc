@@ -160,19 +160,19 @@ WebView2 iframe navigates to https://docs.rs/serde/latest/serde/
 
 ```
 frontend/index.ts (entry point: mount(App, ...))
-└── App.svelte (owns appData $state, navigateTo context, IPC `navigated` listener,
+└── App.svelte (owns active `providerId` $state, IPC `navigated` listener,
                 ResizablePanelGroup layout)
-    ├── Explorer.svelte (left panel; receives appData as prop, iterates providers in preset)
-    │   └── ExplorerProvider.svelte (per provider; owns ProviderDataStore, derives view
-    │                                model via provider.render(ctx), wires up effects)
-    │       ├── InputActionDialog.svelte (renders provider-supplied "input" actions, e.g. Import)
-    │       ├── ExplorerGroup (variant="ungrouped")
-    │       │   ├── ExplorerGroupHeader (variant="ungrouped")
-    │       │   └── ExplorerItem[] (sorted by sortKey)
-    │       ├── ExplorerGroup[] (variant="default", per group in groupOrder)
-    │       │   ├── ExplorerGroupHeader (collapsible, editable name, dropdown menu)
-    │       │   └── ExplorerItem[] (sorted by sortKey, shown when group expanded)
-    │       └── ExplorerCreateGroupComponent
+    ├── Explorer.svelte (left panel; receives the active provider as a prop,
+    │                    owns ProviderDataStore, derives view model via
+    │                    provider.render(ctx), wires up effects)
+    │   ├── InputActionDialog.svelte (renders provider-supplied "input" actions, e.g. Import)
+    │   ├── ExplorerGroup (variant="ungrouped")
+    │   │   ├── ExplorerGroupHeader (variant="ungrouped")
+    │   │   └── ExplorerItem[] (sorted by sortKey)
+    │   ├── ExplorerGroup[] (variant="default", per group in groupOrder)
+    │   │   ├── ExplorerGroupHeader (collapsible, editable name, dropdown menu)
+    │   │   └── ExplorerItem[] (sorted by sortKey, shown when group expanded)
+    │   └── ExplorerCreateGroupComponent
     └── iframe (right panel, docs viewer)
 ```
 
@@ -191,8 +191,7 @@ ExplorerItem (shadcn-svelte Collapsible.Root, backed by Bits UI)
 
 ### Component Responsibilities
 
-- **Explorer** (`frontend/src/ui/explorer/Explorer.svelte`): Top-level container; iterates providers in current preset
-- **ExplorerProvider** (`ExplorerProvider.svelte`): Owns per-provider data via `ProviderDataStore` (Svelte 5 `$state` class), constructs `ProviderContext`, calls `provider.render()` inside a `$derived`, wires up the optional `provider.setupEffects(ctx)` hook inside a `$effect` so any inner `$effect`s the provider creates are bound to this component's lifecycle
+- **Explorer** (`frontend/src/ui/explorer/Explorer.svelte`): Receives the active provider as a prop; owns per-provider data via `ProviderDataStore` (Svelte 5 `$state` class), constructs `ProviderContext`, calls `provider.render()` inside a `$derived`, and wires up the optional `provider.setupEffects(ctx)` hook inside a `$effect` so any inner `$effect`s the provider creates are bound to this component's lifecycle. Recreated implicitly when `provider.id` changes (the `$derived` `ProviderDataStore` reinitializes with the new ID).
 - **ExplorerGroup** (`ExplorerGroup.svelte`): Renders group header + filtered/sorted items; handles ungrouped vs named variants
 - **ExplorerGroupHeader** (`ExplorerGroupHeader.svelte`): Chevron toggle, rename input, dropdown menu (expand/collapse all, move up/down/under, delete with confirmation)
 - **ExplorerCreateGroupComponent** (`ExplorerCreateGroupComponent.svelte`): Button that transforms to inline input for creating new groups
@@ -218,7 +217,7 @@ ExplorerItem (shadcn-svelte Collapsible.Root, backed by Bits UI)
 
 ### Provider System
 
-Providers register in `frontend/src/providers/index.ts` and implement the `Provider<T>` interface from `frontend/src/core/data.ts`. Each provider's `render()` returns a `ProviderOutput` containing:
+Providers register in `frontend/src/providers/index.ts` as a plain `Provider[]` array (default export) and implement the `Provider<T>` interface from `frontend/src/core/data.ts`. Only one provider is rendered at a time — see "Active Provider Selection" below. Each provider's `render()` returns a `ProviderOutput` containing:
 - `items: Record<string, Item>` — uniform view models with pages, links, actions, versions
 - `actions?: ProviderAction[]` — provider-level UI (e.g., import dialog)
 
@@ -229,7 +228,6 @@ View models contain callbacks (e.g., `setPinned`, `setCurrentVersion`, `invoke`)
 **Data flow:**
 ```
 [Disk/Storage]                         [Deserialization]         [Runtime]
-preset.toml ───────────────────► App.svelte $state ────────► appData prop (presets)
 <providerId>.toml ──────────► ProviderDataStore.load() ────► ProviderOutput (View Model)
 localStorage (turbodoc:current-url) ──► currentUrl.value ──────► current URL (createSubscriber)
 localStorage (turbodoc:expanded) ────► groupExpanded/itemExpanded ► expansion state
@@ -265,16 +263,11 @@ Supported domains:
 
 **Cross-crate navigation:** When the iframe navigates to a URL handled by a different crate (e.g., a docs.rs page links to `doc.rust-lang.org/std/vec/struct.Vec.html`), the provider's `parseUrl()` recognizes both URL patterns and auto-imports the crate if not present.
 
-#### Preset System
+#### Active Provider Selection
 
-Users select a preset to determine which providers appear and their order. Presets are stored in `AppData.presets`. Users can create custom presets. Switching presets doesn't delete provider data — it's preserved but hidden. The preset picker UI is not yet built.
+The app shows exactly one provider at a time. `App.svelte` holds the active provider ID as ephemeral `$state` (no persistence yet — defaults to the first registered provider on every launch). A provider switcher UI is planned (placeholder `<!-- Provider Switch Here -->` in `App.svelte`); persistence of the selection will land alongside the planned rename of `/data/:providerId` to a generic key-value endpoint.
 
-```typescript
-const presets = {
-  "Rust": { providers: ["rust"] },
-  "Empty": { providers: [] },
-};
-```
+Switching providers does not delete other providers' data — `<providerId>.toml` files are independent and reappear unchanged when re-selected.
 
 #### Cross-Provider Navigation (Future)
 
@@ -413,11 +406,11 @@ Design decisions that shaped the current architecture. Organized by area.
 
 **Migration & Compatibility**
 - On startup, if data files don't exist or don't match expected format, initialize with empty defaults
-- Provider ID `"preset"` is reserved (collides with static endpoint path)
+- Provider ID `"preset"` is still served by the legacy `/data/preset` server route (unused; pending cleanup) — avoid using it as a provider ID until the route is removed
 
 **Provider API Surface**
-- No `serialize`/`deserialize` methods — view model callbacks operate data directly via Immer
-- No provider collapsing in sidebar — provider visibility controlled solely by preset
+- No `serialize`/`deserialize` methods — view model callbacks mutate `$state`-proxied data directly
+- No provider collapsing in sidebar — exactly one provider is active at a time, chosen by the (forthcoming) switcher
 
 **"Dumb Pipe" Delegate Pattern**
 - All proxy and caching logic lives in the Bun server, not in the WebView2 event loop
@@ -437,18 +430,15 @@ Design decisions that shaped the current architecture. Organized by area.
 ### Data Model
 
 **Split Data Persistence**
-- Workspace split into two server-persisted file categories. On-disk format is **TOML** (parsed/serialized via `smol-toml` in `server/src/api.ts`); the HTTP wire format remains JSON, so the frontend sees no difference:
-  - `preset.toml` — global app state (presets). Loaded eagerly in `frontend/index.ts`.
-  - `<providerId>.toml` — per-provider user data (groups, provider-specific data). Loaded lazily per-provider by `useProviderData` hook.
+- Workspace persisted as **TOML** files under `$TURBODOC_DATA/` (parsed/serialized via `smol-toml` in `server/src/api.ts`); the HTTP wire format remains JSON, so the frontend sees no difference:
+  - `<providerId>.toml` — per-provider user data (groups, provider-specific data). Loaded lazily per-provider by `ProviderDataStore.load()` inside `Explorer.svelte`.
 - Transient UI state stored in **localStorage** as individual slots, not on the server. Two slot types managed by `frontend/src/core/localStorage.ts`:
   - **Primitive** (`turbodoc:current-url`): current URL, simple get/set
   - **Array** (`turbodoc:expanded`): flat string array of expanded item/group keys. Key format: `<providerId>:<itemId>` for items, `<providerId>:group:<groupId>` for groups. Membership-check hooks (`useGroupExpanded`, `useItemExpanded`) with selective re-rendering via mitt events — only hooks whose specific key changed re-render.
   - Each slot validated with Zod on load; invalid/missing data falls back to empty defaults (default URL `https://docs.rs/`, nothing expanded). See `frontend/src/core/localStorage.ts` and `frontend/src/core/uiState.svelte.ts`.
-- Crate metadata caching uses a dedicated `crates_cache` SQLite table with 24-hour TTL (separate from the HTTP proxy cache). Each provider manages its own in-memory cache for within-session state, populated on demand from the batch endpoint (e.g., Rust provider uses a module-level store with `useSyncExternalStore`).
-- Server-persisted via Hono HTTP API (`/api/v1/data/preset`, `/data/:providerId`)
-- `"preset"` is a reserved path segment — cannot be used as a provider ID
-- Auto-save on every state change (no debouncing — files are small)
-- App data save failures are fatal (throw); provider data failures are non-fatal (log + return `{}`)
+- Crate metadata caching uses a dedicated `crates_cache` SQLite table with 24-hour TTL (separate from the HTTP proxy cache). Each provider manages its own in-memory cache for within-session state, populated on demand from the batch endpoint (e.g., Rust provider uses a module-level `$state` singleton in `cache.svelte.ts`).
+- Server-persisted via Hono HTTP API (`/data/:providerId`). A legacy `/data/preset` route still exists but is unused by the frontend, pending removal alongside the planned rename to a generic key-value endpoint.
+- Provider-data save failures are non-fatal (log + return `{}`). Auto-save on every state change (no debouncing — files are small).
 - **Provider data write guard**: the server rejects a PUT to `/data/:providerId` if the serialized TOML payload is less than 30% the size of the existing file on disk (HTTP 409). This prevents accidental data loss from frontend bugs or state resets. The check is skipped when the existing file is smaller than 256 bytes, since small files can legitimately shrink by large ratios. Future: a `?force=true` query parameter could bypass the guard for legitimate bulk deletions.
 
 **Preview Page (Derived State)**
@@ -477,38 +467,37 @@ Design decisions that shaped the current architecture. Organized by area.
 **View Model Derivation**
 
 ```
-AppData + ProviderData ($state) ──► provider.render() inside $derived ──► render
+ProviderData ($state) ──► provider.render() inside $derived ──► render
               │
               └── direct mutation on the $state proxy
 ```
 
-- `provider.render()` is a pure data-derivation function called inside a `$derived` block in `ExplorerProvider.svelte`. It re-runs whenever its dependencies (`ctx.data`, `ctx.currentUrl`, the `cache.svelte.ts` store) change — Svelte 5 tracks reads automatically.
+- `provider.render()` is a pure data-derivation function called inside a `$derived` block in `Explorer.svelte`. It re-runs whenever its dependencies (`ctx.data`, `ctx.currentUrl`, the `cache.svelte.ts` store) change — Svelte 5 tracks reads automatically.
 - Per-provider effects (URL sync, batch fetches, seeding) live in the optional `provider.setupEffects(ctx)` method, called once at host init. Implementations live in `*.svelte.ts` modules so their `$effect` runes bind to the host component's lifecycle.
 - View models contain callbacks (closures over `$state`-mutating functions) — never serialized.
 - Direct mutation on `$state` proxies replaces Immer drafts — `ctx.data.crates[name] = …` is reactive.
-- `ProviderContext` is constructed once in `ExplorerProvider.svelte` with reactive getters over the `ProviderDataStore` (`@/core/providerData.svelte`).
+- `ProviderContext` is constructed once in `Explorer.svelte` with reactive getters over the `ProviderDataStore` (`@/core/providerData.svelte`).
 
 **Independent State Atoms**
-- `App.svelte` owns `appData` ($state, async from server) and the `navigated` IPC event handler (writes `currentUrl` to localStorage).
+- `App.svelte` owns the active `providerId` ($state, ephemeral) and the `navigated` IPC event handler (writes `currentUrl` to localStorage). No server-persisted app-level state.
 - `currentUrl` consumed via the `currentUrl.value` reactive accessor (`@/core/uiState.svelte`) in components that need it (`ExplorerPageList`, etc.) — not routed through any global state container.
 - Expansion state managed per-component via the `groupExpanded`/`itemExpanded` factories — each accessor reads/writes its own key in the `turbodoc:expanded` localStorage slot. mitt events filter by element so only the matching subscribers re-render.
-- Provider data is lazily loaded per-provider inside `ExplorerProvider.svelte` via `ProviderDataStore.load()`.
+- Provider data is lazily loaded per-provider inside `Explorer.svelte` via `ProviderDataStore.load()`.
 - Each atom has independent auto-save — a change in one slice doesn't trigger writes to others.
 
 **Hybrid IPC**
-- App data CRUD via Hono HTTP API (`/api/v1/data/preset`)
 - Per-provider data CRUD via Hono HTTP API (`/api/v1/data/:providerId`)
 - UI state via localStorage (`turbodoc:current-url`, `turbodoc:expanded`) — no server round-trip
 - API response caching via HTTP proxy (`/proxy?url=`) — SQLite with RFC 7234 freshness and LRU eviction
 - Navigation events via WebView2 `postMessage` (low-latency, event-driven)
-- All operations except app data are non-fatal (log errors, don't crash)
+- All persistence operations are non-fatal (log errors, don't crash)
 
 **Decomposed Root State (no AppContext class)**
-- `appData` ($state) lives in `App.svelte`; passed as prop to `Explorer.svelte` (only consumer; no context needed).
+- `App.svelte` owns the active `providerId` ($state) and passes the derived `provider` object as a prop to `Explorer.svelte`. There is no server-persisted `appData` — first paint does not wait on any network round-trip.
 - `navigateTo(url)` is a plain function exported from `@/core/context.svelte` that imperatively writes `viewerRef.value.src`. Any module can `import * as ctx from "@/core/context.svelte"` and call `ctx.navigateTo(url)` — no provider/consumer pairing needed.
 - `viewerRef` (`{ value: HTMLIFrameElement | undefined }` with a `$state` field) lives in `@/core/context.svelte`. `App.svelte` writes to it via `bind:this={ctx.viewerRef.value}`; `navigateTo` in the same module reads it. No context entry needed because module-level `$state` is already a singleton.
 - `currentUrl` read via the `currentUrl.value` accessor — not part of root state.
-- Provider data loaded lazily per-provider inside `ExplorerProvider.svelte`.
+- Provider data loaded lazily per-provider inside `Explorer.svelte`.
 
 **Graceful Degradation**
 - Stale proxy cache preferred over no data: if upstream refetch fails, the proxy serves the cached response
@@ -593,15 +582,15 @@ TurboDoc/
 │   │
 │   └── src/                    # All application TS/Svelte source (referenced via `@/*` alias)
 │       ├── core/
-│       │   ├── data.ts                 # Zod schemas + inferred types (AppData, ProviderData, Provider, Item, Page, IconProp, ProviderAction)
+│       │   ├── data.ts                 # Zod schemas + inferred types (ProviderData, Provider, Item, Page, IconProp, ProviderAction)
 │       │   ├── context.svelte.ts       # Single Svelte context for the provider pair (`ProviderContext = { info, data }`) with `setProvider` setter and `getProviderInfo` / `getProviderData` accessors; plus the shared `viewerRef` ($state-wrapped iframe handle) and the plain `navigateTo(url)` function that writes `viewerRef.value.src`
 │       │   ├── providerData.svelte.ts  # `ProviderDataStore` reactive class — `$state` data + load + autosave
-│       │   ├── ipc.ts                  # Hono HTTP client (data CRUD) + WebView2 event listener (navigated)
+│       │   ├── ipc.ts                  # Hono HTTP client (per-provider data CRUD) + WebView2 event listener (navigated)
 │       │   ├── localStorage.ts         # Typed localStorage abstraction (Zod validation, mitt events, primitive + array APIs)
 │       │   └── uiState.svelte.ts       # Reactive accessors over mitt+localStorage (currentUrl, groupExpanded, itemExpanded) + imperative helpers
 │       │
 │       ├── providers/
-│       │   ├── index.ts            # Provider registry (Record<string, Provider>)
+│       │   ├── index.ts            # Provider registry (default-exported `Provider[]`)
 │       │   └── rust/               # Unified Rust provider
 │       │       ├── index.ts            # Provider implementation (render, URL handling, page parsing, getImportCratesAction inlined)
 │       │       ├── effects.svelte.ts   # Per-provider $effect setup (URL sync, batch fetches, seed crates)
@@ -610,12 +599,11 @@ TurboDoc/
 │       │       └── url.test.ts
 │       │
 │       ├── ui/
-│       │   ├── App.svelte          # Root: appData $state, IPC `navigated` listener, Resizable layout; iframe binds via `bind:this={ctx.viewerRef.value}`
+│       │   ├── App.svelte          # Root: active `providerId` $state, IPC `navigated` listener, Resizable layout; iframe binds via `bind:this={ctx.viewerRef.value}`
 │       │   ├── common/
 │       │   │   └── Icon.svelte     # Icon wrapper (lucide-svelte)
 │       │   └── explorer/
-│       │       ├── Explorer.svelte                  # Top-level: iterates providers in current preset
-│       │       ├── ExplorerProvider.svelte          # Owns ProviderDataStore, derives view model, sets up effects
+│       │       ├── Explorer.svelte                  # Active provider host: owns ProviderDataStore, derives view model, sets up effects
 │       │       ├── ExplorerGroup.svelte             # Group renderer (default + ungrouped variants)
 │       │       ├── ExplorerGroupHeader.svelte       # Group header (collapse, rename, dropdown menu)
 │       │       ├── ExplorerCreateGroupComponent.svelte # Add group button/input
@@ -642,7 +630,6 @@ TurboDoc/
 ├── target/                     # Build output (Rust + runtime data)
 │   └── data/                       # Runtime data directory ($TURBODOC_DATA)
 │       ├── cache.sqlite            # SQLite database (HTTP proxy cache + crates metadata cache, WAL mode)
-│       ├── preset.toml             # Global app state (presets)
 │       └── <id>.toml               # Per-provider user data
 │
 └── docs/
@@ -697,7 +684,7 @@ TurboDoc/
 
 ### Remaining
 - [ ] Unified search bar
-- [ ] Preset picker UI
+- [ ] Provider switcher UI (and persistence of the active provider selection)
 - [ ] Loading/error states
 - [ ] Keyboard shortcuts
 - [ ] Cross-provider navigation (partially done via unified rust provider)
@@ -706,6 +693,8 @@ TurboDoc/
 
 ## Change History
 
+- **2026-05**: Remove the frontend `appData` / preset data flow: delete `appDataSchema` and the `AppData` type from `frontend/src/core/data.ts`; delete `loadPresetData()` / `savePresetData()` and the now-unused `getJsonFromResponse` helper from `frontend/src/core/ipc.ts`; drop the `appData` `$state`, its load/autosave `$effect`s, and the `{#if appData}` render gate from `App.svelte` so first paint no longer waits on a network round-trip; persistence-file list comment in `data.ts` updated to drop the `preset.json` bullet; the server's `/data/preset` route remains (unused) pending cleanup alongside the planned rename of `/data/:providerId` to a generic key-value endpoint; on-disk `preset.toml` is abandoned (no migration code, mirroring the prior `workspace.json` precedent); future app-wide settings will piggyback on the renamed generic data endpoint
+- **2026-05**: Move to one-provider-at-a-time architecture: collapse `frontend/src/ui/explorer/ExplorerProvider.svelte` into `Explorer.svelte` (single file now owns the `ProviderDataStore`, derives the view model via `provider.render(ctx)`, wires up the optional `provider.setupEffects(ctx)` hook, and runs the eager orphan cleanup `$effect`); switch `frontend/src/providers/index.ts` from `Record<string, Provider>` (built via `remeda.mapToObj`) to a plain default-exported `Provider[]` array, dropping the lone `remeda` usage in that file; `App.svelte` now selects exactly one provider via local `providerId` `$state` (defaulting to `providers[0].id`) and a `$derived` `provider` lookup, replacing the previous iteration over `appData.presets[currentPreset].providers`; `Explorer.svelte`'s `store = $derived(new ProviderDataStore(provider.id))` already handles provider switching by recreating the store when `provider.id` changes; provider switcher UI not yet built (placeholder `<!-- Provider Switch Here -->` in `App.svelte`) and the selection is ephemeral (resets on each launch) until the planned generic data endpoint replaces `/data/:providerId`
 - **2026-05**: Reorganize TypeScript files under per-package `src/` subdirectories: move every application/source TS and Svelte file in `frontend/` from `frontend/{core,providers,ui,utils}/` to `frontend/src/{core,providers,ui,utils}/`, and every TS file in `server/` from `server/` to `server/src/`; config (`package.json`, `tsconfig.json`, `vite.config.ts`, `svelte.config.ts`, `components.json`), entry HTML/JS (`index.html`, `index.ts`), styles (`global.css`), and vendored deps (`3rdparty/`) stay at the frontend root; rename Vite/TS alias `@server/` → `@/server/` (now resolves to `server/src/`), keep `@/` mapped to `frontend/src/` and `@shadcn/` mapped to `frontend/3rdparty/shadcn/`; frontend `tsconfig.json` extends `@tsconfig/svelte` with explicit paths (`include: ["src"]`); server `tsconfig.json` extends `@tsconfig/bun` (`include: ["src"]`); server `package.json` `main` pointed at `src/index.ts`; no behavioral changes — purely a layout cleanup so both TypeScript packages mirror the Cargo `src/` convention already used by the Rust host
 - **2026-05**: Refactor frontend context management: collapse the two separate Svelte contexts (`provider`, `providerData`) into a single `createContext<ProviderContext>()` whose local interface is `{ info: () => Provider; data: () => ProviderDataStore }`; only `setProvider` is exported as a setter, and consumer-side accessors are the named helpers `getProviderInfo()` / `getProviderData()`; remove `navigateTo` from being a Svelte context entry — it's now a plain exported function in `@/core/context.svelte` that reads the module-level `viewerRef` ($state-wrapped iframe handle); merge `frontend/src/core/context.ts` into `frontend/src/core/context.svelte.ts` (the file already owned `viewerRef` as a `$state` rune, so the merge unifies the module); consumer migration — every component that imported `ctxKeys.provider.get()` / `ctxKeys.providerData.get()` / `ctxKeys.navigateTo.get()` switched to `import * as ctx from "@/core/context.svelte"` + `ctx.getProviderInfo()` / `ctx.getProviderData()` / `ctx.navigateTo`; `ExplorerProvider.svelte` — `store` switched to `$derived(new ProviderDataStore(provider.id))` (recreates if `provider.id` changes), `setupEffects` invocation wrapped in `$effect(() => provider.setupEffects?.(providerContext))` so inner effects bind to this component's lifecycle, `providerContext.data` gained a setter alongside the getter; `frontend/tsconfig.json` — added `"target": "ES2022"` and `"types": ["bun"]` for modern-JS lib coverage and Bun globals
 - **2026-05**: Switch server-persisted data files from JSON to TOML — `preset.toml` + `<providerId>.toml` parsed/serialized via `smol-toml` in `server/api.ts`; HTTP wire format unchanged (still JSON over Hono, frontend untouched); legacy `workspace.json` and `workspace.*.json` migration code (`migrateFromMonolithic`, `migrateFromWorkspacePrefix`) removed since they only produced now-obsolete `.json` outputs; `loadDataAsJson`/`saveDataAsJson` renamed to `loadDataFile`/`saveDataFile`; data-loss-guard threshold (30%, min 256 B) preserved against the TOML byte length; no runtime migration — existing `.json` files in `target/data/` are abandoned and the app cold-starts with default presets

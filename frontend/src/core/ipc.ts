@@ -39,41 +39,13 @@ import type apiRoute from "@/server/api";
 
 const api = hc<typeof apiRoute>("/api/v1");
 
-function getJsonFromResponse<T = unknown>(response: {
-    ok: boolean,
-    statusText: string,
-    json(): Promise<T>,
-}): Promise<T> {
-    if (response.ok) {
-        return response.json();
-    } else {
-        throw new Error(`API request failed: ${response.statusText}`);
-    }
-}
-
-// -- Preset Data --
-
-/** Load global preset data. Throws on HTTP/network errors.
- *  No validation — resolves to `unknown`. */
-export async function loadPresetData(): Promise<unknown> {
-    const response = await api.data.preset.$get();
-    return getJsonFromResponse(response);
-}
-
-/** Save global preset data. Throws on failure. */
-export async function savePresetData(data: object): Promise<void> {
-    const response = await api.data.preset.$put({ json: data });
-    if (!response.ok)
-        throw new Error(`Failed to save preset data: ${response.statusText}`);
-}
-
 // -- Provider Data --
 
 /** Load a provider's data. Returns `{}` on HTTP errors (non-fatal).
  *  No validation — resolves to `unknown`. */
 export async function loadProviderData(providerId: string): Promise<unknown> {
-    const response = await api.data[":providerId"].$get({
-        param: { providerId },
+    const response = await api.data[":fileName"].$get({
+        param: { fileName: providerId },
     });
     return response.ok ? response.json() : {};
 }
@@ -84,8 +56,8 @@ export async function loadProviderData(providerId: string): Promise<unknown> {
 export async function saveProviderData(
     providerId: string, data: object,
 ): Promise<void> {
-    const response = await api.data[":providerId"].$put({
-        param: { providerId },
+    const response = await api.data[":fileName"].$put({
+        param: { fileName: providerId },
         json: data,
     });
     if (response.status === 409)
