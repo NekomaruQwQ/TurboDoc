@@ -10,6 +10,7 @@
                 "noUnusedFunctionParameters": "off"
             },
             "suspicious": {
+                "noGlobalAssign": "off",
                 "noAssignInExpressions": "off"
             }
         }

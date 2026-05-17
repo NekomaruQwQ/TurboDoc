@@ -93,4 +93,3 @@ export async function saveProviderData(
     else if (!response.ok)
         console.error(`Failed to save provider data for ${providerId}: ${response.statusText}`);
 }
-

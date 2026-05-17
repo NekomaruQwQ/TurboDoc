@@ -41,11 +41,11 @@ button {
 }
 
 [data-slot="collapsible-content"][data-state="open"] {
-    animation: collapsible-slide-down 150ms ease-out;
+    animation: collapsible-slide-down 250ms ease-in-out;
 }
 
 [data-slot="collapsible-content"][data-state="closed"] {
-    animation: collapsible-slide-up 150ms ease-out;
+    animation: collapsible-slide-up 250ms ease-in-out;
 }
 
 @keyframes collapsible-slide-down {

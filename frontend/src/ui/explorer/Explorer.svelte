@@ -12,10 +12,6 @@
             .filter(p => p !== undefined) ?? []);
 </script>
 
-<div
-    class="flex flex-col w-full h-full gap-1 rounded overflow-y-scroll"
-    style="scrollbar-width: none">
-    {#each activeProviders as provider (provider.id)}
-        <ExplorerProvider {provider} />
-    {/each}
-</div>
+{#each activeProviders as provider (provider.id)}
+    <ExplorerProvider {provider} />
+{/each}

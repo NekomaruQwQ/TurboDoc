@@ -36,7 +36,7 @@
 
 {#snippet PageItemRenderer(page: Page)}
     <div
-        class={["group/page flex w-full h-6 rounded-sm hover:bg-input/50", {
+        class={["group/page flex w-full h-6 rounded-md hover:bg-input/50", {
             "bg-input hover:bg-input shadow-sm":
                 page.url === currentUrl.value,
         }]}>

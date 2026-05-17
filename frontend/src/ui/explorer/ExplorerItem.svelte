@@ -21,7 +21,7 @@
 </script>
 
 <Collapsible.Root
-    class="flex flex-col p-1 gap-1 rounded-md bg-card border shadow-sm truncate"
+    class="flex flex-col p-1 gap-1 rounded-xl bg-secondary border shadow-sm truncate"
     open={expanded.value}
     onOpenChange={v => expanded.value = v}>
     <div class="flex flex-row gap-1">

@@ -53,22 +53,34 @@
 </script>
 
 {#if appData}
-    <div class="w-full h-full flex flex-col">
-        <div class="h-12">-</div>
-        <Resizable.PaneGroup direction="horizontal">
-            <Resizable.Pane defaultSize={20} class="px-2">
-                <!-- Clip the explorer content with rounded corners. -->
-                <div class="w-full h-full rounded-t-md overflow-clip">
-                    <Explorer {appData} />
-                </div>
+    <div class="w-full h-full flex flex-col gap-1">
+        <div>-</div>
+        <Resizable.PaneGroup direction="horizontal" class="gap-1">
+            <div>
+                <!-- Provider Switch Here -->
+            </div>
+            <Resizable.Pane
+                defaultSize={20}
+                class={
+                    "bg-sidebar w-full h-full " +
+                    "flex flex-col p-2 gap-1 " +
+                    "border rounded-t-xl overflow-y-scroll"}
+                style="scrollbar-width: none">
+                <Explorer {appData} />
             </Resizable.Pane>
             <Resizable.Handle class="w-0"/>
-            <Resizable.Pane defaultSize={80}>
+            <Resizable.Pane
+                defaultSize={80}
+                class="flex flex-col gap-2">
+                <!-- Navigation Bar Here -->
+                <!-- <div class="bg-sidebar h-12 rounded-xl">
+                </div> -->
                 <iframe
                     bind:this={ctx.viewerRef.value}
                     src={initialUrl}
                     title="Documentation viewer"
-                    class="w-full h-full border border-white/30 rounded-tl-md"></iframe>
+                    class="bg-sidebar w-full h-full border rounded-tl-xl">
+                </iframe>
             </Resizable.Pane>
         </Resizable.PaneGroup>
     </div>
