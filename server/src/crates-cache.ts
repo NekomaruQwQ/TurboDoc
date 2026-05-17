@@ -8,7 +8,7 @@
 // null — crate metadata doesn't change retroactively, so stale data
 // is better than no data.
 
-import { dbCache } from "@server/common";
+import { dbCache } from "./common";
 
 // -- Configuration --------------------------------------------------------
 

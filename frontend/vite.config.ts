@@ -22,9 +22,9 @@ export default vite.defineConfig({
     ],
     resolve: {
         alias: {
-            "@": __dirname,
-            "@server": `${__dirname}/../server/`,
-            "@shadcn": `${__dirname}/3rdparty/shadcn/`,
+            "@/server/": `${__dirname}/../server/src/`,
+            "@/": `${__dirname}/src/`,
+            "@shadcn/": `${__dirname}/3rdparty/shadcn/`,
         },
     },
     optimizeDeps: { exclude: SVELTE_LIBS },

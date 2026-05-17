@@ -1,4 +1,4 @@
-import type { CrateMetadata } from "@server/api";
+import type { CrateMetadata } from "@/server/api";
 import * as Utils from "@/utils/version-group";
 import { getBaseUrlForCrate } from "./url";
 

@@ -35,7 +35,7 @@ window.chrome?.webview?.addEventListener("message", ({ data }) => {
 // == Wrapper functions for API endpoints ==
 import { hc } from "hono/client";
 
-import type apiRoute from "@server/api";
+import type apiRoute from "@/server/api";
 
 const api = hc<typeof apiRoute>("/api/v1");
 

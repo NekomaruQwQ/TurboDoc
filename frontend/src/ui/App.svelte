@@ -3,8 +3,8 @@
 
     import type { AppData } from "@/core/data";
     import * as storage from "@/core/localStorage";
+    import * as ctx from "@/core/context";
     import * as IPC from "@/core/ipc";
-    import { navigateTo } from "@/core/context";
 
     import Explorer from "@/ui/explorer/Explorer.svelte";
 
@@ -23,9 +23,7 @@
     // The navigateTo context callback: writes to the iframe `src`
     // imperatively. The viewer ref is captured by closure, so the
     // function picks up the latest binding even after the iframe mounts.
-    navigateTo.set(url => {
-        if (viewer) viewer.src = url;
-    });
+    // ctx.setViewer(viewer);
 
     // Load preset data once on mount. Defaults are applied lazily so a
     // fresh install renders with the Rust preset preselected.

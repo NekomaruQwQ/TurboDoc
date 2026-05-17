@@ -21,9 +21,9 @@ import * as path from "node:path";
 import * as vite from "vite";
 import * as hono from "@hono/node-server";
 
-import { serverHost, serverPort } from "@server/common";
-import api from "@server/api";
-import proxy from "@server/proxy";
+import { serverHost, serverPort } from "./common";
+import api from "./api";
+import proxy from "./proxy";
 
 const honoApp =
     new Hono()
@@ -35,7 +35,7 @@ const honoServer =
     hono.getRequestListener(honoApp.fetch);
 const viteServer =
     await vite.createServer({
-        configFile: path.resolve(__dirname, "../frontend/vite.config.ts"),
+        configFile: path.resolve(__dirname, "../../frontend/vite.config.ts"),
         server: {
             middlewareMode: true,
             hmr: {

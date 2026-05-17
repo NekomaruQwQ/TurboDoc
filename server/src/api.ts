@@ -7,11 +7,11 @@ import path from "node:path";
 
 import * as TOML from "smol-toml";
 
-import { dataDir } from "@server/common";
-import * as cratesCache from "@server/crates-cache";
-import { type CrateMetadata, parseCrateMetadata } from "@server/crates-cache";
+import { dataDir } from "./common";
+import * as cratesCache from "./crates-cache";
+import { type CrateMetadata, parseCrateMetadata } from "./crates-cache";
 
-export type { CrateMetadata } from "@server/crates-cache";
+export type { CrateMetadata } from "./crates-cache";
 
 /** Load a TOML data file, parse it, and return as a JSON response body. The
  *  on-disk format is TOML; the wire format is JSON, so the frontend (and the

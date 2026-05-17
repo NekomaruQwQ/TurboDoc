@@ -1,15 +1,12 @@
 {
     "extends": "@tsconfig/svelte",
-    "exclude": [
-        "node_modules",
-        "dist",
-    ],
+    "include": ["src"],
     "compilerOptions": {
         "paths": {
-            "@/*": ["../frontend/*"],
+            "@/server/*": ["../server/src/*"],
+            "@/*": ["../frontend/src/*"],
             "@shadcn": ["../frontend/3rdparty/shadcn"],
             "@shadcn/*": ["../frontend/3rdparty/shadcn/*"],
-            "@server/*": ["../server/*"],
         },
     },
 }

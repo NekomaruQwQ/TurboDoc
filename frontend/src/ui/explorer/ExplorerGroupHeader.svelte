@@ -21,7 +21,7 @@
     import LogIn from "@lucide/svelte/icons/log-in";
     import Trash2 from "@lucide/svelte/icons/trash-2";
 
-    import { cn } from "@/3rdparty/shadcn/utils";
+    import { cn } from "@shadcn/utils";
     import { Button, buttonVariants } from "@shadcn/components/ui/button";
     import { Input } from "@shadcn/components/ui/input";
     import * as Dialog from "@shadcn/components/ui/dialog";

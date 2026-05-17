@@ -1,6 +1,6 @@
 <script lang="ts">
-    import { cn } from "@/3rdparty/shadcn/utils";
-    import { buttonVariants } from "@/3rdparty/shadcn/components/ui/button";
+    import { cn } from "@shadcn/utils";
+    import { buttonVariants } from "@shadcn/components/ui/button";
 
     import EllipsisVertical from "@lucide/svelte/icons/ellipsis-vertical";
     import ExternalLink from "@lucide/svelte/icons/external-link";

@@ -1,10 +1,8 @@
 {
     "extends": "@tsconfig/bun",
+    "include": ["src"],
     "compilerOptions": {
-        "paths": {
-            "@/*": ["../frontend/*"],
-            "@shadcn/*": ["../frontend/3rdparty/shadcn/*"],
-            "@server/*": ["../server/*"],
-        },
+        "types": ["bun"],
+        "paths": {},
     }
 }
