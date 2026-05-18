@@ -43,8 +43,8 @@ export class ProviderDataStore {
      *  the initial load completes, so the empty-default state never
      *  overwrites real data on disk. */
     autoSave(): void {
-        if (!this.#loaded) return;
         const json = JSON.stringify(this.data);
+        if (!this.#loaded) return;
         if (json === this.#lastJson) return;
         this.#lastJson = json;
         IPC.saveProviderData(this.#providerId, this.data as object)
