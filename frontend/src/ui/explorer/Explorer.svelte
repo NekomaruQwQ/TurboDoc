@@ -61,7 +61,7 @@
     });
 </script>
 
-<div class="flex flex-col mb-2">
+<div class="flex flex-col flex-1 p-2">
     <!-- Provider-level actions (e.g. "Import"). Only the "input" variant
          renders a dialog; "menu" is reserved for future inline menu items. -->
     {#each output.actions ?? [] as action, i (i)}

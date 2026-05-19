@@ -33,19 +33,15 @@
         <div>
             <!-- Provider Switch Here -->
         </div>
-        <Resizable.Pane
-            defaultSize={20}
-            class={
-                "bg-sidebar w-full h-full " +
-                "flex flex-col p-2 gap-1 " +
-                "border rounded-t-xl overflow-y-scroll"}
-            style="scrollbar-width: none">
-            <Explorer {provider} />
+        <Resizable.Pane defaultSize={20} class="flex flex-col">
+            <div
+                class="bg-sidebar flex flex-1 flex-col mb-2 border rounded-xl overflow-y-scroll"
+                style="scrollbar-width: none">
+                <Explorer {provider} />
+            </div>
         </Resizable.Pane>
         <Resizable.Handle class="w-0"/>
-        <Resizable.Pane
-            defaultSize={80}
-            class="flex flex-col gap-2">
+        <Resizable.Pane defaultSize={80} class="flex flex-col gap-2">
             <!-- Navigation Bar Here -->
             <!-- <div class="bg-sidebar h-12 rounded-xl">
             </div> -->
