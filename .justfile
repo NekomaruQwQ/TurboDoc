@@ -1,12 +1,12 @@
 set shell := ["nu", "-c"]
 
 alias r := run
+alias c := check
 alias i := install
 
 run:
     cargo run -- --data data
 check:
-    just install
     cargo clippy
     cd server;   bunx --bun tsc --noEmit
     cd frontend; bunx --bun svelte-check --tsconfig tsconfig.json --threshold error

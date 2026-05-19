@@ -6,7 +6,7 @@
  * 3rdparty/shadcn/ directory, breaking styling of shadcn-svelte components.
  * This directive ensures the source scanner includes the shadcn-svelte components.
  */
-@source "./3rdparty/shadcn/";
+@source "./3rdparty/shadcn/components/";
 
 @custom-variant dark (&:is(.dark *));
 
