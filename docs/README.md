@@ -12,7 +12,7 @@ The frontend uses a **multi-provider architecture** where each documentation sou
 - Version selection with intelligent grouping
 - Pin/unpin documentation pages (VS Code-style tabs)
 - Named groups for organizing items
-- Data persistence via Hono HTTP API
+- Data persistence via HTTP API
 - Automatic cross-crate navigation
 - Symbol parsing with One Dark color coding
 
@@ -102,9 +102,9 @@ TurboDoc is an "enhanced tabbed browser with inactive tab resources released" �
 
 | **Component** | **Tech Stack** | **Role** | **Key Responsibilities** |
 |---|---|---|---|
-| **Host** | Rust (winit + WebView2) | **The Shell** | Window management. Intercepts doc URL requests and forwards them to the server's `/proxy?url=` endpoint. Sends `navigated` events to frontend via `PostWebMessageAsJson`. Opens external URLs in system browser. Spawns the server and ensures cleanup via Job Object. |
-| **Server** | TypeScript (Bun + Hono) | **The Brain** | REST endpoints for split data persistence (`/api/v1/data/preset`, `/data/:providerId`). Batch crate metadata lookup with dedicated SQLite cache (`POST /api/v1/crates`). HTTP proxy with SQLite caching and LRU eviction (`/proxy?url=`). Dark mode injection at serve time. Serves frontend assets via Vite middleware. |
-| **Frontend** | Svelte 5 + Vite | **The Face** | UI rendering (Explorer, Navigation). Fetches data from `/api/v1/*` via `hono/client`. Provider-based architecture for multi-source docs. |
+| **Host** | Rust (winit + WebView2) | **The Shell** | Window management. Intercepts doc URL requests and forwards them to the in-process server's `/proxy?url=` endpoint. Sends `navigated` events to frontend via `PostWebMessageAsJson`. Opens external URLs in system browser. In `--dev` mode, spawns Vite as a child process under a Job Object so it dies with the host. |
+| **Server** | Rust (axum + rusqlite + reqwest), embedded in the host binary as a tokio task | **The Brain** | REST endpoints for per-provider data persistence (`/api/v1/data/:fileName`). Batch crate metadata lookup with dedicated SQLite cache (`POST /api/v1/crates`). HTTP proxy with SQLite caching, RFC 7234 freshness via `http-cache-semantics`, and LRU eviction (`/proxy?url=`). Dark mode injection at serve time. Serves frontend assets (`tower-http::ServeDir` in prod, reverse-proxy to Vite in `--dev`). |
+| **Frontend** | Svelte 5 + Vite | **The Face** | UI rendering (Explorer, Navigation). Fetches data from `/api/v1/*` via plain `fetch`. Provider-based architecture for multi-source docs. |
 
 ### Request Flow
 
@@ -115,10 +115,10 @@ WebView2 iframe navigates to https://docs.rs/serde/latest/serde/
   │
   └─ OnWebResourceRequested (GET, ProxiedUrls match):
        │
-       │  Rust host forwards to Bun:
+       │  Rust host forwards to in-process server:
        │  GET http://localhost:$TURBODOC_PORT/proxy?url=https%3A%2F%2Fdocs.rs%2Fserde%2Flatest%2Fserde%2F
        │
-       └─ Bun /proxy handler:
+       └─ axum /proxy handler:
             ├─ Cache HIT + fresh?  → serve cached body + dark mode injection
             ├─ Cache HIT + stale?  → serve cached body immediately
             │    └─ background:      conditional revalidation (If-None-Match / If-Modified-Since)
@@ -137,9 +137,9 @@ WebView2 iframe navigates to https://docs.rs/serde/latest/serde/
 - **Styling**: Tailwind CSS v4 with OKLCH color space; `class={[...]}` for conditional classes (no `cn()` in app code)
 - **Icons**: `@lucide/svelte` (icons imported individually for tree-shaking)
 - **Utilities**: remeda (functional), semver, zod
-- **Server**: Bun + Hono (API + HTTP proxy with SQLite cache) + Vite (middleware mode) on `$TURBODOC_PORT`
-- **Host**: Rust (winit + WebView2) — window management, request forwarding, server lifecycle
-- **IPC**: Hono HTTP API for CRUD + WebView2 `PostWebMessageAsJson` for navigation events; mitt-based event bus inside the frontend (`createSubscriber` bridges into Svelte reactivity)
+- **Server**: Rust (axum + rusqlite + reqwest + `http-cache-semantics`) running as a tokio task inside the host binary on `$TURBODOC_PORT`. Prod frontend assets via `tower-http::ServeDir`; in `--dev` mode the host spawns Vite as a child process and reverse-proxies non-API traffic to it.
+- **Host**: Rust (winit + WebView2) — window management, request forwarding, server + Vite-child lifecycle
+- **IPC**: HTTP API for CRUD (plain `fetch` from the frontend) + WebView2 `PostWebMessageAsJson` for navigation events; mitt-based event bus inside the frontend (`createSubscriber` bridges into Svelte reactivity)
 
 ### Sidebar Layout
 
@@ -284,12 +284,13 @@ Currently handled within the unified `rust` provider (cross-crate). When multipl
 ### Running the App
 
 ```
-just install   # Installs dependencies for both server/ and frontend/
-just build     # Builds the Rust host app
-just run       # Launches the app (host spawns server, then opens the WebView2 window)
+just install   # Installs frontend dependencies + builds the host
+just run       # Launches the app in dev mode (HMR enabled — see below)
 ```
 
-The Rust host (`src/main.rs`) handles the full lifecycle: spawning the Bun server, waiting for server readiness (probes the TCP port), then opening the WebView2 window. A Windows Job Object ensures the server is killed when the host exits.
+`just run` is `cargo run -- --data data --dev`. The `--dev` flag tells the in-process server to spawn `bunx --bun vite dev` on `$TURBODOC_PORT + 10000` and reverse-proxy frontend asset requests to it (Vite HMR WebSocket connects browser → Vite directly via `hmr.clientPort`, so HMR doesn't traverse the proxy). Without `--dev`, the server serves `frontend/dist/` statically via `tower-http::ServeDir` — run `bun run --cwd frontend build` first.
+
+The Rust host (`src/main.rs`) builds the tokio runtime, awaits `server::start` (which returns once the listener is bound — no TCP-readiness polling needed), then opens the WebView2 window. A Windows Job Object ensures the spawned Vite child dies when the host exits.
 
 ### Mandatory Implementation Rules
 
@@ -406,21 +407,21 @@ Design decisions that shaped the current architecture. Organized by area.
 
 **Migration & Compatibility**
 - On startup, if data files don't exist or don't match expected format, initialize with empty defaults
-- Provider ID `"preset"` is still served by the legacy `/data/preset` server route (unused; pending cleanup) — avoid using it as a provider ID until the route is removed
+- The Rust server's `/api/v1/data/{fileName}` route accepts any `fileName`, so picking a provider ID that collides with an unrelated file would write to the same TOML — use distinct provider IDs
 
 **Provider API Surface**
 - No `serialize`/`deserialize` methods — view model callbacks mutate `$state`-proxied data directly
 - No provider collapsing in sidebar — exactly one provider is active at a time, chosen by the (forthcoming) switcher
 
 **"Dumb Pipe" Delegate Pattern**
-- All proxy and caching logic lives in the Bun server, not in the WebView2 event loop
-- The Rust host is a thin forwarding shim — intercepts doc URL requests and delegates to the server's `/proxy?url=` endpoint
-- Decouples host (windowing) from logic (caching/parsing), improving maintainability and type safety
+- All proxy and caching logic lives in the in-process axum server, not in the WebView2 event loop
+- The WebView2 callback is a thin forwarding shim — intercepts doc URL requests and delegates to the server's `/proxy?url=` endpoint over loopback
+- Decouples WebView2 callbacks (windowing) from caching/parsing logic, keeping each layer focused
 
 **Architectural Constraints**
 - No URL Rewriting: the WebView still believes it is browsing `docs.rs` directly
 - No SSL Proxy: proxying happens after WebView2 intercepts the request intent
-- Configurable Port and Data Directory: required at startup via clap CLI args on the host (`--port`/`-p`, `--data`/`-d`) with env-var fallbacks (`TURBODOC_PORT`, `TURBODOC_DATA`); no defaults — the host fails fast if neither flag nor env var is supplied. The host forwards both as explicit env vars to the spawned Bun child, so server-side code reads them from `process.env` as before.
+- Configurable Port and Data Directory: required at startup via clap CLI args (`--port`/`-p`, `--data`/`-d`) with env-var fallbacks (`TURBODOC_PORT`, `TURBODOC_DATA`); no defaults — the host fails fast if neither flag nor env var is supplied. Both are consumed in-process by `server::start`, no subprocess env-var forwarding needed.
 
 **Dark Mode Injection (Serve-Time)**
 - Cache stores clean upstream content; dark mode injection applied at serve time
@@ -430,16 +431,15 @@ Design decisions that shaped the current architecture. Organized by area.
 ### Data Model
 
 **Split Data Persistence**
-- Workspace persisted as **TOML** files under `$TURBODOC_DATA/` (parsed/serialized via `smol-toml` in `server/src/api.ts`); the HTTP wire format remains JSON, so the frontend sees no difference:
+- Workspace persisted as **TOML** files under `$TURBODOC_DATA/` (parsed/serialized via the `toml` crate in `src/server/api/data.rs`); the HTTP wire format remains JSON, so the frontend sees no difference:
   - `<providerId>.toml` — per-provider user data (groups, provider-specific data). Loaded lazily per-provider by `ProviderDataStore.load()` inside `Explorer.svelte`.
 - Transient UI state stored in **localStorage** as individual slots, not on the server. Two slot types managed by `frontend/src/core/localStorage.ts`:
   - **Primitive** (`turbodoc:current-url`): current URL, simple get/set
   - **Array** (`turbodoc:expanded`): flat string array of expanded item/group keys. Key format: `<providerId>:<itemId>` for items, `<providerId>:group:<groupId>` for groups. Membership-check hooks (`useGroupExpanded`, `useItemExpanded`) with selective re-rendering via mitt events — only hooks whose specific key changed re-render.
   - Each slot validated with Zod on load; invalid/missing data falls back to empty defaults (default URL `https://docs.rs/`, nothing expanded). See `frontend/src/core/localStorage.ts` and `frontend/src/core/uiState.svelte.ts`.
 - Crate metadata caching uses a dedicated `crates_cache` SQLite table with 24-hour TTL (separate from the HTTP proxy cache). Each provider manages its own in-memory cache for within-session state, populated on demand from the batch endpoint (e.g., Rust provider uses a module-level `$state` singleton in `cache.svelte.ts`).
-- Server-persisted via Hono HTTP API (`/data/:providerId`). A legacy `/data/preset` route still exists but is unused by the frontend, pending removal alongside the planned rename to a generic key-value endpoint.
+- Server-persisted via HTTP API (`/api/v1/data/{fileName}` — one route per provider data file, plain JSON over `fetch`).
 - Provider-data save failures are non-fatal (log + return `{}`). Auto-save on every state change (no debouncing — files are small).
-- **Provider data write guard**: the server rejects a PUT to `/data/:providerId` if the serialized TOML payload is less than 30% the size of the existing file on disk (HTTP 409). This prevents accidental data loss from frontend bugs or state resets. The check is skipped when the existing file is smaller than 256 bytes, since small files can legitimately shrink by large ratios. Future: a `?force=true` query parameter could bypass the guard for legitimate bulk deletions.
 
 **Preview Page (Derived State)**
 - Preview state derived from `currentUrl` (localStorage) and per-item `pinnedPages`
@@ -486,7 +486,7 @@ ProviderData ($state) ──► provider.render() inside $derived ──► rend
 - Each atom has independent auto-save — a change in one slice doesn't trigger writes to others.
 
 **Hybrid IPC**
-- Per-provider data CRUD via Hono HTTP API (`/api/v1/data/:providerId`)
+- Per-provider data CRUD via HTTP API (`/api/v1/data/{fileName}`) using plain `fetch`
 - UI state via localStorage (`turbodoc:current-url`, `turbodoc:expanded`) — no server round-trip
 - API response caching via HTTP proxy (`/proxy?url=`) — SQLite with RFC 7234 freshness and LRU eviction
 - Navigation events via WebView2 `postMessage` (low-latency, event-driven)
@@ -585,7 +585,7 @@ TurboDoc/
 │       │   ├── data.ts                 # Zod schemas + inferred types (ProviderData, Provider, Item, Page, IconProp, ProviderAction)
 │       │   ├── context.svelte.ts       # Single Svelte context for the provider pair (`ProviderContext = { info, data }`) with `setProvider` setter and `getProviderInfo` / `getProviderData` accessors; plus the shared `viewerRef` ($state-wrapped iframe handle) and the plain `navigateTo(url)` function that writes `viewerRef.value.src`
 │       │   ├── providerData.svelte.ts  # `ProviderDataStore` reactive class — `$state` data + load + autosave
-│       │   ├── ipc.ts                  # Hono HTTP client (per-provider data CRUD) + WebView2 event listener (navigated)
+│       │   ├── ipc.ts                  # HTTP fetch wrappers (per-provider data CRUD) + WebView2 event listener (navigated)
 │       │   ├── localStorage.ts         # Typed localStorage abstraction (Zod validation, mitt events, primitive + array APIs)
 │       │   └── uiState.svelte.ts       # Reactive accessors over mitt+localStorage (currentUrl, groupExpanded, itemExpanded) + imperative helpers
 │       │
@@ -616,16 +616,25 @@ TurboDoc/
 │           ├── version-group.ts    # Semver version grouping
 │           └── version-group.test.ts
 │
-├── server/                     # Bun + Hono server (own package.json + tsconfig.json)
-│   ├── package.json            # Server dependencies (Hono, bun:sqlite, etc.); `main: "src/index.ts"`
-│   ├── tsconfig.json           # Extends `@tsconfig/bun`; `types: ["bun"]`; `include: ["src"]`
-│   └── src/
-│       ├── index.ts            # Hono router + Vite dev server ($TURBODOC_PORT)
-│       ├── api.ts              # API endpoints (split data CRUD with TOML on disk via smol-toml, batch crate lookup)
-│       ├── proxy.ts            # /proxy?url= route handler + dark mode injection
-│       ├── http-cache.ts       # SQLite HTTP cache for doc pages (bun:sqlite, LRU eviction)
-│       ├── crates-cache.ts     # Dedicated SQLite cache for crates.io API responses (TTL-based)
-│       └── common.ts           # Shared config, database setup, utilities
+├── src/                        # Rust host + in-process server
+│   ├── main.rs                 # Tokio runtime, --dev CLI flag, Job Object, WebView2 launch
+│   ├── app.rs                  # WebView2 host (winit window, navigation interception, proxy forwarding)
+│   ├── webview.rs              # WebView2 wrapper
+│   └── server/                 # axum server (runs as a tokio task)
+│       ├── mod.rs              # Router assembly, AppState, http client + USER_AGENT
+│       ├── state.rs            # AppState (DB, http_client, revalidating dedup, data_dir)
+│       ├── db.rs               # `cache.sqlite` open + WAL + schema, rusqlite blocking-pool helper
+│       ├── crates_cache.rs     # 24h-TTL crate metadata cache + crates.io upstream fetch
+│       ├── api/
+│       │   ├── mod.rs          # /api/v1 router + per-request access log middleware
+│       │   ├── data.rs         # GET/PUT /data/:fileName (TOML on disk via `toml` crate)
+│       │   └── crates.rs       # POST /crates batch lookup + ?refresh
+│       ├── proxy/
+│       │   ├── mod.rs          # /proxy?url= handler (MISS / HIT fresh / HIT stale)
+│       │   ├── cache.rs        # `http_cache` table get/set + LRU eviction at 2000 entries
+│       │   ├── inject.rs       # Rustdoc dark-mode <script> injection at serve time
+│       │   └── revalidate.rs   # Stale-while-revalidate background task + DashSet dedup
+│       └── frontend.rs         # Dev: spawn Vite + reverse proxy; Prod: tower-http ServeDir
 │
 ├── target/                     # Build output (Rust + runtime data)
 │   └── data/                       # Runtime data directory ($TURBODOC_DATA)
@@ -669,7 +678,7 @@ TurboDoc/
 
 ### Completed
 - [x] Multi-provider architecture with view model derivation
-- [x] Data/cache persistence via Hono HTTP API
+- [x] Data/cache persistence via HTTP API
 - [x] Unified Rust provider (docs.rs + doc.rust-lang.org + windows-docs-rs)
 - [x] Pin/unpin documentation pages with preview page system
 - [x] Version selection with semver grouping
@@ -693,6 +702,7 @@ TurboDoc/
 
 ## Change History
 
+- **2026-05**: Rewrite the server in Rust and fold it into the host binary: replace the Bun + Hono + Vite-middleware server (`server/`, now deleted) with an in-process axum server under `src/server/` running on a multi-thread tokio runtime; preserve every HTTP endpoint (`/api/v1/data/{fileName}`, `/api/v1/crates`, `/proxy?url=`) and on-disk format (TOML provider files, `cache.sqlite` with the same `http_cache` + `crates_cache` schemas — no migration); `http-cache-semantics` for RFC 7234 freshness, `rusqlite` (bundled, single connection behind `Mutex` via `tokio::task::spawn_blocking`), `reqwest` for upstream fetches (manual redirect), `dashmap::DashSet` for stale-while-revalidate dedup, `tower-http::ServeDir` for prod frontend; add `--dev` clap flag that spawns `bunx --bun vite dev` on `port + 10000` and reverse-proxies non-API traffic — Vite reads `TURBODOC_VITE_PORT` from env and pins `hmr.clientPort` to the same port so HMR WebSocket bypasses the proxy; drop the data-loss-guard documentation block (was never implemented in the prior server); drop `hono` from frontend deps and rewrite `frontend/src/core/ipc.ts` to use plain `fetch` (no more `hc<typeof apiRoute>`); existing `cache.sqlite` rows from the Bun server stay readable, except `policy` JSON shape changes — the new server detects deserialize failures, drops the row, and re-fetches; `policy` write format is now `serde_json::to_string(&CachePolicy)` from the Rust crate's `serde` feature
 - **2026-05**: Remove the frontend `appData` / preset data flow: delete `appDataSchema` and the `AppData` type from `frontend/src/core/data.ts`; delete `loadPresetData()` / `savePresetData()` and the now-unused `getJsonFromResponse` helper from `frontend/src/core/ipc.ts`; drop the `appData` `$state`, its load/autosave `$effect`s, and the `{#if appData}` render gate from `App.svelte` so first paint no longer waits on a network round-trip; persistence-file list comment in `data.ts` updated to drop the `preset.json` bullet; the server's `/data/preset` route remains (unused) pending cleanup alongside the planned rename of `/data/:providerId` to a generic key-value endpoint; on-disk `preset.toml` is abandoned (no migration code, mirroring the prior `workspace.json` precedent); future app-wide settings will piggyback on the renamed generic data endpoint
 - **2026-05**: Move to one-provider-at-a-time architecture: collapse `frontend/src/ui/explorer/ExplorerProvider.svelte` into `Explorer.svelte` (single file now owns the `ProviderDataStore`, derives the view model via `provider.render(ctx)`, wires up the optional `provider.setupEffects(ctx)` hook, and runs the eager orphan cleanup `$effect`); switch `frontend/src/providers/index.ts` from `Record<string, Provider>` (built via `remeda.mapToObj`) to a plain default-exported `Provider[]` array, dropping the lone `remeda` usage in that file; `App.svelte` now selects exactly one provider via local `providerId` `$state` (defaulting to `providers[0].id`) and a `$derived` `provider` lookup, replacing the previous iteration over `appData.presets[currentPreset].providers`; `Explorer.svelte`'s `store = $derived(new ProviderDataStore(provider.id))` already handles provider switching by recreating the store when `provider.id` changes; provider switcher UI not yet built (placeholder `<!-- Provider Switch Here -->` in `App.svelte`) and the selection is ephemeral (resets on each launch) until the planned generic data endpoint replaces `/data/:providerId`
 - **2026-05**: Reorganize TypeScript files under per-package `src/` subdirectories: move every application/source TS and Svelte file in `frontend/` from `frontend/{core,providers,ui,utils}/` to `frontend/src/{core,providers,ui,utils}/`, and every TS file in `server/` from `server/` to `server/src/`; config (`package.json`, `tsconfig.json`, `vite.config.ts`, `svelte.config.ts`, `components.json`), entry HTML/JS (`index.html`, `index.ts`), styles (`global.css`), and vendored deps (`3rdparty/`) stay at the frontend root; rename Vite/TS alias `@server/` → `@/server/` (now resolves to `server/src/`), keep `@/` mapped to `frontend/src/` and `@shadcn/` mapped to `frontend/3rdparty/shadcn/`; frontend `tsconfig.json` extends `@tsconfig/svelte` with explicit paths (`include: ["src"]`); server `tsconfig.json` extends `@tsconfig/bun` (`include: ["src"]`); server `package.json` `main` pointed at `src/index.ts`; no behavioral changes — purely a layout cleanup so both TypeScript packages mirror the Cargo `src/` convention already used by the Rust host

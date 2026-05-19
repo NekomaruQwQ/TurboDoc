@@ -5,14 +5,12 @@ alias c := check
 alias i := install
 
 run:
-    cargo run -- --data data
+    cargo run -- --data data --dev
 check:
     cargo clippy
-    cd server;   bunx --bun tsc --noEmit
     cd frontend; bunx --bun svelte-check --tsconfig tsconfig.json --threshold error
 install:
     cargo build
-    cd server;   bun i
     cd frontend; bun i
     cd frontend; bunx --bun shadcn-svelte@latest add -y --no-deps --overwrite \
         button \

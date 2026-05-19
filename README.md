@@ -28,44 +28,41 @@ TurboDoc is a dedicated viewer that proxies and caches docs.rs locally, lets you
 
 ### Prerequisites
 
-- [Rust toolchain](https://rustup.rs/) (for the host app)
-- [Bun](https://bun.sh/) (JavaScript runtime)
+- [Rust toolchain](https://rustup.rs/) (for the host + in-process server)
+- [Bun](https://bun.sh/) (for the frontend build / dev server)
 - [just](https://github.com/casey/just) (task runner)
 
 ### Build & Run
 
 ```sh
-just install   # Install dependencies for server/ and frontend/
-cargo run      # Run TurboDoc
+just install   # Install frontend dependencies + build the host
+just run       # Run TurboDoc in dev mode (Vite HMR enabled)
 ```
 
 ### Tech Stack
 
 | Layer | Technologies |
 |-------|-------------|
-| **Host** | Rust · winit · webview2-com · WebView2 |
-| **Server** | TypeScript · Bun · Hono · SQLite (bun:sqlite) |
-| **Frontend** | React 19 · Vite 7 · Tailwind CSS v4 · shadcn/ui (Radix) · Immer |
+| **Host + Server** | Rust · winit · webview2-com · WebView2 · axum · rusqlite · reqwest · http-cache-semantics |
+| **Frontend** | Svelte 5 · Vite · Tailwind CSS v4 · shadcn-svelte (Bits UI) |
 | **Tooling** | just (task runner) · Biome (linter) |
 
 ## Architecture
 
-TurboDoc is a three-layer desktop application:
+TurboDoc is a two-process desktop application — one Rust binary plus (in dev mode) a Vite child process for HMR:
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  Host (Rust + WebView2)                                      │
-│  Window shell — intercepts doc requests, forwards to server  │
+│  Rust binary                                                 │
+│  ├─ WebView2 host (winit window, navigation interception)    │
+│  └─ axum server task (REST + /proxy + frontend serving)      │
 ├──────────────────────────────────────────────────────────────┤
-│  Server (Bun + Hono)                                         │
-│  REST API, HTTP proxy with SQLite cache, dark mode injection │
-├──────────────────────────────────────────────────────────────┤
-│  Frontend (React 19 + Vite 7)                                │
+│  Frontend (Svelte 5 + Vite)                                  │
 │  Explorer sidebar, iframe documentation viewer               │
 └──────────────────────────────────────────────────────────────┘
 ```
 
-The host is a thin Rust process that spawns the server, opens a WebView2 window, and gets out of the way — all logic lives in the server and frontend. When the WebView2 iframe navigates to a documentation URL, the host intercepts the request and forwards it to the server's `/proxy` endpoint. The server checks its SQLite cache (RFC 7234 freshness, LRU eviction) and either serves the cached response or fetches upstream:
+The Rust binary hosts both the WebView2 window and the axum server (running on a tokio worker thread). When the WebView2 iframe navigates to a documentation URL, the host intercepts the request and forwards it over loopback to the server's `/proxy` endpoint. The server checks its SQLite cache (RFC 7234 freshness via `http-cache-semantics`, LRU eviction) and either serves the cached response or fetches upstream:
 
 ```
 iframe navigates to https://docs.rs/serde/latest/serde/

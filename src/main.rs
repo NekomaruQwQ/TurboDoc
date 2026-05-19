@@ -1,5 +1,14 @@
-//! TurboDoc — spawns the Bun server and hosts the frontend in a WebView2 window,
-//! forwarding server output and ensuring cleanup on exit.
+//! TurboDoc — hosts the in-process axum server and the WebView2 window.
+//!
+//! Lifecycle:
+//! 1. Build a multi-thread tokio runtime (server runs on worker threads so the
+//!    main thread is free for winit/WebView2).
+//! 2. Bind the server (await `server::start`); this returns once the listener
+//!    is accepting, so no TCP-readiness polling is needed.
+//! 3. Launch WebView2 on the main thread. It blocks until the user closes the
+//!    window.
+//! 4. Drop the runtime, which cancels the server task and any spawned Vite
+//!    dev-server (the Job Object handles OS-level cleanup as a backstop).
 
 mod prelude {
     pub type WebRequestBuilder = http::request::Builder;
@@ -8,6 +17,7 @@ mod prelude {
 }
 
 mod app;
+mod server;
 mod webview;
 
 /// URL prefixes that the host can navigate to instead of opening in
@@ -35,15 +45,8 @@ mod main {
     use std::path::Path;
     use std::path::PathBuf;
     use std::env;
-    use std::io::prelude::*;
-    use std::io::BufReader;
-    use std::net::*;
-    use std::process::*;
-    use std::thread;
-    use std::time::Duration;
 
     use clap::Parser;
-    use tap::prelude::*;
 
     /// TurboDoc — universal documentation viewer.
     #[derive(Parser)]
@@ -54,16 +57,24 @@ mod main {
         #[arg(short = 'd', long = "data", env = "TURBODOC_DATA")]
         data_dir: PathBuf,
 
-        /// Local port the Bun server binds to.
+        /// Local port the server binds to.
         /// Falls back to the `TURBODOC_PORT` environment variable.
         #[arg(short = 'p', long = "port", env = "TURBODOC_PORT")]
         port: u16,
+
+        /// Enable dev mode: spawn `vite dev` as a child process and
+        /// reverse-proxy frontend assets to it (HMR preserved). Without this,
+        /// the server expects `frontend/dist/` to exist and serves it
+        /// statically.
+        #[arg(long = "dev", default_value_t = false)]
+        dev: bool,
     }
 
     pub fn main() {
         let args = Args::parse();
         let port = args.port;
         let data_dir = args.data_dir;
+        let dev = args.dev;
 
         let self_path =
             env::current_exe()
@@ -74,16 +85,28 @@ mod main {
                 .expect("unexpected executable path");
         log::info!("root_dir: {}", root_dir.display());
         log::info!("data_dir: {}", data_dir.display());
+        log::info!("dev mode: {dev}");
 
+        // Job Object: any process the host spawns (Vite, when --dev is on)
+        // inherits this job and gets killed-on-close. Without it, killing
+        // the host via Task Manager could leave orphaned Vite processes.
         let job_object = create_job_object();
 
-        // -- Spawn server --
+        // -- Build runtime and start server --
+        let runtime =
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .expect("failed to build tokio runtime");
         log::info!("starting server...");
-        let server = spawn_server(&root_dir, &data_dir, port);
-        SocketAddrV4::new(Ipv4Addr::LOCALHOST, port)
-            .pipe(SocketAddr::from)
-            .pipe(|addr| TcpStream::connect_timeout(&addr, Duration::from_secs(10)))
-            .expect("failed to connect to server within timeout");
+        runtime
+            .block_on(crate::server::start(crate::server::Config {
+                port,
+                data_dir,
+                root_dir: root_dir.clone(),
+                dev,
+            }))
+            .expect("failed to start server");
         log::info!("server ready on port {port}.");
 
         // -- Spawn app --
@@ -91,21 +114,17 @@ mod main {
         crate::app::run(&format!("http://localhost:{port}"));
 
         // -- Cleanup --
-        drop(server);
+        drop(runtime);
         drop(job_object);
     }
 
-    /// Creates a Job Object and assigns the current process to it.
-    ///
-    /// This ensures that if the launcher process exits for any reason (including
-    /// crashes), the OS will automatically terminate all child processes in the
-    /// job, preventing orphaned server/app processes.
+    /// Creates a Job Object and assigns the current process. Children
+    /// (the Vite dev server in `--dev` mode) inherit the job, so they die
+    /// with the host even on abrupt termination.
     fn create_job_object() -> win32job::Job {
         use tap::Pipe as _;
-        use win32job::{
-            Job,
-            ExtendedLimitInfo,
-        };
+        use win32job::ExtendedLimitInfo;
+        use win32job::Job;
 
         let job_object =
             ExtendedLimitInfo::new()
@@ -118,53 +137,18 @@ mod main {
         job_object
     }
 
+    /// Walks up from the executable path to find the repo root.
+    /// Used to locate `frontend/dist/` (prod mode) and `frontend/`
+    /// (dev mode, for spawning Vite).
     fn get_root_dir_from_self_path(self_path: &Path) -> Option<PathBuf> {
-        // The executable path is expected to be `<repo>/target/debug/turbodoc.exe`.
-        // So we walk up three levels to find the repo root.
+        use tap::Pipe as _;
+
+        // Expected path: `<repo>/target/debug/turbodoc.exe` — walk up 3.
         self_path
             .parent()?
             .parent()?
             .parent()?
             .to_path_buf()
             .pipe(Some)
-    }
-
-    fn spawn_server(root_dir: &Path, data_dir: &Path, port: u16) -> Child {
-        Command::new("bun")
-            .args(["--hot", "server"])
-            .current_dir(root_dir)
-            .env("TURBODOC_DATA", data_dir)
-            .env("TURBODOC_PORT", port.to_string())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .expect("failed to spawn server process")
-            .tap_mut(|child| forward_output(child, "@server"))
-    }
-
-    fn forward_output(child: &mut Child, tag: &'static str) {
-        let stdout =
-            child.stdout.take().expect("failed to capture stdout");
-        let stderr =
-            child.stderr.take().expect("failed to capture stderr");
-        on_output(stdout, move |line| eprintln!("{tag} stdout> {line}"));
-        on_output(stderr, move |line| eprintln!("{tag} stderr> {line}"));
-    }
-
-    fn on_output<R, F>(read: R, line_callback: F)
-    where
-        R: Read + Send + 'static,
-        F: Fn(&str) + Send + 'static {
-        thread::spawn(move || {
-            let reader = BufReader::new(read);
-            for line in reader.lines() {
-                match line {
-                    Ok(line) =>
-                        line_callback(&line),
-                    Err(err) =>
-                        log::warn!("dropped output line due to read error: {}", err),
-                }
-            }
-        });
     }
 }

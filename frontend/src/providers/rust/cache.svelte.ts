@@ -1,7 +1,17 @@
-import type { CrateMetadata } from "@/server/api";
 import * as Utils from "@/utils/version-group";
 
 import { getBaseUrlForCrate } from "./url";
+
+/** Normalized crate metadata returned by the server's `POST /api/v1/crates`.
+ *  Mirrors the shape produced by `src/server/crates_cache.rs::CrateMetadata`. */
+export interface CrateMetadata {
+    name: string;
+    description: string | null;
+    homepage: string | null;
+    repository: string | null;
+    documentation: string | null;
+    versions: { num: string; yanked: boolean }[];
+}
 
 /** Cached metadata for a single crate, fetched from crates.io API via the
  *  HTTP proxy. Stored in-memory only — the proxy's SQLite cache handles

@@ -33,35 +33,23 @@ window.chrome?.webview?.addEventListener("message", ({ data }) => {
 });
 
 // == Wrapper functions for API endpoints ==
-import { hc } from "hono/client";
-
-import type apiRoute from "@/server/api";
-
-const api = hc<typeof apiRoute>("/api/v1");
-
-// -- Provider Data --
 
 /** Load a provider's data. Returns `{}` on HTTP errors (non-fatal).
  *  No validation — resolves to `unknown`. */
 export async function loadProviderData(providerId: string): Promise<unknown> {
-    const response = await api.data[":fileName"].$get({
-        param: { fileName: providerId },
-    });
+    const response = await fetch(`/api/v1/data/${encodeURIComponent(providerId)}`);
     return response.ok ? response.json() : {};
 }
 
-/** Save a provider's data. Non-fatal on HTTP errors.
- *  The server may respond with 409 if the new data is suspiciously smaller
- *  than the existing file (data loss guard). */
+/** Save a provider's data. Non-fatal on HTTP errors. */
 export async function saveProviderData(
     providerId: string, data: object,
 ): Promise<void> {
-    const response = await api.data[":fileName"].$put({
-        param: { fileName: providerId },
-        json: data,
+    const response = await fetch(`/api/v1/data/${encodeURIComponent(providerId)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
     });
-    if (response.status === 409)
-        console.warn(`Provider data save rejected for "${providerId}" (data loss guard). Next legitimate save will succeed.`);
-    else if (!response.ok)
+    if (!response.ok)
         console.error(`Failed to save provider data for ${providerId}: ${response.statusText}`);
 }

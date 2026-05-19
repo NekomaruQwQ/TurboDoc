@@ -5,7 +5,6 @@
         "target": "ES2022",
         "types": ["bun"],
         "paths": {
-            "@/server/*": ["../server/src/*"],
             "@/*": ["../frontend/src/*"],
             "@shadcn": ["../frontend/3rdparty/shadcn"],
             "@shadcn/*": ["../frontend/3rdparty/shadcn/*"],

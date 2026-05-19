@@ -14,6 +14,13 @@ const SVELTE_LIBS = [
     "paneforge",
 ];
 
+// Set by the Rust host in `--dev` mode. When present, Vite binds to this
+// port and tells HMR clients to connect to the same port directly — so the
+// HMR WebSocket bypasses the Rust reverse proxy and goes browser → Vite.
+// Unset: Vite uses its defaults (port 5173, in-page HMR), so running `bun
+// run vite dev` standalone still works for ad-hoc frontend testing.
+const VITE_PORT = parseInt(process.env.TURBODOC_VITE_PORT ?? "0", 10);
+
 export default vite.defineConfig({
     root: __dirname,
     plugins: [
@@ -22,7 +29,6 @@ export default vite.defineConfig({
     ],
     resolve: {
         alias: {
-            "@/server/": `${__dirname}/../server/src/`,
             "@/": `${__dirname}/src/`,
             "@shadcn/": `${__dirname}/3rdparty/shadcn/`,
         },
@@ -30,4 +36,10 @@ export default vite.defineConfig({
     optimizeDeps: { exclude: SVELTE_LIBS },
     ssr: { optimizeDeps: { exclude: SVELTE_LIBS } },
     clearScreen: false,
+    server: VITE_PORT > 0 ? {
+        host: "127.0.0.1",
+        port: VITE_PORT,
+        strictPort: true,
+        hmr: { clientPort: VITE_PORT },
+    } : undefined,
 });
