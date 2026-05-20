@@ -1,16 +1,22 @@
 set shell := ["nu", "-c"]
 
 alias r := run
-alias c := check
 alias i := install
 
-run:
+# Run TurboDoc with existing data in the local repository.
+dev:
     cargo run -- --data data
-check:
-    cargo clippy
-    cd frontend; bunx --bun svelte-check --tsconfig tsconfig.json --threshold error
+
+# Run TurboDoc with the specified arguments.
+run *args:
+    cargo run -- {{args}}
+
+# Run the specified `svelte-check` command in the frontend directory.
+svc *args:
+    cd frontend; bunx --bun svelte-check --tsconfig tsconfig.json {{args}}
+
+# Install dependencies and shadcn-svelte components in the frontend directory.
 install:
-    cargo build
     cd frontend; bun i
     cd frontend; bunx --bun shadcn-svelte@latest add -y --no-deps --overwrite \
         button \
@@ -23,6 +29,3 @@ install:
         separator \
         collapsible
 
-# Run the specified `svelte-check` command in the frontend directory.
-svc *args:
-    cd frontend; bunx --bun svelte-check --tsconfig tsconfig.json {{args}}
