@@ -102,30 +102,46 @@ TurboDoc is an "enhanced tabbed browser with inactive tab resources released" �
 
 | **Component** | **Tech Stack** | **Role** | **Key Responsibilities** |
 |---|---|---|---|
-| **Host** | Rust (winit + WebView2) | **The Shell** | Window management. Intercepts doc URL requests and forwards them to the in-process server's `/proxy?url=` endpoint. Sends `navigated` events to frontend via `PostWebMessageAsJson`. Opens external URLs in system browser. In `--dev` mode, spawns Vite as a child process under a Job Object so it dies with the host. |
-| **Server** | Rust (axum + rusqlite + reqwest), embedded in the host binary as a tokio task | **The Brain** | REST endpoints for per-provider data persistence (`/api/v1/data/:fileName`). Batch crate metadata lookup with dedicated SQLite cache (`POST /api/v1/crates`). HTTP proxy with SQLite caching, RFC 7234 freshness via `http-cache-semantics`, and LRU eviction (`/proxy?url=`). Dark mode injection at serve time. Serves frontend assets (`tower-http::ServeDir` in prod, reverse-proxy to Vite in `--dev`). |
-| **Frontend** | Svelte 5 + Vite | **The Face** | UI rendering (Explorer, Navigation). Fetches data from `/api/v1/*` via plain `fetch`. Provider-based architecture for multi-source docs. |
+| **Host** | Rust (winit + WebView2) | **The Shell** | Window management. Intercepts every WebView2 request in `WebResourceRequested`: doc URLs route to `Server::fetch` (proxy + dark-mode), `/api/v1/*` routes to `Server::dispatch_api` (data + crates), everything else passes through to Vite. Sends `navigated` events to frontend via `PostWebMessageAsJson`. Opens external URLs in system browser. Spawns Vite as a child process under a Job Object so it dies with the host. |
+| **Backend** | Rust (rusqlite + reqwest + `http-cache-semantics`), in-process — no axum, no bound TCP listener of its own | **The Brain** | Provider data persistence (`/api/v1/data/{file_name}`) reading/writing TOML. Batch crate metadata lookup (`POST /api/v1/crates`) backed by the unified HTTP proxy cache. HTTP proxy with SQLite caching, RFC 7234 freshness, stale-while-revalidate, and LRU eviction. Dark-mode `<script>` injection at serve time. Called synchronously from the WebView2 UI thread via `Handle::block_on`. |
+| **Frontend** | Svelte 5 + Vite | **The Face** | UI rendering (Explorer, Navigation). Calls `/api/v1/*` via plain `fetch`; WebView2 intercepts and routes to the in-process backend. Vite serves all assets directly on the main port (no reverse proxy). Provider-based architecture for multi-source docs. |
 
 ### Request Flow
 
+There is no loopback HTTP. The host's `WebResourceRequested` callback calls
+the backend in-process on the UI thread via `Handle::block_on`.
+
+**Docs page (e.g. https://docs.rs/serde/latest/serde/):**
 ```
-WebView2 iframe navigates to https://docs.rs/serde/latest/serde/
-  │
+WebView2 iframe navigates
   ├─ OnFrameNavigationStarting: post "navigated" event to frontend
-  │
-  └─ OnWebResourceRequested (GET, ProxiedUrls match):
-       │
-       │  Rust host forwards to in-process server:
-       │  GET http://localhost:$TURBODOC_PORT/proxy?url=https%3A%2F%2Fdocs.rs%2Fserde%2Flatest%2Fserde%2F
-       │
-       └─ axum /proxy handler:
-            ├─ Cache HIT + fresh?  → serve cached body + dark mode injection
+  └─ OnWebResourceRequested (GET, PROXIED_URL prefix match):
+       │  host: server.fetch(url)  → proxy::fetch(state, url, opts)
+       └─ proxy::fetch:
+            ├─ Cache HIT + fresh?  → serve cached body + dark-mode injection
             ├─ Cache HIT + stale?  → serve cached body immediately
             │    └─ background:      conditional revalidation (If-None-Match / If-Modified-Since)
             │         ├─ 304 Not Modified → update policy in cache
             │         └─ 2xx             → replace cache entry
             └─ Cache MISS          → fetch upstream, cache if storable, serve
 ```
+
+**Frontend `fetch("/api/v1/...")`:**
+```
+WebView2 fetch from the Svelte app
+  └─ OnWebResourceRequested (path starts with /api/v1/):
+       │  host: server.dispatch_api(request)  → api::dispatch
+       └─ api::dispatch routes by (method, path):
+            ├─ GET  /api/v1/data/{f}   → read TOML, return as JSON
+            ├─ PUT  /api/v1/data/{f}   → write JSON as TOML
+            └─ POST /api/v1/crates     → peek proxy cache for each name;
+                                          fresh/stale → results;
+                                          miss → spawn warming task (deduped
+                                          via state.revalidating), name → pending
+```
+
+**Frontend asset request (anything else):**
+WebView2 default path → Vite on the main port (HMR WebSocket included). No interception.
 
 ### Technology Stack
 
@@ -137,9 +153,9 @@ WebView2 iframe navigates to https://docs.rs/serde/latest/serde/
 - **Styling**: Tailwind CSS v4 with OKLCH color space; `class={[...]}` for conditional classes (no `cn()` in app code)
 - **Icons**: `@lucide/svelte` (icons imported individually for tree-shaking)
 - **Utilities**: remeda (functional), semver, zod
-- **Server**: Rust (axum + rusqlite + reqwest + `http-cache-semantics`) running as a tokio task inside the host binary on `$TURBODOC_PORT`. Prod frontend assets via `tower-http::ServeDir`; in `--dev` mode the host spawns Vite as a child process and reverse-proxies non-API traffic to it.
-- **Host**: Rust (winit + WebView2) — window management, request forwarding, server + Vite-child lifecycle
-- **IPC**: HTTP API for CRUD (plain `fetch` from the frontend) + WebView2 `PostWebMessageAsJson` for navigation events; mitt-based event bus inside the frontend (`createSubscriber` bridges into Svelte reactivity)
+- **Backend**: Rust (rusqlite + reqwest + `http-cache-semantics`) — in-process, no HTTP listener. `server::start` opens the SQLite cache, spawns Vite, and returns a `Server` handle the host calls from the WebView2 callback via `runtime.block_on(...)`.
+- **Host**: Rust (winit + WebView2) — window management, WebView2 request interception, server + Vite-child lifecycle. The Vite child binds the main port; the host process owns no listener.
+- **IPC**: WebView2 intercepts `/api/v1/*` requests from the frontend and dispatches them to the backend in-process (the frontend still calls plain `fetch`, oblivious to the routing); WebView2 `PostWebMessageAsJson` for navigation events; mitt-based event bus inside the frontend (`createSubscriber` bridges into Svelte reactivity).
 
 ### Sidebar Layout
 
@@ -231,7 +247,7 @@ View models contain callbacks (e.g., `setPinned`, `setCurrentVersion`, `invoke`)
 <providerId>.toml ──────────► ProviderDataStore.load() ────► ProviderOutput (View Model)
 localStorage (turbodoc:current-url) ──► currentUrl.value ──────► current URL (createSubscriber)
 localStorage (turbodoc:expanded) ────► groupExpanded/itemExpanded ► expansion state
-Dedicated crates_cache SQLite table ──► cache.svelte.ts ──────► in-memory API response $state (per-provider)
+http_cache SQLite (proxy, synth TTL) ──► cache.svelte.ts ──────► in-memory API response $state (per-provider)
 ```
 
 **Navigation flow:**
@@ -285,12 +301,14 @@ Currently handled within the unified `rust` provider (cross-crate). When multipl
 
 ```
 just install   # Installs frontend dependencies + builds the host
-just run       # Launches the app in dev mode (HMR enabled — see below)
+just run       # Launches the app with HMR
 ```
 
-`just run` is `cargo run -- --data data --dev`. The `--dev` flag tells the in-process server to spawn `bunx --bun vite dev` on `$TURBODOC_PORT + 10000` and reverse-proxy frontend asset requests to it (Vite HMR WebSocket connects browser → Vite directly via `hmr.clientPort`, so HMR doesn't traverse the proxy). Without `--dev`, the server serves `frontend/dist/` statically via `tower-http::ServeDir` — run `bun run --cwd frontend build` first.
+`just run` is `cargo run -- --data data`. There is only one mode. `server::start` opens the SQLite cache, then `frontend::spawn_vite` launches `bunx --bun vite dev` on `$TURBODOC_PORT` (Vite reads the port from `TURBODOC_VITE_PORT`, set by the host). `start` returns once Vite is accepting connections, then the host opens the WebView2 window and navigates to `http://localhost:{port}/` (= Vite). HMR's WebSocket talks to Vite on the same port — no `hmr.clientPort` override, no reverse proxy.
 
-The Rust host (`src/main.rs`) builds the tokio runtime, awaits `server::start` (which returns once the listener is bound — no TCP-readiness polling needed), then opens the WebView2 window. A Windows Job Object ensures the spawned Vite child dies when the host exits.
+A Windows Job Object (set up in `src/main.rs`) ensures the spawned Vite child dies when the host exits, even on abrupt termination.
+
+No packaged-prod build path exists yet. When it lands, it will likely use `ICoreWebView2Environment3::SetVirtualHostNameToFolderMapping` to serve `frontend/dist/` directly from WebView2 — no Rust file server, no bound TCP port.
 
 ### Mandatory Implementation Rules
 
@@ -375,11 +393,11 @@ Design decisions that shaped the current architecture. Organized by area.
 - Separation of concerns is enforced by the type system, not just convention
 
 **API Response Caching**
-- Crate metadata (crates.io API) uses a dedicated `crates_cache` SQLite table (`server/src/crates-cache.ts`) — stores raw upstream response bodies with a simple 24-hour TTL. No LRU eviction needed (entries are small). On upstream failure, stale entries are served as fallback. Fetches use plain `fetch()` directly to crates.io, not through the HTTP proxy.
-- Documentation page caching uses the HTTP proxy's SQLite cache (`server/src/http-cache.ts`) — RFC 7234 freshness, conditional revalidation, LRU eviction, stale-while-revalidate
-- Each provider manages its own in-memory cache for within-session state — not persisted, starts empty on each app launch (e.g., Rust provider uses a module-level store subscribed to via `useSyncExternalStore`)
-- On provider load, the frontend batch-fetches all uncached crate metadata via `POST /api/v1/crates` — the server serves fresh cache hits from the `crates_cache` table and fetches upstream (in parallel) for stale/missing entries, returning normalized `CrateMetadata` for all requested crates. The frontend never constructs crates.io URLs or parses raw crates.io responses.
-- Force-refresh: `POST /api/v1/crates?refresh=true` bypasses the cache freshness check and always fetches upstream. Limited to a single crate per request to prevent bulk hits to crates.io. Triggered from the "Refresh Metadata" action in the crate's explorer menu.
+- One cache, not two. Both documentation pages and crates.io API responses live in the same `http_cache` SQLite table behind the proxy: RFC 7234 freshness, conditional revalidation, LRU eviction at 2000 entries, stale-while-revalidate.
+- crates.io doesn't emit useful `Cache-Control`, so `proxy::synth_max_age_for(url)` synthesizes `cache-control: public, max-age=86400` for `https://crates.io/api/v1/crates/*` URLs before `CachePolicy::new` inspects them. Applied transparently in both `proxy::fetch` and background revalidation — callers don't have to thread a TTL through.
+- Each provider manages its own in-memory cache for within-session state (e.g., Rust provider uses a `$state`-proxied singleton in `cache.svelte.ts`) — not persisted, starts empty on each launch.
+- `POST /api/v1/crates` is **non-blocking on cache misses**. The handler peeks the proxy cache per name; fresh/stale entries are returned inline in `results`; cache misses are sent to a deduped warming task (via `state.revalidating`) and the name appears in `pending`. The frontend retries with the `pending` names using exponential backoff (500ms → 4s, max 8 attempts in `cache.svelte.ts::batchFetchCrateCache`) until everything resolves. This keeps the UI thread responsive: the WebView2 callback never blocks on an upstream fetch.
+- Force-refresh: `POST /api/v1/crates?refresh=true` skips the peek and unconditionally spawns a warming task. Limited to a single crate per request to prevent bulk hits. Triggered from the "Refresh Metadata" action in the crate's explorer menu.
 
 **Data Model vs View Model**
 
@@ -413,15 +431,16 @@ Design decisions that shaped the current architecture. Organized by area.
 - No `serialize`/`deserialize` methods — view model callbacks mutate `$state`-proxied data directly
 - No provider collapsing in sidebar — exactly one provider is active at a time, chosen by the (forthcoming) switcher
 
-**"Dumb Pipe" Delegate Pattern**
-- All proxy and caching logic lives in the in-process axum server, not in the WebView2 event loop
-- The WebView2 callback is a thin forwarding shim — intercepts doc URL requests and delegates to the server's `/proxy?url=` endpoint over loopback
-- Decouples WebView2 callbacks (windowing) from caching/parsing logic, keeping each layer focused
+**Thin-Callback Pattern**
+- All proxy and caching logic lives in the in-process backend (`src/server/`). The WebView2 callback is a router: match the request URL against `PROXIED_URL` prefixes → `server.fetch`; match the path against `/api/v1/` → `server.dispatch_api`; otherwise pass through.
+- Backend methods run on tokio worker threads via `Handle::block_on` — same blocking semantics the UI thread would have had if it called HTTP loopback, but without the serialize/deserialize round trip or the bound TCP listener.
+- No axum, no tower-http. The crate has no HTTP server of its own; only the Vite child binds the network.
 
 **Architectural Constraints**
 - No URL Rewriting: the WebView still believes it is browsing `docs.rs` directly
 - No SSL Proxy: proxying happens after WebView2 intercepts the request intent
-- Configurable Port and Data Directory: required at startup via clap CLI args (`--port`/`-p`, `--data`/`-d`) with env-var fallbacks (`TURBODOC_PORT`, `TURBODOC_DATA`); no defaults — the host fails fast if neither flag nor env var is supplied. Both are consumed in-process by `server::start`, no subprocess env-var forwarding needed.
+- Interception by both URL prefix and path: docs are matched by `PROXIED_URL` (host+scheme), API calls by path prefix (`/api/v1/`). Path-based matching means the API surface works regardless of the page's origin (currently `localhost:{port}` = Vite; future packaged builds could use a virtual host).
+- Configurable Port and Data Directory: required at startup via clap CLI args (`--port`/`-p`, `--data`/`-d`) with env-var fallbacks (`TURBODOC_PORT`, `TURBODOC_DATA`); no defaults — the host fails fast if neither flag nor env var is supplied. Both are consumed in-process by `server::start`.
 
 **Dark Mode Injection (Serve-Time)**
 - Cache stores clean upstream content; dark mode injection applied at serve time
@@ -437,7 +456,7 @@ Design decisions that shaped the current architecture. Organized by area.
   - **Primitive** (`turbodoc:current-url`): current URL, simple get/set
   - **Array** (`turbodoc:expanded`): flat string array of expanded item/group keys. Key format: `<providerId>:<itemId>` for items, `<providerId>:group:<groupId>` for groups. Membership-check hooks (`useGroupExpanded`, `useItemExpanded`) with selective re-rendering via mitt events — only hooks whose specific key changed re-render.
   - Each slot validated with Zod on load; invalid/missing data falls back to empty defaults (default URL `https://docs.rs/`, nothing expanded). See `frontend/src/core/localStorage.ts` and `frontend/src/core/uiState.svelte.ts`.
-- Crate metadata caching uses a dedicated `crates_cache` SQLite table with 24-hour TTL (separate from the HTTP proxy cache). Each provider manages its own in-memory cache for within-session state, populated on demand from the batch endpoint (e.g., Rust provider uses a module-level `$state` singleton in `cache.svelte.ts`).
+- Crate metadata caching uses the same `http_cache` SQLite table as documentation pages (24-hour synthesized TTL — see "API Response Caching" above). Each provider manages its own in-memory cache for within-session state, populated on demand from the batch endpoint (e.g., Rust provider uses a module-level `$state` singleton in `cache.svelte.ts`).
 - Server-persisted via HTTP API (`/api/v1/data/{fileName}` — one route per provider data file, plain JSON over `fetch`).
 - Provider-data save failures are non-fatal (log + return `{}`). Auto-save on every state change (no debouncing — files are small).
 
@@ -486,11 +505,11 @@ ProviderData ($state) ──► provider.render() inside $derived ──► rend
 - Each atom has independent auto-save — a change in one slice doesn't trigger writes to others.
 
 **Hybrid IPC**
-- Per-provider data CRUD via HTTP API (`/api/v1/data/{fileName}`) using plain `fetch`
-- UI state via localStorage (`turbodoc:current-url`, `turbodoc:expanded`) — no server round-trip
-- API response caching via HTTP proxy (`/proxy?url=`) — SQLite with RFC 7234 freshness and LRU eviction
-- Navigation events via WebView2 `postMessage` (low-latency, event-driven)
-- All persistence operations are non-fatal (log errors, don't crash)
+- Per-provider data CRUD via `/api/v1/data/{file_name}` — frontend calls `fetch()` like any HTTP API; WebView2 intercepts the path and routes it to the in-process `api::data` handlers (no network hop, no axum).
+- UI state via localStorage (`turbodoc:current-url`, `turbodoc:expanded`) — no IPC round-trip.
+- Documentation page + crates.io API caching via the proxy's `http_cache` SQLite (RFC 7234 freshness, stale-while-revalidate, LRU eviction). Frontend triggers crate lookups by calling `POST /api/v1/crates`; cache misses are warmed in the background and surfaced via the `pending` retry shape.
+- Navigation events via WebView2 `postMessage` (low-latency, event-driven).
+- All persistence operations are non-fatal (log errors, don't crash).
 
 **Decomposed Root State (no AppContext class)**
 - `App.svelte` owns the active `providerId` ($state) and passes the derived `provider` object as a prop to `Explorer.svelte`. There is no server-persisted `appData` — first paint does not wait on any network round-trip.
@@ -560,10 +579,6 @@ TurboDoc/
 ├── .justfile                   # Task runner (just install, just build, just run, etc.)
 ├── biome.json                  # Biome linter (formatter disabled)
 ├── Cargo.toml                  # Rust host app
-├── src/
-│   ├── main.rs                 # Entry point (job object, server spawn, TCP readiness probe, cleanup)
-│   ├── app.rs                  # WebView2 window, event handlers, proxy forwarding
-│   └── webview.rs              # WebView2 COM wrapper (environment, controller, events)
 │
 ├── frontend/                   # Svelte 5 frontend (own package.json + tsconfig.json)
 │   ├── package.json            # Frontend dependencies (Svelte, bits-ui, paneforge, @lucide/svelte, etc.)
@@ -594,7 +609,7 @@ TurboDoc/
 │       │   └── rust/               # Unified Rust provider
 │       │       ├── index.ts            # Provider implementation (render, URL handling, page parsing, getImportCratesAction inlined)
 │       │       ├── effects.svelte.ts   # Per-provider $effect setup (URL sync, batch fetches, seed crates)
-│       │       ├── cache.svelte.ts     # `$state` singleton: in-memory crate metadata cache + batch fetch
+│       │       ├── cache.svelte.ts     # `$state` singleton: in-memory crate metadata cache + batch fetch with `pending`/retry backoff (500ms→4s, max 8 attempts)
 │       │       ├── url.ts              # URL parsing/building (docs.rs, doc.rust-lang.org, windows-docs-rs)
 │       │       └── url.test.ts
 │       │
@@ -616,29 +631,29 @@ TurboDoc/
 │           ├── version-group.ts    # Semver version grouping
 │           └── version-group.test.ts
 │
-├── src/                        # Rust host + in-process server
-│   ├── main.rs                 # Tokio runtime, --dev CLI flag, Job Object, WebView2 launch
-│   ├── app.rs                  # WebView2 host (winit window, navigation interception, proxy forwarding)
-│   ├── webview.rs              # WebView2 wrapper
-│   └── server/                 # axum server (runs as a tokio task)
-│       ├── mod.rs              # Router assembly, AppState, http client + USER_AGENT
+├── src/                        # Rust host + in-process backend
+│   ├── main.rs                 # Tokio runtime, clap args, Job Object, server start, WebView2 launch
+│   ├── app.rs                  # WebView2 host (winit window, request interception, /api routing)
+│   ├── webview.rs              # WebView2 wrapper (environment, controller, event handlers)
+│   └── server/                 # In-process backend (no HTTP listener)
+│       ├── mod.rs              # `Server` handle (fetch + dispatch_api), AppState, http client + USER_AGENT
 │       ├── state.rs            # AppState (DB, http_client, revalidating dedup, data_dir)
-│       ├── db.rs               # `cache.sqlite` open + WAL + schema, rusqlite blocking-pool helper
-│       ├── crates_cache.rs     # 24h-TTL crate metadata cache + crates.io upstream fetch
+│       ├── db.rs               # `cache.sqlite` open + WAL + schema; drops legacy `crates_cache` table
+│       ├── crates_metadata.rs  # `CrateMetadata` types + `parse_metadata` (caching delegated to proxy)
 │       ├── api/
-│       │   ├── mod.rs          # /api/v1 router + per-request access log middleware
-│       │   ├── data.rs         # GET/PUT /data/:fileName (TOML on disk via `toml` crate)
-│       │   └── crates.rs       # POST /crates batch lookup + ?refresh
+│       │   ├── mod.rs          # `dispatch(state, req)` — path-prefix routing + per-request access log
+│       │   ├── data.rs         # GET/PUT /data/{file_name} (TOML on disk via `toml` crate)
+│       │   └── crates.rs       # POST /crates — peek proxy cache, spawn warming task on miss, {results, pending} shape
 │       ├── proxy/
-│       │   ├── mod.rs          # /proxy?url= handler (MISS / HIT fresh / HIT stale)
+│       │   ├── mod.rs          # `fetch(opts)` + `peek` + `synth_max_age_for(url)` (URL-prefix TTL synth)
 │       │   ├── cache.rs        # `http_cache` table get/set + LRU eviction at 2000 entries
-│       │   ├── inject.rs       # Rustdoc dark-mode <script> injection at serve time
+│       │   ├── inject.rs       # Rustdoc dark-mode <script> injection at serve time (HTML only)
 │       │   └── revalidate.rs   # Stale-while-revalidate background task + DashSet dedup
-│       └── frontend.rs         # Dev: spawn Vite + reverse proxy; Prod: tower-http ServeDir
+│       └── frontend.rs         # Spawn Vite on the main port + wait_for_port readiness probe
 │
 ├── target/                     # Build output (Rust + runtime data)
 │   └── data/                       # Runtime data directory ($TURBODOC_DATA)
-│       ├── cache.sqlite            # SQLite database (HTTP proxy cache + crates metadata cache, WAL mode)
+│       ├── cache.sqlite            # SQLite database (unified http_cache, WAL mode)
 │       └── <id>.toml               # Per-provider user data
 │
 └── docs/
@@ -666,7 +681,7 @@ TurboDoc/
    - Providers without search support are skipped
 2. **Preset picker UI**: Not yet built — switching presets requires manual workspace edit
 3. **Loading/error states**: Not yet implemented — no skeletons, spinners, or error boundaries
-4. **Prod build**: Vite prod build not configured — dev mode only via `just server`
+4. **Packaged-prod build**: Not yet designed — the current shape always spawns Vite. When packaging lands it'll likely use WebView2's `SetVirtualHostNameToFolderMapping` to serve `frontend/dist/` directly with no Rust file server.
 
 ### Known Limitations
 
@@ -702,6 +717,8 @@ TurboDoc/
 
 ## Change History
 
+- **2026-05**: Unify caches + remove axum + collapse to a single mode. Two intertwined cleanups: (1) the dedicated `crates_cache` SQLite table is gone — crate-metadata lookups now flow through the standard HTTP proxy, with `proxy::synth_max_age_for(url)` synthesizing `cache-control: public, max-age=86400` for `https://crates.io/api/v1/crates/*` URLs so RFC 7234 / stale-while-revalidate / LRU eviction all apply uniformly; `src/server/crates_cache.rs` collapsed to `src/server/crates_metadata.rs` (just `CrateMetadata` types + `parse_metadata`); legacy table dropped on startup via `DROP TABLE IF EXISTS crates_cache` in `src/server/db.rs`. (2) `axum` + `tower-http` removed entirely — the in-process backend no longer binds a TCP listener. WebView2's `WebResourceRequested` callback now routes intercepted requests to the backend in-process: docs URLs → `Server::fetch` (proxy + dark-mode), `/api/v1/*` paths → `Server::dispatch_api` (path-prefix dispatch into the rewritten `api::{data, crates, mod}` plain-async-fn handlers), everything else passes through. `Server` (renamed from `ProxyHandle`) wraps `AppState` + `tokio::runtime::Handle` and calls handlers via `Handle::block_on` on the UI thread — same blocking semantics as the old HTTP loopback, minus the serialize/deserialize round trip. `/api/v1/crates` is now non-blocking on cache misses: the handler peeks the proxy cache per name; fresh/stale entries are returned inline in `results`, misses are sent to a deduped warming task (via `state.revalidating`) and the name appears in `pending`. Frontend `cache.svelte.ts::batchFetchCrateCache` polls the pending names with exponential backoff (500ms → 4s, max 8 attempts). Prod mode + `--dev` flag dropped — there's only one mode now: Vite spawns on the main port directly (no port offset, no reverse proxy, no `frontend::reverse_proxy`/`prod_service`), WebView2 navigates to `localhost:{port}` (= Vite). `vite.config.ts` drops the `hmr.clientPort` override (HMR uses the page's port natively). `.justfile` drops `--dev` from the `run` recipe. Net: caches consolidated, two layers (`axum` adapters + `crates_cache`) deleted, dev/prod split collapsed.
+- **2026-05**: Bridge WebView2 `WebResourceRequested` directly to `proxy::dispatch` (precursor to the broader axum removal): replace the host-side `reqwest::blocking::Client` loopback (host → `localhost:{port}/proxy?url=...` → axum → `proxy::dispatch`) with a direct in-process call (host → `Server::fetch` → `runtime.block_on(proxy::fetch(...))`); split `proxy::dispatch` into a shared `proxy::fetch` returning `http::Response<Vec<u8>>` (used by both the axum route adapter and the new host path); add `Server` type returned by `server::start`; drop `reqwest`'s `blocking` feature from `Cargo.toml`; the axum `/proxy` route becomes a 4-line adapter calling the shared `fetch`. Eliminates one kernel loopback + one serialize/deserialize per intercepted resource (dozens per docs.rs nav).
 - **2026-05**: Rewrite the server in Rust and fold it into the host binary: replace the Bun + Hono + Vite-middleware server (`server/`, now deleted) with an in-process axum server under `src/server/` running on a multi-thread tokio runtime; preserve every HTTP endpoint (`/api/v1/data/{fileName}`, `/api/v1/crates`, `/proxy?url=`) and on-disk format (TOML provider files, `cache.sqlite` with the same `http_cache` + `crates_cache` schemas — no migration); `http-cache-semantics` for RFC 7234 freshness, `rusqlite` (bundled, single connection behind `Mutex` via `tokio::task::spawn_blocking`), `reqwest` for upstream fetches (manual redirect), `dashmap::DashSet` for stale-while-revalidate dedup, `tower-http::ServeDir` for prod frontend; add `--dev` clap flag that spawns `bunx --bun vite dev` on `port + 10000` and reverse-proxies non-API traffic — Vite reads `TURBODOC_VITE_PORT` from env and pins `hmr.clientPort` to the same port so HMR WebSocket bypasses the proxy; drop the data-loss-guard documentation block (was never implemented in the prior server); drop `hono` from frontend deps and rewrite `frontend/src/core/ipc.ts` to use plain `fetch` (no more `hc<typeof apiRoute>`); existing `cache.sqlite` rows from the Bun server stay readable, except `policy` JSON shape changes — the new server detects deserialize failures, drops the row, and re-fetches; `policy` write format is now `serde_json::to_string(&CachePolicy)` from the Rust crate's `serde` feature
 - **2026-05**: Remove the frontend `appData` / preset data flow: delete `appDataSchema` and the `AppData` type from `frontend/src/core/data.ts`; delete `loadPresetData()` / `savePresetData()` and the now-unused `getJsonFromResponse` helper from `frontend/src/core/ipc.ts`; drop the `appData` `$state`, its load/autosave `$effect`s, and the `{#if appData}` render gate from `App.svelte` so first paint no longer waits on a network round-trip; persistence-file list comment in `data.ts` updated to drop the `preset.json` bullet; the server's `/data/preset` route remains (unused) pending cleanup alongside the planned rename of `/data/:providerId` to a generic key-value endpoint; on-disk `preset.toml` is abandoned (no migration code, mirroring the prior `workspace.json` precedent); future app-wide settings will piggyback on the renamed generic data endpoint
 - **2026-05**: Move to one-provider-at-a-time architecture: collapse `frontend/src/ui/explorer/ExplorerProvider.svelte` into `Explorer.svelte` (single file now owns the `ProviderDataStore`, derives the view model via `provider.render(ctx)`, wires up the optional `provider.setupEffects(ctx)` hook, and runs the eager orphan cleanup `$effect`); switch `frontend/src/providers/index.ts` from `Record<string, Provider>` (built via `remeda.mapToObj`) to a plain default-exported `Provider[]` array, dropping the lone `remeda` usage in that file; `App.svelte` now selects exactly one provider via local `providerId` `$state` (defaulting to `providers[0].id`) and a `$derived` `provider` lookup, replacing the previous iteration over `appData.presets[currentPreset].providers`; `Explorer.svelte`'s `store = $derived(new ProviderDataStore(provider.id))` already handles provider switching by recreating the store when `provider.id` changes; provider switcher UI not yet built (placeholder `<!-- Provider Switch Here -->` in `App.svelte`) and the selection is ephemeral (resets on each launch) until the planned generic data endpoint replaces `/data/:providerId`
