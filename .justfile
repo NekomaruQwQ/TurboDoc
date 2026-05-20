@@ -5,7 +5,7 @@ alias c := check
 alias i := install
 
 run:
-    cargo run -- --data data --dev
+    cargo run -- --data data
 check:
     cargo clippy
     cd frontend; bunx --bun svelte-check --tsconfig tsconfig.json --threshold error

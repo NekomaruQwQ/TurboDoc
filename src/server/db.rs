@@ -1,8 +1,9 @@
 //! SQLite-backed cache storage.
 //!
-//! Houses the `http_cache` and `crates_cache` tables. The schema matches the
-//! former Bun server exactly so existing user databases keep working without
-//! migration.
+//! Houses the `http_cache` table. The legacy `crates_cache` table (used by
+//! the former dedicated crates cache) is dropped on startup — crate
+//! metadata now flows through the unified `http_cache` with a synthesized
+//! cache-control header (see [`crate::server::proxy::synth_max_age_for`]).
 //!
 //! Concurrency model: a single `rusqlite::Connection` behind a `Mutex`.
 //! `prepare_cached` reuses compiled statements across calls, and WAL lets
@@ -20,9 +21,9 @@ use std::sync::Mutex;
 
 use rusqlite::Connection;
 
-/// Combined schema for all server-owned tables. `IF NOT EXISTS` keeps this
-/// idempotent — running it against a database created by the former Bun
-/// server is a no-op.
+/// Combined schema for all server-owned tables. `IF NOT EXISTS` keeps the
+/// `CREATE` idempotent; `DROP TABLE IF EXISTS crates_cache` cleans up the
+/// legacy dedicated-crates-cache table (data now lives in `http_cache`).
 const SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS http_cache (
     url TEXT PRIMARY KEY,
@@ -35,11 +36,7 @@ CREATE TABLE IF NOT EXISTS http_cache (
     last_fetched INTEGER NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS crates_cache (
-    name TEXT PRIMARY KEY,
-    body BLOB NOT NULL,
-    fetched_at INTEGER NOT NULL
-);
+DROP TABLE IF EXISTS crates_cache;
 "#;
 
 pub struct Database {
@@ -76,12 +73,9 @@ impl Database {
     }
 
     fn log_table_counts(conn: &Connection) {
-        for table in ["http_cache", "crates_cache"] {
-            let sql = format!("SELECT COUNT(*) FROM {table}");
-            match conn.query_row(&sql, [], |row| row.get::<_, i64>(0)) {
-                Ok(count) => log::info!("  {table}: {count} entries"),
-                Err(err) => log::warn!("  {table}: count failed ({err})"),
-            }
+        match conn.query_row("SELECT COUNT(*) FROM http_cache", [], |row| row.get::<_, i64>(0)) {
+            Ok(count) => log::info!("  http_cache: {count} entries"),
+            Err(err) => log::warn!("  http_cache: count failed ({err})"),
         }
     }
 }

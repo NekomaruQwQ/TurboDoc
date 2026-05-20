@@ -71,11 +71,18 @@ function crateMetadataToCache(meta: CrateMetadata): CrateCache {
     };
 }
 
+/** Server response shape. `results` is what was in cache (fresh or stale);
+ *  `pending` is what's being warmed in the background and isn't ready yet.
+ *  See `src/server/api/crates.rs`. */
+interface CratesResponse {
+    results: Record<string, CrateMetadata | null>;
+    pending: string[];
+}
+
 async function fetchCratesMetadata(
     names: string[],
     refresh?: boolean,
-): Promise<Record<string, CrateMetadata | null>> {
-    console.log(`[crates] Fetching metadata for ${names.length} crate(s)${refresh ? " (refresh)" : ""}.`);
+): Promise<CratesResponse> {
     const url = refresh ? "/api/v1/crates?refresh=true" : "/api/v1/crates";
     const response = await fetch(url, {
         method: "POST",
@@ -84,27 +91,62 @@ async function fetchCratesMetadata(
     });
     if (!response.ok)
         throw new Error(`Batch crate fetch failed: ${response.status}`);
-    return await response.json() as Record<string, CrateMetadata | null>;
+    return await response.json() as CratesResponse;
 }
 
-/** Fetch metadata for the given crates from the server in one batch and
- *  populate the in-memory cache. Errors are logged but non-fatal; the
- *  `inFlight` guard is always cleared in the `finally` block. */
+// Retry budget for `pending` crates while the host's cache-warming tasks
+// run upstream fetches. Caps total wait at roughly 30s, which is the same
+// timeout `frontend::spawn_vite` uses elsewhere — long enough to absorb a
+// cold-network batch import, short enough to surface a real problem.
+const MAX_ATTEMPTS = 8;
+const INITIAL_DELAY_MS = 500;
+const MAX_DELAY_MS = 4000;
+
+/** Fetch metadata for the given crates from the host in one batch and
+ *  populate the in-memory cache. The host returns immediately with
+ *  whatever's already cached and a `pending` list for crates being
+ *  warmed in the background; this function polls with exponential
+ *  backoff until everything resolves (or the retry budget is spent).
+ *
+ *  Errors are logged but non-fatal; the `inFlight` guard is always
+ *  cleared in the `finally` block so a failed batch doesn't permanently
+ *  block re-fetching. */
 export async function batchFetchCrateCache(
     names: string[],
     refresh?: boolean,
 ): Promise<void> {
+    console.log(`[crates] Fetching metadata for ${names.length} crate(s)${refresh ? " (refresh)" : ""}.`);
+    const originalNames = [...names];
     try {
-        const results = await fetchCratesMetadata(names, refresh);
-        const entries: Record<string, CrateCache> = {};
-        for (const [name, meta] of Object.entries(results)) {
-            if (meta) entries[name] = crateMetadataToCache(meta);
+        let pending = [...names];
+        let delay = INITIAL_DELAY_MS;
+        for (let attempt = 0; attempt < MAX_ATTEMPTS && pending.length > 0; attempt++) {
+            if (attempt > 0) {
+                await new Promise(resolve => setTimeout(resolve, delay));
+                delay = Math.min(delay * 2, MAX_DELAY_MS);
+                console.log(`[crates] retry ${attempt}/${MAX_ATTEMPTS - 1} for ${pending.length} pending crate(s)`);
+            }
+            const response = await fetchCratesMetadata(pending, refresh);
+            // `refresh` only matters on the first attempt; subsequent
+            // retries are just polling the cache. Sending refresh=true on
+            // every retry would re-trigger upstream fetches needlessly
+            // (deduped server-side, but still wasteful).
+            refresh = false;
+
+            const entries: Record<string, CrateCache> = {};
+            for (const [name, meta] of Object.entries(response.results)) {
+                if (meta) entries[name] = crateMetadataToCache(meta);
+            }
+            if (Object.keys(entries).length > 0)
+                setCrateCaches(entries);
+
+            pending = response.pending;
         }
-        if (Object.keys(entries).length > 0)
-            setCrateCaches(entries);
+        if (pending.length > 0)
+            console.warn(`[crates] gave up after ${MAX_ATTEMPTS} attempts; still pending: ${pending.join(", ")}`);
     } catch (err) {
         console.error("Batch crate fetch failed:", err);
     } finally {
-        for (const name of names) inFlight.delete(name);
+        for (const name of originalNames) inFlight.delete(name);
     }
 }

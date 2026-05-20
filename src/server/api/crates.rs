@@ -1,27 +1,30 @@
-//! Batch crate metadata lookup against crates.io with caching + stale
-//! fallback.
+//! Batch crate metadata lookup. Reuses the standard HTTP proxy cache
+//! (with synthesized 24h TTL for crates.io URLs — see
+//! [`crate::server::proxy::synth_max_age_for`]).
 //!
-//! Two-phase flow (matches the former Hono handler):
-//! - **Phase 1**: scan the cache. Fresh entries are returned immediately.
-//!   Stale entries are remembered as a fallback for phase 2.
-//! - **Phase 2**: fetch missing/stale crates from crates.io in parallel. On
-//!   network errors or non-2xx responses, the stale fallback (if any) is
-//!   served — bad data is better than no data for a docs viewer.
+//! Two outcomes per requested name:
+//! - **Cache hit** (fresh or stale): parsed and returned inline in `results`.
+//!   Stale entries are served immediately and revalidated in background by
+//!   the proxy's stale-while-revalidate machinery.
+//! - **Cache miss**: a warming task is spawned (deduped via
+//!   `state.revalidating`) and the name is returned in `pending`. The
+//!   frontend retries with the same name; once the warming task has
+//!   populated the cache, the subsequent peek hits and the name moves into
+//!   `results`.
 //!
-//! `?refresh=true` bypasses phase 1 entirely. It is limited to a single
-//! crate to prevent accidental bulk hits against crates.io.
+//! `?refresh=true` skips the peek and always spawns a warming task, so the
+//! cached body is replaced even if currently fresh.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
-use axum::Json;
-use axum::extract::Query;
-use axum::extract::State;
-use axum::http::StatusCode;
+use dashmap::DashSet;
 use serde::Deserialize;
-use serde_json::Value;
 
-use crate::server::crates_cache;
-use crate::server::crates_cache::CrateMetadata;
+use crate::server::crates_metadata;
+use crate::server::crates_metadata::CrateMetadata;
+use crate::server::proxy;
+use crate::server::proxy::FetchOpts;
 use crate::server::state::AppState;
 
 #[derive(Deserialize)]
@@ -29,75 +32,112 @@ pub struct RequestBody {
     pub names: Vec<String>,
 }
 
-#[derive(Deserialize)]
-pub struct RefreshQuery {
-    #[serde(default)]
-    pub refresh: Option<String>,
-}
-
-impl RefreshQuery {
-    fn is_set(&self) -> bool { self.refresh.as_deref() == Some("true") }
-}
-
-pub async fn post_crates(
-    State(state): State<AppState>,
-    Query(query): Query<RefreshQuery>,
-    Json(body): Json<RequestBody>,
-) -> Result<Json<HashMap<String, Option<CrateMetadata>>>, (StatusCode, Json<Value>)> {
-    let refresh = query.is_set();
-    if refresh && body.names.len() > 1 {
-        Err((
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": "?refresh=true only supports a single crate" }))))?;
+/// `POST /api/v1/crates[?refresh=true]` — batch lookup. See module docs.
+///
+/// Returns `200` with `{results, pending}`. Returns `400` for malformed body
+/// or `?refresh=true` with more than one name (guards against accidental
+/// bulk hits against crates.io).
+pub async fn post(state: &AppState, query: &str, body: &[u8]) -> http::Response<Vec<u8>> {
+    let refresh = parse_refresh(query);
+    let request: RequestBody =
+        match serde_json::from_slice(body) {
+            Ok(r) => r,
+            Err(err) => return json_error(400, format!("invalid request body: {err}")),
+        };
+    if refresh && request.names.len() > 1 {
+        return json_error(400, "?refresh=true only supports a single crate".into());
     }
 
-    // Phase 1: scan cache. Fresh hits go straight into `results`; stale or
-    // missing entries get queued for phase 2 (with the stale body saved as a
-    // fallback if upstream fails).
     let mut results: HashMap<String, Option<CrateMetadata>> = HashMap::new();
-    let mut stale_fallbacks: HashMap<String, Vec<u8>> = HashMap::new();
-    let mut to_fetch: Vec<String> = Vec::new();
+    let mut pending: Vec<String> = Vec::new();
 
-    for name in &body.names {
-        let cached = crates_cache::get(&state.db, name).await;
-        match cached {
-            Some(c) if !refresh && c.fresh => {
-                results.insert(name.clone(), crates_cache::parse_metadata(name, &c.body));
+    for name in request.names {
+        let url = format!("https://crates.io/api/v1/crates/{name}");
+
+        // refresh=true: bypass peek entirely; always spawn warming. The
+        // client retries with the same name until the cache is populated.
+        if refresh {
+            spawn_warming_task(state, name.clone(), url);
+            pending.push(name);
+            continue;
+        }
+
+        match proxy::peek(state, &url).await {
+            Some(response) => {
+                // Parse the cached body. If parsing fails, surface as
+                // `null` (no retry — parse errors don't fix themselves).
+                let parsed = crates_metadata::parse_metadata(&name, response.body());
+                results.insert(name, parsed);
             },
-            Some(c) => {
-                stale_fallbacks.insert(name.clone(), c.body);
-                to_fetch.push(name.clone());
+            None => {
+                spawn_warming_task(state, name.clone(), url);
+                pending.push(name);
             },
-            None => to_fetch.push(name.clone()),
         }
     }
 
-    // Phase 2: fetch in parallel. Each task either updates the cache + result,
-    // or falls back to the stale body (if any) on failure.
-    let mut set = tokio::task::JoinSet::new();
-    for name in to_fetch {
-        let state = state.clone();
-        let stale = stale_fallbacks.remove(&name);
-        set.spawn(async move {
-            let outcome = crates_cache::fetch_upstream(&state.http_client, &name).await;
-            let metadata = match outcome {
-                Ok(Some(body)) => {
-                    let parsed = crates_cache::parse_metadata(&name, &body);
-                    crates_cache::set(&state.db, &name, body).await;
-                    parsed
-                },
-                Ok(None) | Err(_) =>
-                    stale.as_deref().and_then(|b| crates_cache::parse_metadata(&name, b)),
-            };
-            (name, metadata)
-        });
-    }
-    while let Some(joined) = set.join_next().await {
-        match joined {
-            Ok((name, metadata)) => { results.insert(name, metadata); },
-            Err(err) => log::error!("crates fetch task panicked: {err}"),
-        }
-    }
+    json_ok(serde_json::json!({ "results": results, "pending": pending }))
+}
 
-    Ok(Json(results))
+/// Spawn a tokio task that calls `proxy::fetch` to populate the cache for
+/// `url`. Deduped via `state.revalidating` so concurrent requests for the
+/// same name don't trigger parallel upstream hits.
+fn spawn_warming_task(state: &AppState, name: String, url: String) {
+    if !state.revalidating.insert(url.clone()) {
+        // Another task is already fetching this URL — let it complete.
+        return;
+    }
+    let state = state.clone();
+    tokio::spawn(async move {
+        let _guard = ClearOnDrop {
+            set: Arc::clone(&state.revalidating),
+            url: url.clone(),
+        };
+        // force_refresh: true so a refresh=true caller actually re-fetches
+        // even if the cache currently holds a fresh entry. For the normal
+        // miss path this is a no-op (cache lookup would have missed anyway).
+        let opts = FetchOpts { force_refresh: true };
+        match proxy::fetch(&state, &url, opts).await {
+            Ok(_) => log::info!("[crates] warmed cache for {name}"),
+            Err(err) => log::warn!("[crates] cache warming failed for {name}: {err:#}"),
+        }
+    });
+}
+
+/// Clears the URL from the dedup set on drop (including on panic).
+struct ClearOnDrop {
+    set: Arc<DashSet<String>>,
+    url: String,
+}
+
+impl Drop for ClearOnDrop {
+    fn drop(&mut self) { self.set.remove(&self.url); }
+}
+
+/// Parse `?refresh=true` from a raw query string. Any other value (or
+/// absence) is treated as `false`.
+fn parse_refresh(query: &str) -> bool {
+    query.split('&').any(|pair| pair == "refresh=true")
+}
+
+fn json_ok(value: serde_json::Value) -> http::Response<Vec<u8>> {
+    let body = serde_json::to_vec(&value).expect("serialize json response");
+    http::Response::builder()
+        .status(200)
+        .header("content-type", "application/json")
+        .header("content-length", body.len().to_string())
+        .body(body)
+        .expect("valid response")
+}
+
+fn json_error(status: u16, message: String) -> http::Response<Vec<u8>> {
+    let body =
+        serde_json::to_vec(&serde_json::json!({ "error": message }))
+            .expect("serialize json error");
+    http::Response::builder()
+        .status(status)
+        .header("content-type", "application/json")
+        .header("content-length", body.len().to_string())
+        .body(body)
+        .expect("valid response")
 }

@@ -63,7 +63,7 @@ async fn revalidate(
         req_builder = req_builder.header(name.as_str(), value);
     }
     let response = req_builder.send().await?;
-    let http_resp = crate::server::proxy::http_response_from_reqwest(&response);
+    let http_resp = crate::server::proxy::http_response_from_reqwest(&response, url);
 
     match cached.policy.after_response(&synth_req, &http_resp, SystemTime::now()) {
         AfterResponse::NotModified(new_policy, _) => {

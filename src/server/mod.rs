@@ -1,24 +1,33 @@
-//! In-process TurboDoc server.
+//! In-process TurboDoc backend.
 //!
-//! Replaces the former Bun + Hono server with axum running on the host's
-//! tokio runtime. Exposes the same HTTP surface (`/api/v1/*`, `/proxy`,
-//! frontend assets) so the WebView2 frontend keeps working unchanged.
+//! Spawns Vite as a child process on the main port, opens the SQLite cache,
+//! and returns a [`Server`] handle. The host's WebView2 navigates to
+//! `http://localhost:{port}/` (= Vite) and routes intercepted requests
+//! through the handle:
+//!
+//! - **Docs URLs** (`PROXIED_URL` prefixes) → [`Server::fetch`] → proxy
+//!   pipeline with caching + dark-mode injection.
+//! - **`/api/v1/*`** → [`Server::dispatch_api`] → data persistence + crates
+//!   metadata.
+//! - **Everything else** → passed through to Vite (frontend assets, HMR).
+//!
+//! There is no axum, no bound TCP listener of our own — only the Vite
+//! child process is on the network.
 
 mod api;
-mod crates_cache;
+mod crates_metadata;
 mod db;
 mod frontend;
 mod proxy;
 mod state;
 
 use std::fs;
-use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use axum::Router;
 use dashmap::DashSet;
 
+use crate::prelude::*;
 use self::db::Database;
 use self::state::AppState;
 
@@ -27,38 +36,50 @@ use self::state::AppState;
 /// elsewhere. Bumped alongside the host version.
 pub(crate) const USER_AGENT: &str = "TurboDoc/0.4 (documentation viewer)";
 
-/// Offset added to the main port to derive the Vite dev port: `vite_port =
-/// port + VITE_PORT_OFFSET`. Matches the offset the former in-process Vite
-/// used for HMR, so anyone with `localhost:<port+10000>` in their notes
-/// (HMR debugging URLs, mostly) sees the same number.
-const VITE_PORT_OFFSET: u16 = 10000;
-
 /// Server configuration. Built from the host's CLI args in `main.rs`.
 pub struct Config {
+    /// Port Vite binds to and the WebView2 navigates to.
     pub port: u16,
     /// Runtime data directory. Houses provider TOML files and the
     /// `cache.sqlite` database. Created on startup if it doesn't exist.
     pub data_dir: PathBuf,
-    /// Repo root. Used to locate `frontend/dist/` (prod) and `frontend/`
-    /// (dev, working dir for Vite).
+    /// Repo root. Used to locate `frontend/` (Vite's working directory).
     pub root_dir: PathBuf,
-    /// `true` → spawn Vite + reverse-proxy. `false` → serve `frontend/dist/`.
-    pub dev: bool,
 }
 
-/// Build the shared state, bind to `127.0.0.1:{port}`, and spawn the
-/// request-handling loop onto the current tokio runtime. Returns once the
-/// listener is accepting connections, so the host can launch WebView2 without
-/// polling for readiness.
-///
-/// In `--dev` mode this also spawns Vite as a child process and waits for
-/// it to accept connections before returning — that way the very first
-/// frontend request through the reverse proxy doesn't race Vite's startup.
-///
-/// The serving task runs until the tokio runtime is dropped (i.e. process
-/// exit). Any error from `axum::serve` is logged and the task ends silently —
-/// the host has no way to react to a server crash other than appearing broken.
-pub async fn start(config: Config) -> anyhow::Result<()> {
+/// Host-side handle for invoking the backend without an HTTP round trip.
+/// Returned by [`start`]; the WebView2 `WebResourceRequested` callback
+/// calls methods on this from the UI thread.
+pub struct Server {
+    state: AppState,
+    runtime: tokio::runtime::Handle,
+}
+
+impl Server {
+    /// Fetch `url` through the proxy pipeline (cache lookup, upstream
+    /// fetch on miss, dark-mode injection). Blocks the calling thread
+    /// until the response is ready.
+    ///
+    /// MUST NOT be called from a tokio worker thread — would panic via
+    /// `Handle::block_on`. The WebView2 callback runs on the main UI
+    /// thread, which satisfies this.
+    pub fn fetch(&self, url: &str) -> anyhow::Result<WebResponse> {
+        self.runtime.block_on(proxy::fetch(&self.state, url, Default::default()))
+    }
+
+    /// Dispatch an intercepted `/api/v1/*` request to the matching
+    /// in-process handler. Always returns a response — errors are
+    /// converted to 4xx/5xx JSON bodies inside the handler.
+    ///
+    /// Same thread-safety constraint as [`Self::fetch`].
+    pub fn dispatch_api(&self, req: WebRequest) -> WebResponse {
+        self.runtime.block_on(api::dispatch(&self.state, req))
+    }
+}
+
+/// Build the shared state, spawn Vite, and return a [`Server`] handle. The
+/// host then launches WebView2 and navigates to `http://localhost:{port}/`.
+pub async fn start(config: Config) -> anyhow::Result<Server> {
     // Match the former server's `mkdirSync(dataDir, { recursive: true })`.
     fs::create_dir_all(&config.data_dir)?;
 
@@ -69,22 +90,12 @@ pub async fn start(config: Config) -> anyhow::Result<()> {
         revalidating: Arc::new(DashSet::new()),
     };
 
-    let vite_port = config.port + VITE_PORT_OFFSET;
-    if config.dev {
-        frontend::spawn_vite(&config.root_dir, vite_port).await?;
-    }
+    frontend::spawn_vite(&config.root_dir, config.port).await?;
 
-    let addr = format!("127.0.0.1:{}", config.port);
-    let listener = tokio::net::TcpListener::bind(&addr).await?;
-    log::info!("server bound to {}", listener.local_addr()?);
-
-    let app = build_router(state, &config.root_dir, config.dev, vite_port);
-    tokio::spawn(async move {
-        if let Err(err) = axum::serve(listener, app).await {
-            log::error!("server task ended with error: {err}");
-        }
-    });
-    Ok(())
+    Ok(Server {
+        state,
+        runtime: tokio::runtime::Handle::current(),
+    })
 }
 
 /// Shared HTTP client for the proxy and crates routes. Redirect handling is
@@ -95,28 +106,4 @@ fn build_http_client() -> reqwest::Result<reqwest::Client> {
         .user_agent(USER_AGENT)
         .redirect(reqwest::redirect::Policy::none())
         .build()
-}
-
-fn build_router(state: AppState, root_dir: &Path, dev: bool, vite_port: u16) -> Router {
-    let routes: Router<AppState> =
-        Router::new()
-            .nest("/api/v1", api::router())
-            .nest("/proxy", proxy::router());
-
-    if dev {
-        // Capture a clone of the http client so the closure stays `'static`
-        // and the resulting Router doesn't need extra state plumbing for
-        // the dev-only reverse proxy.
-        let client = state.http_client.clone();
-        routes
-            .fallback(move |req| {
-                let client = client.clone();
-                async move { frontend::reverse_proxy(client, vite_port, req).await }
-            })
-            .with_state(state)
-    } else {
-        routes
-            .fallback_service(frontend::prod_service(root_dir))
-            .with_state(state)
-    }
 }

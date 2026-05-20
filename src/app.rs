@@ -1,7 +1,9 @@
 use nkcore::prelude::*;
 use nkcore::debug::*;
 
-pub fn run(url: &str) {
+use crate::server::Server;
+
+pub fn run(url: &str, server: Server) {
     use nkcore::os::windows::{
         prelude::RawWindowHandleExt as _,
         winit::EventLoopExt as _,
@@ -20,6 +22,12 @@ pub fn run(url: &str) {
         window::Window,
     };
 
+    // `EventLoop::run_app_with`'s setup closure is `FnOnce`, but the wrapper
+    // around it isn't reflected in the type. Move the handle into an Option
+    // so we can take it inside the closure without the borrow checker losing
+    // its mind over a `FnMut` capture.
+    let mut server = Some(server);
+
     EventLoop::<()>::new()
         .expect("failed to create event loop")
         .run_app_with(|event_loop| {
@@ -35,7 +43,7 @@ pub fn run(url: &str) {
             let webview =
                 WebView::new(window.window_handle().unwrap().as_raw().as_hwnd())
                     .expect("failed to create webview");
-            handler::setup(&window, &webview, url)
+            handler::setup(&window, &webview, server.take().expect("setup called twice"))
                 .expect("failed to setup webview event handlers");
             webview.navigate(url)
                 .expect("failed to load frontend");
@@ -112,6 +120,7 @@ fn open_external_link(window: &winit::window::Window, url: &str) {
 
 mod handler {
     use crate::prelude::*;
+    use crate::server::Server;
     use crate::webview::WebView;
     use crate::webview::WebViewNavigationResult;
 
@@ -121,7 +130,7 @@ mod handler {
     pub fn setup(
         window: &Rc<Window>,
         webview: &WebView,
-        server_url: &str)
+        server: Server)
      -> anyhow::Result<()> {
         webview.on_next_navigation_completed({
             let window = Rc::clone(window);
@@ -129,16 +138,7 @@ mod handler {
             move |result| on_first_navigation_completed(&window, &webview, result)
         })?;
 
-        webview.on_web_resource_requested({
-            // Proxy client with auto-redirect disabled, matching the WinUI app's behavior.
-            // Redirects pass through to WebView2 which re-navigates and re-triggers interception.
-            let client = reqwest::blocking::Client::builder()
-                .redirect(reqwest::redirect::Policy::none())
-                .build()
-                .expect("failed to create HTTP client");
-            let server_url = server_url.to_owned();
-            move |request| on_web_resource_requested(&client, &server_url, request)
-        })?;
+        webview.on_web_resource_requested(move |request| on_web_resource_requested(&server, request))?;
 
         webview.on_frame_navigation_starting({
             let window = Rc::clone(window);
@@ -172,46 +172,38 @@ mod handler {
         }
     }
 
-    /// Proxies GET requests for known doc URLs through the server's `/proxy?url=` endpoint.
+    /// Routes intercepted WebView2 requests to the in-process backend:
+    ///
+    /// - **Docs URLs** (`PROXIED_URL` prefixes, GET): through the proxy
+    ///   cache + dark-mode injection pipeline.
+    /// - **`/api/v1/*`** (any method): dispatched to the data/crates
+    ///   handlers.
+    /// - **Everything else**: returns `None` so WebView2 falls through to
+    ///   its default path (frontend assets served by Vite, HMR WebSocket,
+    ///   navigations to external sites).
     fn on_web_resource_requested(
-        client: &reqwest::blocking::Client,
-        server_url: &str,
+        server: &Server,
         request: WebRequest)
      -> Option<WebResponse> {
         use http::Method;
         let uri = request.uri().to_string();
-        if request.method() != Method::GET ||
-            !crate::PROXIED_URL.iter().any(|&prefix| uri.starts_with(prefix)) {
-            return None;
+
+        if request.method() == Method::GET &&
+            crate::PROXIED_URL.iter().any(|&prefix| uri.starts_with(prefix)) {
+            return match server.fetch(&uri) {
+                Ok(response) => Some(response),
+                Err(err) => {
+                    log::error!("proxy request failed for {uri}: {err:#}");
+                    None
+                },
+            };
         }
 
-        match client.get(format!("{server_url}/proxy")).query(&[("url", &uri)]).send() {
-            Ok(response) =>
-                Some(convert_proxy_response(response)),
-            Err(err) => {
-                log::error!("proxy request failed for {uri}: {err}");
-                None
-            }
+        if request.uri().path().starts_with("/api/v1/") {
+            return Some(server.dispatch_api(request));
         }
-    }
 
-    /// Converts a [`reqwest::blocking::Response`] into a [`WebResponse`] for WebView2.
-    fn convert_proxy_response(response: reqwest::blocking::Response) -> WebResponse {
-        let status = response.status().as_u16();
-        let headers: Vec<_> = response.headers()
-            .iter()
-            .map(|(name, value)| (name.clone(), value.clone()))
-            .collect();
-        let body = response.bytes()
-            .inspect_err(|err| log::error!("failed to read proxy response body: {err}"))
-            .unwrap_or_default()
-            .to_vec();
-
-        let mut builder = http::Response::builder().status(status);
-        for (name, value) in headers {
-            builder = builder.header(name, value);
-        }
-        builder.body(body).unwrap()
+        None
     }
 
     /// Intercepts iframe navigations.
