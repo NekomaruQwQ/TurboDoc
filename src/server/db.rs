@@ -1,9 +1,7 @@
 //! SQLite-backed cache storage.
 //!
-//! Houses the `http_cache` table. The legacy `crates_cache` table (used by
-//! the former dedicated crates cache) is dropped on startup — crate
-//! metadata now flows through the unified `http_cache` with a synthesized
-//! cache-control header (see [`crate::server::proxy::synth_max_age_for`]).
+//! Houses the `http_cache` table. The legacy `crates_cache` table is dropped
+//! on startup; all upstream resources now use the same RFC-aware cache.
 //!
 //! Concurrency model: a single `rusqlite::Connection` behind a `Mutex`.
 //! `prepare_cached` reuses compiled statements across calls, and WAL lets

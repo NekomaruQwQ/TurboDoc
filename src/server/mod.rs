@@ -15,7 +15,6 @@
 //! child process is on the network.
 
 mod api;
-mod crates_metadata;
 mod db;
 mod frontend;
 mod proxy;
@@ -31,9 +30,8 @@ use crate::prelude::*;
 use self::db::Database;
 use self::state::AppState;
 
-/// User-Agent for all upstream HTTP requests (proxy + crates.io). Required by
-/// the crates.io crawler policy (https://crates.io/policies) and good practice
-/// elsewhere. Bumped alongside the host version.
+/// User-Agent for all upstream HTTP requests. Identifies TurboDoc to remote
+/// sites and is bumped alongside the host version.
 pub(crate) const USER_AGENT: &str = "TurboDoc/0.4 (documentation viewer)";
 
 /// Server configuration. Built from the host's CLI args in `main.rs`.
@@ -56,15 +54,16 @@ pub struct Server {
 }
 
 impl Server {
-    /// Fetch `url` through the proxy pipeline (cache lookup, upstream
-    /// fetch on miss, dark-mode injection). Blocks the calling thread
-    /// until the response is ready.
+    /// Fetch `request` through the proxy pipeline (cache lookup, upstream
+    /// fetch on miss, dark-mode injection). Request cache directives are
+    /// honored, so callers can explicitly bypass a cached response.
+    /// Blocks the calling thread until the response is ready.
     ///
     /// MUST NOT be called from a tokio worker thread — would panic via
     /// `Handle::block_on`. The WebView2 callback runs on the main UI
     /// thread, which satisfies this.
-    pub fn fetch(&self, url: &str) -> anyhow::Result<WebResponse> {
-        self.runtime.block_on(proxy::fetch(&self.state, url, Default::default()))
+    pub fn fetch(&self, request: &WebRequest) -> anyhow::Result<WebResponse> {
+        self.runtime.block_on(proxy::fetch(&self.state, request))
     }
 
     /// Dispatch an intercepted `/api/v1/*` request to the matching
@@ -98,9 +97,9 @@ pub async fn start(config: Config) -> anyhow::Result<Server> {
     })
 }
 
-/// Shared HTTP client for the proxy and crates routes. Redirect handling is
-/// off because the proxy forwards 3xx responses to WebView2 unchanged
-/// (matching the former `redirect: "manual"` in the Bun server).
+/// Shared HTTP client for upstream proxy requests. Redirect handling is off
+/// because the proxy forwards 3xx responses to WebView2 unchanged (matching
+/// the former `redirect: "manual"` behavior in the Bun server).
 fn build_http_client() -> reqwest::Result<reqwest::Client> {
     reqwest::Client::builder()
         .user_agent(USER_AGENT)

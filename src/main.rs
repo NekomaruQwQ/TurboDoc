@@ -35,6 +35,8 @@ const PROXIED_URL: &[&str] = &[
     "https://docs.rs",
     "https://doc.rust-lang.org",
     "https://microsoft.github.io/windows-docs-rs/doc/",
+    "https://index.crates.io/",
+    "https://crates.io/api/v1/crates/",
 ];
 
 fn main() {

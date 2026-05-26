@@ -1,5 +1,0 @@
-[*.cs]
-# IDE0003: Remove this or Me qualification
-dotnet_diagnostic.IDE0003.severity = none
-# IDE0009: Add this or Me qualification
-dotnet_diagnostic.IDE0009.severity = warning

@@ -9,9 +9,10 @@
 //! - **MISS**: no cached entry → fetch upstream, cache if storable, serve.
 //!
 //! Only `content-type`, `content-length` (recomputed after dark-mode
-//! injection), and `location` (for 3xx) are forwarded to the caller. All
-//! other upstream headers (Set-Cookie, Server, X-*, etc.) are stripped so
-//! the WebView2 client only sees what it needs.
+//! injection), and `location` (for 3xx) are forwarded to the caller. A
+//! permissive CORS header is added because frontend-owned cross-origin GETs
+//! are served from this trusted in-process proxy. All other upstream headers
+//! (Set-Cookie, Server, X-*, etc.) are stripped.
 
 mod cache;
 mod inject;
@@ -22,58 +23,31 @@ use std::time::SystemTime;
 use http_cache_semantics::BeforeRequest;
 use http_cache_semantics::CachePolicy;
 
+use crate::prelude::WebRequest;
 use crate::server::proxy::cache::CacheEntry;
 use crate::server::state::AppState;
 
-/// Per-call knobs for [`fetch`]. Most callers pass `Default::default()`;
-/// the crates batch endpoint sets `force_refresh` for the explicit
-/// `?refresh=true` flag.
-#[derive(Default, Clone, Copy)]
-pub(crate) struct FetchOpts {
-    /// Skip the cache lookup entirely. The fresh upstream response is
-    /// still stored, so subsequent calls hit cache.
-    pub force_refresh: bool,
-}
-
-/// URL-prefix policy for synthesizing `cache-control` on upstream
-/// responses that don't emit useful cache headers. Applied transparently
-/// inside [`http_response_from_reqwest`] for both the initial fetch and
-/// background revalidation, so callers don't have to thread a `synth_max_age`
-/// parameter through.
-///
-/// Currently: crates.io's API responses get a 24h TTL.
-fn synth_max_age_for(url: &str) -> Option<u64> {
-    if url.starts_with("https://crates.io/api/v1/crates/") {
-        // 24h — crate metadata changes infrequently, version publishes
-        // aren't time-critical for a docs viewer.
-        return Some(86_400);
-    }
-    None
-}
-
-/// Fetch `url` through the proxy pipeline: cache lookup → fresh hit / stale
+/// Fetch `request` through the proxy pipeline: cache lookup → fresh hit / stale
 /// hit + background revalidation / miss + upstream fetch → dark-mode
-/// injection. Called by [`crate::server::Server::fetch`] (sync host path)
-/// and the cache-warming spawn in [`crate::server::api::crates`].
+/// injection. Explicit `no-cache`/`no-store` request directives skip lookup,
+/// which lets callers request a current representation without any
+/// site-specific cache policy.
 pub(crate) async fn fetch(
     state: &AppState,
-    url: &str,
-    opts: FetchOpts,
-) -> anyhow::Result<http::Response<Vec<u8>>> {
-    let synth_req =
-        http::Request::builder()
-            .method("GET")
-            .uri(url)
-            .body(())?;
+    request: &WebRequest) -> anyhow::Result<http::Response<Vec<u8>>> {
+    let url = request.uri().to_string();
+    let cache_request = cache_request_from(request)?;
 
-    // 1. Cache lookup (unless force_refresh skips it).
-    if !opts.force_refresh
-        && let Some(entry) = cache::get(&state.db, url).await
+    // Request cache directives are honored generically. An unconditional
+    // upstream request is intentional for reloads: it avoids serving stale
+    // data while leaving response storage to the RFC policy below.
+    if !request_bypasses_cache(request)
+        && let Some(entry) = cache::get(&state.db, &url).await
     {
-        match entry.policy.before_request(&synth_req, SystemTime::now()) {
+        match entry.policy.before_request(&cache_request, SystemTime::now()) {
             BeforeRequest::Fresh(_) => {
                 log::info!("[proxy] HIT (fresh) {url}");
-                return Ok(serve_entry(url, entry));
+                return Ok(serve_entry(&url, entry));
             },
             BeforeRequest::Stale { .. } => {
                 log::info!("[proxy] HIT (stale, revalidating in background) {url}");
@@ -81,15 +55,15 @@ pub(crate) async fn fetch(
                 let serve_ct = entry.content_type.clone();
                 let serve_loc = entry.location.clone();
                 let serve_body = entry.body.clone();
-                revalidate::enqueue(state.clone(), url.to_owned(), entry);
-                return Ok(serve(url, serve_status, &serve_ct, &serve_loc, serve_body));
+                revalidate::enqueue(state.clone(), url.clone(), entry);
+                return Ok(serve(&url, serve_status, &serve_ct, &serve_loc, serve_body));
             },
         }
     }
 
-    // 2. Cache miss (or forced refresh) — fetch upstream.
+    // Cache miss or explicit reload — fetch upstream.
     log::info!("[proxy] MISS {url}");
-    let response = state.http_client.get(url).send().await?;
+    let response = state.http_client.get(&url).send().await?;
     let status = response.status().as_u16();
     let content_type =
         response.headers()
@@ -105,12 +79,8 @@ pub(crate) async fn fetch(
             .to_owned();
     let is_redirect = (300..400).contains(&status);
 
-    // Build the `http::Response<()>` shell for CachePolicy. URL-prefix
-    // policy (see `synth_max_age_for`) may override the upstream
-    // cache-control so the policy decides the entry is cacheable with a
-    // synthesized TTL.
-    let http_resp = http_response_from_reqwest(&response, url);
-    let policy = CachePolicy::new(&synth_req, &http_resp);
+    let http_resp = http_response_from_reqwest(&response);
+    let policy = CachePolicy::new(&cache_request, &http_resp);
     let body =
         if is_redirect { None } else { Some(response.bytes().await?.to_vec()) };
 
@@ -122,45 +92,52 @@ pub(crate) async fn fetch(
             location: location.clone(),
             body: body.clone(),
         };
-        if let Err(err) = cache::set(&state.db, url, entry).await {
+        if let Err(err) = cache::set(&state.db, &url, entry).await {
             log::warn!("[proxy] failed to store cache entry for {url}: {err}");
         }
     }
 
-    Ok(serve(url, status, &content_type, &location, body))
+    Ok(serve(&url, status, &content_type, &location, body))
 }
 
-/// Cache-only lookup. Returns the cached response if present (Fresh or
-/// Stale); returns `None` on miss. For stale hits, enqueues a background
-/// revalidation just like [`fetch`] does — so a repeated `peek`-only
-/// access pattern still refreshes the cache.
-///
-/// Used by the crates batch endpoint to avoid blocking the UI thread on
-/// upstream fetches; cold misses are handled by the caller spawning a
-/// warming task (which calls [`fetch`] on a tokio worker).
-pub(crate) async fn peek(state: &AppState, url: &str) -> Option<http::Response<Vec<u8>>> {
-    let entry = cache::get(&state.db, url).await?;
-    let synth_req =
+/// Clone the intercepted request without its body for cache-policy decisions.
+/// Headers matter here because standard request directives such as
+/// `Cache-Control: no-cache` affect reuse and storage.
+fn cache_request_from(request: &WebRequest) -> anyhow::Result<http::Request<()>> {
+    let mut builder =
         http::Request::builder()
-            .method("GET")
-            .uri(url)
-            .body(())
-            .ok()?;
-    match entry.policy.before_request(&synth_req, SystemTime::now()) {
-        BeforeRequest::Fresh(_) => {
-            log::info!("[proxy] HIT (fresh, peek) {url}");
-            Some(serve_entry(url, entry))
-        },
-        BeforeRequest::Stale { .. } => {
-            log::info!("[proxy] HIT (stale, peek; revalidating in background) {url}");
-            let serve_status = entry.status_code;
-            let serve_ct = entry.content_type.clone();
-            let serve_loc = entry.location.clone();
-            let serve_body = entry.body.clone();
-            revalidate::enqueue(state.clone(), url.to_owned(), entry);
-            Some(serve(url, serve_status, &serve_ct, &serve_loc, serve_body))
-        },
+            .method(request.method().clone())
+            .uri(request.uri().clone());
+    for (name, value) in request.headers() {
+        builder = builder.header(name, value);
     }
+    Ok(builder.body(())?)
+}
+
+/// Whether an intercepted request explicitly forbids reuse of a cached
+/// response. Matching comma-separated directives case-insensitively keeps
+/// this compatible with browser-generated `fetch(..., { cache })` headers.
+fn request_bypasses_cache(request: &WebRequest) -> bool {
+    has_header_directive(request, http::header::CACHE_CONTROL, "no-cache")
+        || has_header_directive(request, http::header::CACHE_CONTROL, "no-store")
+        || has_header_directive(request, http::header::PRAGMA, "no-cache")
+}
+
+fn has_header_directive(
+    request: &WebRequest,
+    header: http::header::HeaderName,
+    directive: &str) -> bool {
+    request
+        .headers()
+        .get_all(header)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(','))
+        .map(|value| {
+            let value = value.trim();
+            value.split_once('=').map_or(value, |(name, _)| name.trim())
+        })
+        .any(|value| value.eq_ignore_ascii_case(directive))
 }
 
 /// Serve a cached entry. Convenience wrapper around `serve` that owns the
@@ -185,13 +162,17 @@ fn serve(
         return http::Response::builder()
             .status(status)
             .header("location", location)
+            .header("access-control-allow-origin", "*")
             .body(Vec::new())
             .expect("valid redirect response");
     }
 
     let final_body = body.map(|b| inject::dark_mode(url, content_type, b));
 
-    let mut builder = http::Response::builder().status(status);
+    let mut builder =
+        http::Response::builder()
+            .status(status)
+            .header("access-control-allow-origin", "*");
     if !content_type.is_empty() {
         builder = builder.header("content-type", content_type);
     }
@@ -213,21 +194,52 @@ fn serve(
 /// `CachePolicy` (which only reads status + headers). The body stays in the
 /// reqwest response so the caller can `.bytes().await` it afterwards.
 ///
-/// Applies [`synth_max_age_for`] for URLs whose upstream omits useful cache
-/// headers — the synthesized `cache-control` replaces the upstream value.
-///
 /// We do this manually instead of enabling `http-cache-semantics`'s
 /// `reqwest` feature because that feature pins reqwest 0.13 and our host
 /// uses 0.12 (an upstream `aws-lc-sys` build issue blocks 0.13).
-pub(crate) fn http_response_from_reqwest(resp: &reqwest::Response, url: &str) -> http::Response<()> {
-    let synth = synth_max_age_for(url);
+pub(crate) fn http_response_from_reqwest(resp: &reqwest::Response) -> http::Response<()> {
     let mut builder = http::Response::builder().status(resp.status());
     for (name, value) in resp.headers() {
-        if synth.is_some() && name == http::header::CACHE_CONTROL { continue; }
         builder = builder.header(name, value);
     }
-    if let Some(secs) = synth {
-        builder = builder.header(http::header::CACHE_CONTROL, format!("public, max-age={secs}"));
-    }
     builder.body(()).expect("valid http response shell")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::request_bypasses_cache;
+    use super::serve;
+
+    fn request_with(header: Option<(&str, &str)>) -> crate::prelude::WebRequest {
+        let mut builder = http::Request::builder().method("GET").uri("https://example.com/");
+        if let Some((name, value)) = header {
+            builder = builder.header(name, value);
+        }
+        builder.body(Vec::new()).expect("valid test request")
+    }
+
+    #[test]
+    fn bypasses_cache_for_standard_reload_directives() {
+        assert!(request_bypasses_cache(&request_with(Some(("cache-control", "no-cache")))));
+        assert!(request_bypasses_cache(&request_with(Some(("cache-control", "max-age=0, NO-STORE")))));
+        assert!(request_bypasses_cache(&request_with(Some(("pragma", "no-cache")))));
+        assert!(request_bypasses_cache(&request_with(Some(("cache-control", "no-cache=\"set-cookie\"")))));
+    }
+
+    #[test]
+    fn reuses_cache_for_requests_without_bypass_directives() {
+        assert!(!request_bypasses_cache(&request_with(None)));
+        assert!(!request_bypasses_cache(&request_with(Some(("cache-control", "max-age=600")))));
+    }
+
+    #[test]
+    fn proxied_responses_allow_frontend_cross_origin_reads() {
+        let response = serve(
+            "https://example.com/data",
+            200,
+            "text/plain",
+            "",
+            Some(b"body".to_vec()));
+        assert_eq!(response.headers()["access-control-allow-origin"], "*");
+    }
 }

@@ -5,7 +5,6 @@
 //! Replaces the former axum router + Hono-format access-log middleware.
 //! The log format is preserved for habit's sake.
 
-mod crates;
 mod data;
 
 use crate::prelude::*;
@@ -20,10 +19,9 @@ use crate::server::state::AppState;
 pub async fn dispatch(state: &AppState, req: WebRequest) -> http::Response<Vec<u8>> {
     let method = req.method().clone();
     let path = req.uri().path().to_owned();
-    let query = req.uri().query().unwrap_or("").to_owned();
     let body = req.into_body();
 
-    let response = route(state, &method, &path, &query, &body).await;
+    let response = route(state, &method, &path, &body).await;
 
     let status = response.status().as_u16();
     let content_type =
@@ -40,7 +38,6 @@ async fn route(
     state: &AppState,
     method: &http::Method,
     path: &str,
-    query: &str,
     body: &[u8],
 ) -> http::Response<Vec<u8>> {
     let Some(suffix) = path.strip_prefix("/api/v1/") else {
@@ -51,13 +48,6 @@ async fn route(
         return match *method {
             http::Method::GET => data::get(state, file_name).await,
             http::Method::PUT => data::put(state, file_name, body).await,
-            _ => text_error(405, "method not allowed"),
-        };
-    }
-
-    if suffix == "crates" {
-        return match *method {
-            http::Method::POST => crates::post(state, query, body).await,
             _ => text_error(405, "method not allowed"),
         };
     }

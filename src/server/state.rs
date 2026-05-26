@@ -16,9 +16,9 @@ use crate::server::db::Database;
 pub struct AppState {
     pub db: Arc<Database>,
     pub data_dir: Arc<PathBuf>,
-    /// Async HTTP client for crates.io and proxy upstream requests. Built
-    /// once with the canonical User-Agent and a manual-redirect policy so
-    /// the proxy can forward 3xx responses unchanged to WebView2.
+    /// Async client shared by all proxy upstream requests. Built once with
+    /// the canonical User-Agent and a manual-redirect policy so the proxy
+    /// can forward 3xx responses unchanged to WebView2.
     pub http_client: reqwest::Client,
     /// URLs that currently have a background revalidation in flight.
     /// Insertion returns false when an entry already exists, which the proxy

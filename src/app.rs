@@ -190,7 +190,7 @@ mod handler {
 
         if request.method() == Method::GET &&
             crate::PROXIED_URL.iter().any(|&prefix| uri.starts_with(prefix)) {
-            return match server.fetch(&uri) {
+            return match server.fetch(&request) {
                 Ok(response) => Some(response),
                 Err(err) => {
                     log::error!("proxy request failed for {uri}: {err:#}");
