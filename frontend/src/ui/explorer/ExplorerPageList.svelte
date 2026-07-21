@@ -26,9 +26,9 @@
     const pages = $derived(_.sortBy(props.pages, p => p.sortKey));
 </script>
 
-<div class="flex flex-col gap-0.5">
+<div class="flex flex-col">
     {#each pages as page (page.url)}
-        <div class="flex flex-row gap-1">
+        <div class="flex min-w-0">
             {@render PageItemRenderer(page)}
         </div>
     {/each}
@@ -36,13 +36,13 @@
 
 {#snippet PageItemRenderer(page: Page)}
     <div
-        class={["group/page flex w-full h-6 rounded-md hover:bg-input/50", {
-            "bg-input hover:bg-input shadow-sm":
+        class={["group/page flex h-5 w-full rounded-sm text-xs text-muted-foreground transition-colors duration-75 hover:bg-workbench-hover hover:text-foreground", {
+            "bg-workbench-selection text-foreground hover:bg-workbench-selection":
                 page.url === currentUrl.value,
         }]}>
         <button
             onclick={() => navigateTo(page.url)}
-            class={["flex-1 inline-flex px-1.5 truncate font-mono", {
+            class={["inline-flex min-w-0 flex-1 items-center truncate rounded-sm px-1.5 text-left font-mono focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring", {
                 "italic": page.pinned === false,
             }]}>
             {#if page.name.type === "symbol"}
@@ -57,8 +57,8 @@
         {#if page.pinned !== null}
             <button
                 onclick={e => { page.setPinned(!page.pinned); e.stopPropagation(); }}
-                class={["inline-flex h-6 aspect-square items-center justify-center", {
-                    "invisible group-hover/page:visible text-foreground/50":
+                class={["inline-flex h-5 aspect-square items-center justify-center rounded-sm text-foreground/70 hover:bg-input/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring", {
+                    "opacity-0 group-hover/page:opacity-100 group-focus-within/page:opacity-100":
                         !page.pinned
                 }]}>
                 <Pin size={12}/>
@@ -66,4 +66,3 @@
         {/if}
     </div>
 {/snippet}
-

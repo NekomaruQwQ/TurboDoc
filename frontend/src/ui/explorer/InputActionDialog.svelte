@@ -30,8 +30,8 @@
 </script>
 
 <Button
-    variant="secondary"
-    class="w-full h-8 border cursor-pointer"
+    variant="outline"
+    class="mb-1 h-7 w-full justify-start rounded-sm border-workbench-divider bg-transparent px-2 text-xs font-normal"
     onclick={() => open = true}>
     <Icon icon={action.icon} size="sm" />
     <span>{action.name}</span>

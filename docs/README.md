@@ -185,10 +185,12 @@ WebView2 default path → Vite on the main port (HMR WebSocket included). No int
 ```
 frontend/index.ts (entry point: mount(App, ...))
 └── App.svelte (owns active `providerId` $state, IPC `navigated` listener,
-                ResizablePanelGroup layout)
+                and resizable workbench layout)
+    ├── WorkbenchToolbar.svelte (product identity + read-only current URL)
     ├── Explorer.svelte (left panel; receives the active provider as a prop,
     │                    owns ProviderDataStore, derives view model via
     │                    provider.render(ctx), wires up effects)
+    │   ├── ExplorerHeader.svelte (panel label + active provider)
     │   ├── InputActionDialog.svelte (renders provider-supplied "input" actions, e.g. Import)
     │   ├── ExplorerGroup (variant="ungrouped")
     │   │   ├── ExplorerGroupHeader (variant="ungrouped")
@@ -339,11 +341,18 @@ No packaged-prod build path exists yet. When it lands, it will likely use `ICore
 ## Visual Design System
 
 ### Colors
-- All styling consolidated in `frontend/global.css` (Tailwind, theme tokens, Zinc palette in `:root` + `.dark`, Radix Collapsible animation)
-- OKLCH color space for perceptual uniformity
-- Dark background with high-contrast text
-- shadcn Zinc palette (`--background`, `--foreground`, `--card`, `--popover`, `--primary`, `--secondary`, `--muted`, `--accent`, `--destructive`, `--border`, `--input`, `--ring`); dark mode triggered by `class="dark"` on `<html>` plus `@custom-variant dark (&:is(.dark *))`
-- `--input` token at 15% transparent white doubles as the interactive-highlight color (used as `bg-input/50` for hover states and `border-input` for field borders)
+- Theme tokens live in `frontend/global.tailwind.css`; global behavior such as
+  typography, scrollbars, selection, and collapse animation lives in
+  `frontend/global.css`.
+- The OKLCH dark palette follows the current VS Code workbench model: a dark
+  outer chrome, subtly separated explorer/editor surfaces, low-contrast panel
+  borders, and distinct hover and selection rows.
+- Workbench-specific tokens (`--workbench`, `--editor`,
+  `--workbench-hover`, `--workbench-selection`, and
+  `--workbench-divider`) complement the shadcn semantic tokens inherited by
+  buttons, fields, menus, selects, and dialogs.
+- Dark mode is triggered by `class="dark"` on `<html>` plus
+  `@custom-variant dark (&:is(.dark *))`.
 
 ### One Dark Symbol Colors (CSS variables in `frontend/global.css`)
 - Yellow (`--color-yellow`): type (struct, enum)
@@ -354,37 +363,39 @@ No packaged-prod build path exists yet. When it lands, it will likely use `ICore
 
 ### Typography
 - Monospace font for item names and page links (`font-mono`)
-- Clear hierarchy: group names (`text-lg font-semibold`) > item names (`font-mono`) > page links (`font-mono font-light`)
+- Compact hierarchy: uppercase panel label, semibold group rows, monospace item
+  rows, and smaller monospace page rows.
 - Italic for preview pages (emphasis without weight)
 - Base font size: 14px (set in `:root` in `frontend/global.css`)
-- Font families: Ubuntu Light (sans) and Ubuntu Mono (monospace)
+- Font families: Segoe UI Variable/system UI for chrome and Cascadia
+  Mono/Consolas for documentation identifiers; no downloaded font assets.
 
 ### Spacing
-- Compact 8px grid for information density
-- Comfortable 16px padding for panels
-- Consistent 4px gaps between UI elements
-- Card padding: 12px (`p-3`)
+- 4px workbench gutters separate the rounded explorer and editor panels.
+- Tree rows use 24–28px heights, shallow indentation, and compact controls.
+- Depth comes from panel borders and surface contrast rather than per-item cards
+  or heavy shadows.
 
-### Icons (Font Awesome)
+### Icons (Lucide)
 
 | Component | Icon | Usage |
 |-----------|------|-------|
-| External Link | `faArrowUpRightFromSquare` | Item external links |
-| Pin | `faThumbtack` | Pin/unpin button for pages |
-| Menu | `faEllipsisVertical` | Item/group actions menu |
-| Expand All | `faAnglesDown` | Expand all items in group |
-| Collapse All | `faAnglesUp` | Collapse all items in group |
-| Move Up | `faArrowUp` | Move group up |
-| Move Down | `faArrowDown` | Move group down |
-| Move to Top | `faArrowUpFromBracket` | Move group to top |
-| Move Under | `faRightToBracket` | Move group under another |
-| Move to Group | `faRightToBracket` | Move item to another group |
-| Rename | `faPencil` | Rename group |
-| Add | `faPlus` | Add group button |
-| Confirm | `faCheck` | Confirm rename/add |
-| Delete | `faTrash` | Delete group/item |
-| More Versions | `faEllipsis` | Version selector placeholder |
-| Chevron | `faChevronDown` / `faChevronRight` | Group expand/collapse |
+| External Link | `ExternalLink` | Item external links |
+| Pin | `Pin` | Pin/unpin button for pages |
+| Menu | `EllipsisVertical` | Item/group actions menu |
+| Expand All | `ChevronsDown` | Expand all items in group |
+| Collapse All | `ChevronsUp` | Collapse all items in group |
+| Move Up | `ArrowUp` | Move group up |
+| Move Down | `ArrowDown` | Move group down |
+| Move to Top | `ArrowUpToLine` | Move group to top |
+| Move Under | `LogIn` | Move group under another |
+| Move to Group | `LogIn` | Move item to another group |
+| Rename | `Pencil` | Rename group |
+| Add | `Plus` | Add group button |
+| Confirm | `Check` | Confirm rename/add |
+| Delete | `Trash2` | Delete group/item |
+| More Versions | `Ellipsis` | Version selector placeholder |
+| Chevron | `ChevronDown` / `ChevronRight` | Group/item expand-collapse |
 
 ---
 

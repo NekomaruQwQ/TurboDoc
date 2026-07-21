@@ -76,7 +76,10 @@
 
 <DropdownMenu.Root>
     <DropdownMenu.Trigger
-        class={cn(buttonVariants({ variant: "outline" }), "size-6")}
+        class={cn(
+            buttonVariants({ variant: "ghost" }),
+            "size-6 rounded-sm opacity-0 group-hover/item:opacity-100 " +
+            "group-focus-within/item:opacity-100 aria-expanded:opacity-100")}
         aria-label="Item actions">
         <EllipsisVertical class="size-3.5" />
     </DropdownMenu.Trigger>

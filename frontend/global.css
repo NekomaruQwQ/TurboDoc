@@ -1,12 +1,5 @@
 :root {
-    /* Smaller base font size for a more compact UI. */
-    font-size: 14px;
-
-    /* Smaller border radius for a more compact UI. */
-    --radius: 0.4rem;
-
-    /* Ubuntu fonts. */
-    --font-sans: 'Ubuntu Light', sans-serif;
+    --font-sans: 'Ubuntu Light', system-ui, sans-serif;
     --font-mono: 'Ubuntu Mono', monospace;
 
     /* One Dark Pro accent palette — referenced by the symbol type
@@ -21,14 +14,43 @@
 }
 
 button {
-    /* Ensure all buttons have a pointer cursor by default */
+    /* Buttons are always actions, including unstyled tree rows. */
     cursor: pointer;
 }
 
 [data-slot="dropdown-menu-item"],
 [data-slot="dropdown-menu-sub-trigger"] {
-    /* Ensure dropdown menu items have a pointer cursor */
+    /* Bits UI uses `cursor-default`; pointer better communicates app actions. */
     cursor: pointer;
+}
+
+/* Match VS Code's low-contrast overlay scrollbars without hiding the explorer's
+ * scroll affordance. Firefox uses scrollbar-color, while WebView2 uses the
+ * WebKit pseudo-elements below. */
+* {
+    scrollbar-color: oklch(1 0 0 / 20%) transparent;
+    scrollbar-width: thin;
+}
+
+*::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+*::-webkit-scrollbar-thumb {
+    background: oklch(1 0 0 / 16%);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+    background: oklch(1 0 0 / 26%);
+}
+
+*::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::selection {
+    background: oklch(0.55 0.16 250 / 45%);
 }
 
 /* Bits UI Collapsible slide animation: uses --bits-collapsible-content-height
@@ -41,11 +63,11 @@ button {
 }
 
 [data-slot="collapsible-content"][data-state="open"] {
-    animation: collapsible-slide-down 250ms ease-in-out;
+    animation: collapsible-slide-down 160ms ease-out;
 }
 
 [data-slot="collapsible-content"][data-state="closed"] {
-    animation: collapsible-slide-up 250ms ease-in-out;
+    animation: collapsible-slide-up 160ms ease-out;
 }
 
 @keyframes collapsible-slide-down {

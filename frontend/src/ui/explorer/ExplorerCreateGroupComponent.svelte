@@ -34,12 +34,12 @@
     }
 </script>
 
-<div class="flex flex-row items-center w-full gap-1">
+<div class="flex w-full items-center gap-1">
     {#if inputMode}
         <Input
             bind:value={inputText}
             placeholder="Group name..."
-            class="h-8 flex-1 ml-1"
+            class="h-7 flex-1 rounded-sm text-xs"
             onkeydown={e => {
                 if (e.key === "Enter") ok();
                 else if (e.key === "Escape") cancel();
@@ -47,15 +47,15 @@
             onblur={cancel} />
         <!-- onmousedown so the click registers before the Input's onblur. -->
         <Button
-            variant="secondary"
-            class="size-8 border cursor-pointer"
+            variant="ghost"
+            class="size-7 rounded-sm border border-workbench-divider"
             onmousedown={ok}>
             <Check />
         </Button>
     {:else}
         <Button
-            variant="secondary"
-            class="w-full h-8 border cursor-pointer"
+            variant="ghost"
+            class="h-7 w-full justify-start rounded-sm border border-transparent px-2 text-xs font-normal text-muted-foreground hover:border-workbench-divider hover:text-foreground"
             onclick={() => inputMode = true}>
             <Plus />
             <span>Add Group</span>

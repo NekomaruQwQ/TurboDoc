@@ -37,21 +37,19 @@
     {@const expanded = groupExpanded(provider.id, props.groupName).value}
     <Collapsible.Root open={expanded}>
         <ExplorerGroupHeader groupName={groupName} />
-        <Collapsible.Content class="flex flex-col gap-2">
+        <Collapsible.Content class="flex flex-col">
             {#each groupItems as [itemId, item] (itemId)}
                 <ExplorerItem {item} itemGroupName={groupName} />
             {/each}
-            <div class="w-full h-0"></div>
         </Collapsible.Content>
     </Collapsible.Root>
 {:else}
     <div class={GROUP_HEADER_OUTER_STYLE}>
         <p class={GROUP_HEADER_INNER_STYLE}>Ungrouped</p>
     </div>
-    <div class="flex flex-col gap-2">
+    <div class="flex flex-col">
         {#each groupItems as [itemId, item] (itemId)}
             <ExplorerItem {item} itemGroupName="" />
         {/each}
-        <div class="w-full h-0"></div>
     </div>
 {/if}

@@ -7,6 +7,7 @@
     import ExplorerItem from "@/ui/explorer/ExplorerItem.svelte";
     import ExplorerGroup from "@/ui/explorer/ExplorerGroup.svelte";
     import ExplorerCreateGroupComponent from "@/ui/explorer/ExplorerCreateGroupComponent.svelte";
+    import ExplorerHeader from "@/ui/explorer/ExplorerHeader.svelte";
     import InputActionDialog from "@/ui/explorer/InputActionDialog.svelte";
 
     let { provider }: { provider: Provider } = $props();
@@ -61,26 +62,28 @@
     });
 </script>
 
-<div class="flex flex-col flex-1 p-2">
-    <!-- Provider-level actions (e.g. "Import"). Only the "input" variant
-         renders a dialog; "menu" is reserved for future inline menu items. -->
-    {#each output.actions ?? [] as action, i (i)}
-        {#if action.type === "input"}
-            <InputActionDialog {action} />
-        {/if}
-    {/each}
+<div class="flex min-h-0 flex-1 flex-col">
+    <ExplorerHeader {provider} />
+    <div class="flex min-h-0 flex-1 flex-col overflow-y-auto p-1.5">
+        <!-- Provider-level actions (e.g. "Import"). Only the "input" variant
+             renders a dialog; "menu" is reserved for future inline menu items. -->
+        {#each output.actions ?? [] as action, i (i)}
+            {#if action.type === "input"}
+                <InputActionDialog {action} />
+            {/if}
+        {/each}
 
-    {#if provider.enableItemGrouping}
-        <ExplorerGroup variant="ungrouped" providerOutput={output} />
-        {#each store.data.groupOrder.filter(g => g in store.data.groups) as groupName (groupName)}
-            <ExplorerGroup variant="default" {groupName} providerOutput={output} />
-        {/each}
-        <!-- Extra spacing to separate from create group component -->
-        <div class="w-full h-2"></div>
-        <ExplorerCreateGroupComponent />
-    {:else}
-        {#each Object.entries(output.items) as [itemId, item] (itemId)}
-            <ExplorerItem {item} itemGroupName="" />
-        {/each}
-    {/if}
+        {#if provider.enableItemGrouping}
+            <ExplorerGroup variant="ungrouped" providerOutput={output} />
+            {#each store.data.groupOrder.filter(g => g in store.data.groups) as groupName (groupName)}
+                <ExplorerGroup variant="default" {groupName} providerOutput={output} />
+            {/each}
+            <div class="h-1 shrink-0"></div>
+            <ExplorerCreateGroupComponent />
+        {:else}
+            {#each Object.entries(output.items) as [itemId, item] (itemId)}
+                <ExplorerItem {item} itemGroupName="" />
+            {/each}
+        {/if}
+    </div>
 </div>

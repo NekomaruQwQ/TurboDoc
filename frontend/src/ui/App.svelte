@@ -6,6 +6,7 @@
     import * as IPC from "@/core/ipc";
     import providers from "@/providers";
 
+    import WorkbenchToolbar from "./WorkbenchToolbar.svelte";
     import Explorer from "./explorer/Explorer.svelte";
 
     /** Captured once at mount; the iframe's `src` is set from this on first
@@ -27,29 +28,24 @@
     let provider = $derived(providers.find(p => p.id === providerId) ?? providers[0]);
 </script>
 
-<div class="w-full h-full flex flex-col gap-1">
-    <div>-</div>
-    <Resizable.PaneGroup direction="horizontal" class="gap-1">
-        <div>
-            <!-- Provider Switch Here -->
-        </div>
-        <Resizable.Pane defaultSize={20} class="flex flex-col">
-            <div
-                class="bg-sidebar flex flex-1 flex-col mb-2 border rounded-xl overflow-y-scroll"
-                style="scrollbar-width: none">
+<div class="flex h-full w-full flex-col bg-workbench">
+    <WorkbenchToolbar />
+    <Resizable.PaneGroup direction="horizontal" class="min-h-0 flex-1 gap-0.5 p-2">
+        <Resizable.Pane defaultSize={20} class="flex min-w-0 flex-col">
+            <section
+                class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-workbench-divider bg-sidebar"
+                aria-label="Documentation explorer">
                 <Explorer {provider} />
-            </div>
+            </section>
         </Resizable.Pane>
-        <Resizable.Handle class="w-0"/>
-        <Resizable.Pane defaultSize={80} class="flex flex-col gap-2">
-            <!-- Navigation Bar Here -->
-            <!-- <div class="bg-sidebar h-12 rounded-xl">
-            </div> -->
+        <Resizable.Handle
+            class="w-1 bg-transparent transition-colors after:w-2 hover:bg-ring/35 focus-visible:bg-ring/45" />
+        <Resizable.Pane defaultSize={80} class="flex min-w-0 flex-col">
             <iframe
                 bind:this={ctx.viewerRef.value}
                 src={initialUrl}
                 title="Documentation viewer"
-                class="bg-sidebar w-full h-full border rounded-tl-xl">
+                class="h-full w-full rounded-lg border border-workbench-divider bg-editor">
             </iframe>
         </Resizable.Pane>
     </Resizable.PaneGroup>

@@ -1,10 +1,9 @@
 <script lang="ts" module>
     export const OUTER_STYLE =
-        "flex flex-row h-8 my-1 gap-0.5 " +
-        "items-center text-muted-foreground";
+        "group/header flex h-7 items-center gap-0.5 mt-1 text-sidebar-foreground";
     export const INNER_STYLE =
-        "flex flex-row flex-1 gap-2 pl-1 " +
-        "items-center font-semibold text-lg text-left truncate";
+        "flex h-7 min-w-0 flex-1 items-center gap-1 rounded-sm px-1 " +
+        "text-left text-sm font-semibold truncate hover:bg-workbench-hover";
 </script>
 
 <script lang="ts">
@@ -120,21 +119,21 @@
         <!-- Inline rename input. Confirms on Enter, cancels on Escape or blur. -->
         <Input
             bind:value={renameValue}
-            class="flex-1 h-8 font-semibold"
+            class="h-7 flex-1 rounded-sm text-xs font-semibold"
             onkeydown={e => {
                 if (e.key === "Enter") confirmRename(groupName);
                 else if (e.key === "Escape") renaming = false;
             }}
             onblur={() => confirmRename(groupName)} />
         <Button
-            variant="secondary"
-            class="size-8"
+            variant="ghost"
+            class="size-7 rounded-sm"
             onclick={() => confirmRename(groupName)}>
             <Check />
         </Button>
     </div>
 {:else}
-    <div class={`group/header ${OUTER_STYLE}`}>
+    <div class={OUTER_STYLE}>
         <button
             class={INNER_STYLE}
             onclick={() => expanded && (expanded.value = !expanded.value)}>
@@ -149,10 +148,10 @@
         <!-- Rename pencil; visible on header hover. -->
         <Button
             variant="ghost"
-            class="size-8 rounded-md invisible group-hover/header:visible"
+            class="size-7 rounded-sm opacity-0 group-hover/header:opacity-100 group-focus-within/header:opacity-100"
             aria-label="Rename group"
             onclick={() => startRename(groupName)}>
-            <Pencil />
+            <Pencil class="size-3.5" />
         </Button>
 
         <!-- Group dropdown menu: expand/collapse all, move ops, delete. -->
@@ -173,7 +172,8 @@
         <DropdownMenu.Trigger
             class={cn(
                 buttonVariants({ variant: "ghost" }),
-                "size-8 invisible group-hover/header:visible")}
+                "size-7 rounded-sm opacity-0 group-hover/header:opacity-100 " +
+                "group-focus-within/header:opacity-100 aria-expanded:opacity-100")}
             aria-label="Group actions">
             <EllipsisVertical class="size-4" />
         </DropdownMenu.Trigger>

@@ -1352,6 +1352,7 @@ dependencies = [
 name = "nkcore-windows"
 version = "0.1.0"
 dependencies = [
+ "nkcore-base",
  "pretty_env_logger",
  "raw-window-handle",
  "windows 0.62.2",
