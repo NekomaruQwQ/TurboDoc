@@ -7,7 +7,7 @@
 //! 2. Start the in-process backend and open the SQLite cache.
 //! 3. Spawn Vite on the runtime while the main thread creates and shows the
 //!    native window, WebView2 environment, and WebView2 controller.
-//! 4. Navigate to `localhost:{port}` only after Vite accepts connections;
+//! 4. Navigate to `127.0.0.1:{port}` only after Vite accepts connections;
 //!    reveal the controller after its first navigation completes.
 //! 5. Drop the runtime, which cancels in-flight tokio tasks. The Vite
 //!    child dies via the Job Object on host exit.
@@ -114,7 +114,7 @@ mod main {
         // -- Spawn Vite and app concurrently --
         startup.mark("starting frontend and native app");
         crate::app::run(
-            format!("http://localhost:{port}"),
+            format!("http://127.0.0.1:{port}"),
             server,
             crate::server::FrontendConfig {
                 port,
