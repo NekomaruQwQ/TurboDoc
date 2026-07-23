@@ -1,8 +1,8 @@
 use std::time::Duration;
 use std::time::Instant;
 
-/// Shared origin for cumulative startup timings across the host, Vite, and
-/// WebView2 initialization paths.
+/// Shared origin for cumulative startup timings across concurrent host
+/// initialization paths.
 ///
 /// Copies retain the same origin, so concurrent work can report comparable
 /// timestamps without coordination or mutable shared state.

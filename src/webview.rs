@@ -27,7 +27,12 @@ pub struct WebView {
     core: ICoreWebView2,
 }
 
-pub type WebViewNavigationResult = Result<(), COREWEBVIEW2_WEB_ERROR_STATUS>;
+/// Outcome and WebView2 correlation ID for one top-level navigation.
+#[derive(Debug)]
+pub struct WebViewNavigationResult {
+    pub navigation_id: u64,
+    pub status: Result<(), COREWEBVIEW2_WEB_ERROR_STATUS>,
+}
 
 /// Resolve the WebView2 user-data folder independently of the executable
 /// location so installed builds never try to write browser state beside the
@@ -135,7 +140,7 @@ impl WebView {
     /// Returns a callback that removes the event handler when invoked.
     pub fn on_next_navigation_completed<F>(&self, callback: F) -> anyhow::Result<()>
     where
-        F: FnOnce(Result<(), COREWEBVIEW2_WEB_ERROR_STATUS>) + 'static {
+        F: FnOnce(WebViewNavigationResult) + 'static {
         let (token_tx, token_rx) = mpsc::sync_channel::<i64>(1);
         let mut state = Some((self.core.clone(), token_rx, callback));
 
@@ -174,16 +179,21 @@ impl WebView {
 
         api_call!(unsafe { webview.remove_NavigationCompleted(token) })?;
 
+        let navigation_id =
+            out_var_or_err(|out| api_call!(unsafe { args.NavigationId(out) }))?;
         let success =
             out_var_or_err(|out| api_call!(unsafe { args.IsSuccess(out)}))?
                 .as_bool();
-        let result = if success {
+        let status = if success {
             Ok(())
         } else {
             Err(out_var_or_err(|out| api_call!(unsafe { args.WebErrorStatus(out) }))?)
         };
 
-        callback(result);
+        callback(WebViewNavigationResult {
+            navigation_id,
+            status,
+        });
         Ok(())
     }
 

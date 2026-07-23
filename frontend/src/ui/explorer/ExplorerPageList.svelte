@@ -15,7 +15,7 @@
 <script lang="ts">
     import * as _ from "remeda";
 
-    import { Pin } from "@lucide/svelte/icons";
+    import Pin from "@lucide/svelte/icons/pin";
 
     import { currentUrl } from "@/core/uiState.svelte";
     import * as ctx from "@/core/context.svelte";

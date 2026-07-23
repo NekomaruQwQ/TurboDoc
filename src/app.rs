@@ -308,13 +308,25 @@ mod handler {
             webview.add_web_resource_requested_filter(&uri_pattern)?;
         }
 
+        // The controller starts hidden to avoid exposing a partially loaded
+        // WebView2 surface. This one-shot handler is application behavior, not
+        // telemetry: successful frontend navigation is the synchronization
+        // point that reveals the controller, while failure aborts startup.
         webview.on_next_navigation_completed({
             let webview = webview.clone();
             move |result| on_first_navigation_completed(&webview, startup, result)
         })?;
 
+        // TurboDoc has no loopback backend server. This handler supplies the
+        // in-process `/api/v1/*` routes and documentation proxy responses for
+        // the exact filters above; returning `None` lets ordinary Vite assets
+        // and HMR traffic continue through WebView2's network stack.
         webview.on_web_resource_requested(move |request| on_web_resource_requested(&server, request))?;
 
+        // The documentation viewer is an iframe, so its navigations do not
+        // pass through the top-level completion handler. Observe them here to
+        // keep frontend navigation state synchronized and to cancel external
+        // destinations before opening them in the system browser.
         webview.on_frame_navigation_starting({
             let window = Rc::clone(window);
             let webview = webview.clone();
@@ -334,15 +346,19 @@ mod handler {
         webview: &WebView,
         startup: StartupProbe,
         result: WebViewNavigationResult) {
-        match result {
+        match result.status {
             Ok(()) => {
                 webview
                     .set_visible(true)
                     .expect("failed to show WebView2 controller");
-                startup.mark("initial navigation completed; WebView2 shown");
+                startup.mark(&format!(
+                    "WebView2 NavigationCompleted #{}; controller shown",
+                    result.navigation_id));
             },
             Err(err) =>
-                panic!("failed to load frontend with status {err:?}"),
+                panic!(
+                    "navigation #{} failed to load frontend with status {err:?}",
+                    result.navigation_id),
         }
     }
 

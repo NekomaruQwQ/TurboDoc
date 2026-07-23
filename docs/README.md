@@ -155,7 +155,7 @@ WebView2 default path → Vite on the main port (HMR WebSocket included). No int
 ### Technology Stack
 
 - **Frontend**: Svelte 5 + TypeScript (strict mode); reactivity via runes (`$state`, `$derived`, `$effect`)
-- **Build**: Vite 7 with `@sveltejs/vite-plugin-svelte`
+- **Build**: Vite 8 with `@sveltejs/vite-plugin-svelte`
 - **State Management**: Svelte 5 `$state` proxies (deep reactive); direct mutation, no Immer
 - **Type Utilities**: type-fest (used by `ReadonlyDeep` markers in a few places)
 - **UI Components**: shadcn-svelte — vendored Bits UI primitives in `frontend/3rdparty/shadcn/`; paneforge (via the Resizable wrapper) for split panes
@@ -317,7 +317,18 @@ just run       # Launches the app with HMR
 
 `just run` is `cargo run -- --data data`. There is only one mode. `server::start` opens the SQLite cache, then the host schedules `frontend::spawn_vite` on Tokio while the main thread creates WebView2. The native window is painted with the frontend workbench color and shown immediately; the WebView2 controller uses the same default background but remains hidden. Once Vite accepts connections on `$TURBODOC_PORT` (Vite reads `TURBODOC_VITE_PORT`, set by the host), a typed winit event triggers navigation to `http://127.0.0.1:{port}/`. Using the same IPv4 loopback address for Vite binding, readiness, and navigation avoids an IPv6-first `localhost` resolution mismatch. The controller is revealed after that navigation completes. HMR's WebSocket talks to Vite on the same port — no `hmr.clientPort` override, no reverse proxy.
 
-Every initialization milestone logs through `log::info` as `startup +… ms`, with phase durations for the expensive backend, runtime, window, Vite, WebView2-environment, and WebView2-controller operations. Because every path shares one monotonic origin, concurrent Vite and native timings remain directly comparable.
+Initialization milestones log through `log::info` as `startup +… ms`. A shared monotonic origin makes the concurrently started Vite and native paths directly comparable. Expensive backend, runtime, window, Vite-readiness, WebView2-environment, and WebView2-controller operations also report their individual phase durations. The final `WebView2 NavigationCompleted …; controller shown` milestone is the app's measured startup latency because that is when the frontend becomes visible. The completion handler is part of startup behavior rather than diagnostic instrumentation: it reveals the initially hidden WebView2 controller only after the frontend navigation succeeds.
+
+#### Checking for Startup Regressions
+
+Measure both cold and warm dependency-optimization behavior:
+
+1. Close TurboDoc and remove only `frontend/node_modules/.vite`.
+2. Run `just run`, then record the `startup +… ms` lines through `WebView2 NavigationCompleted …; controller shown`. This is the cold-cache result and includes Vite dependency prebundling.
+3. Close TurboDoc and run `just run` again without changing dependencies, `bun.lock`, or Vite configuration. Record the same lines. Repeat once if needed; these are warm-cache results and represent normal development startup.
+4. Compare like with like against previous measurements. A slower `Vite ready on port …` phase points to Vite startup or dependency optimization. Slower WebView2 environment/controller phases point to native browser initialization. If those milestones remain stable but the final completion time grows, temporarily add targeted navigation lifecycle probes rather than keeping per-navigation handlers in the normal runtime.
+
+Use the final completion timestamp as the headline number, but retain the intermediate milestones with the result so the responsible path remains identifiable. Avoid adding Svelte libraries to `optimizeDeps.exclude` merely because they ship `.svelte` sources: `vite-plugin-svelte` supports prebundling them, and excluding large libraries shifts their module graph into the initial on-demand transform path. Keep Lucide imports at individual icon paths such as `@lucide/svelte/icons/pin` so Vite does not traverse the complete icon collection.
 
 A Windows Job Object (set up in `src/main.rs`) ensures the spawned Vite child dies when the host exits, even on abrupt termination.
 
@@ -744,6 +755,7 @@ TurboDoc/
 
 ## Change History
 
+- **2026-07**: Diagnose and remove a frontend startup regression caused by excluding `@lucide/svelte`, `bits-ui`, and `paneforge` from Vite dependency optimization. Restore `vite-plugin-svelte`'s default prebundling and replace the remaining Lucide icon-barrel import with a direct icon import, reducing observed startup from roughly 20–28 seconds to about 7 seconds. Retain monotonic initialization milestones and phase durations as regression telemetry; remove the temporary top-level navigation lifecycle and Vite first-request probes after they isolated the delay to frontend transformation. Document cold/warm regression checks and why each remaining WebView2 event handler is functional.
 - **2026-07**: Align the hosted frontend URL with Vite's IPv4-only bind and readiness probe: navigate WebView2 to `127.0.0.1` instead of `localhost`, avoiding a possible IPv6-first `::1` connection attempt before fallback.
 - **2026-07**: Reduce and instrument perceived startup latency. Add a shared monotonic elapsed-time probe with cumulative `log::info` milestones and phase durations; schedule Vite on Tokio concurrently with native window and WebView2 creation; synchronize through a typed winit readiness event before the first navigation. Show the native window during WebView2 initialization with the frontend's exact workbench background (`#0E0F13`), apply that color through WebView2 controller options at creation time, and keep only the controller hidden until the initial page completes.
 - **2026-07**: Scope WebView2 request interception to the supported documentation, crate-metadata, and configured localhost API URL patterns. Replace the global `*` request filter with exact origin/path filters while preserving iframe-originated request coverage; unrelated Vite assets, HMR traffic, and external URLs no longer cross the WebView2 callback boundary.
