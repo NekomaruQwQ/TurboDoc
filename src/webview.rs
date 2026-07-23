@@ -2,6 +2,8 @@ use nkcore::prelude::*;
 use nkcore::debug::*;
 use nkcore::*;
 
+use std::env;
+use std::path::PathBuf;
 use std::result::Result;
 use std::sync::mpsc;
 
@@ -25,10 +27,25 @@ pub struct WebView {
 
 pub type WebViewNavigationResult = Result<(), COREWEBVIEW2_WEB_ERROR_STATUS>;
 
+/// Resolve the WebView2 user-data folder independently of the executable
+/// location so installed builds never try to write browser state beside the
+/// binary.
+fn user_data_folder() -> anyhow::Result<PathBuf> {
+    let local_app_data =
+        env::var_os("LOCALAPPDATA")
+            .context("LOCALAPPDATA is not set")?;
+    Ok(PathBuf::from(local_app_data)
+        .join("NekomaruQwQ")
+        .join("TurboDoc")
+        .join("WebView2"))
+}
+
 impl WebView {
     pub fn new(hwnd: HWND) -> anyhow::Result<Self> {
+        let user_data_folder = user_data_folder()?;
+        log::info!("WebView2 user-data folder: {}", user_data_folder.display());
         let environment =
-            blocking::create_core_webview2_environment();
+            blocking::create_core_webview2_environment(&user_data_folder)?;
         let controller =
             blocking::create_core_webview2_controller(&environment, hwnd);
         let core =
@@ -239,25 +256,30 @@ mod blocking {
     use std::sync::mpsc;
     use std::sync::mpsc::Sender;
 
-    pub fn create_core_webview2_environment() -> ICoreWebView2Environment2 {
+    pub fn create_core_webview2_environment(
+        user_data_folder: &std::path::Path)
+     -> anyhow::Result<ICoreWebView2Environment2> {
+        let user_data_folder =
+            U16CString::from_os_str(user_data_folder)
+                .context("WebView2 user-data folder contains an interior null")?;
         let (tx, rx) = mpsc::channel();
 
         CreateCoreWebView2EnvironmentCompletedHandler::wait_for_async_operation(
             Box::new(move |handler| unsafe {
                 CreateCoreWebView2EnvironmentWithOptions(
                     None,
-                    None,
+                    PCWSTR(user_data_folder.as_ptr()),
                     None, &handler)
                     .map_err(webview2_com::Error::WindowsError)
             }),
             send_on_completed(tx),
-        ).expect("failed to create ICoreWebView2Environment");
+        ).context("failed to create ICoreWebView2Environment")?;
 
         rx
             .recv()
-            .expect("failed to receive from mpsc channel")
+            .context("failed to receive ICoreWebView2Environment")?
             .cast::<ICoreWebView2Environment2>()
-            .expect("failed to cast to ICoreWebView2Environment2")
+            .context("failed to cast to ICoreWebView2Environment2")
     }
 
     pub fn create_core_webview2_controller(environment: &ICoreWebView2Environment2, hwnd: HWND)
