@@ -103,7 +103,7 @@ TurboDoc is an "enhanced tabbed browser with inactive tab resources released" �
 | **Component** | **Tech Stack** | **Role** | **Key Responsibilities** |
 |---|---|---|---|
 | **Host** | Rust (winit + WebView2) | **The Shell** | Window management. Intercepts configured upstream GETs in `WebResourceRequested` and routes them to `Server::fetch` (proxy + cache), while `/api/v1/*` routes to `Server::dispatch_api` (data only); everything else passes through to Vite. Sends `navigated` events to the frontend, opens external URLs in the system browser, and owns the Vite child through a Job Object. |
-| **Backend** | Rust (rusqlite + reqwest + `http-cache-semantics`), in-process — no axum, no bound TCP listener of its own | **The Brain** | Provider data persistence (`/api/v1/data/{file_name}`) reading/writing TOML. Site-agnostic HTTP proxy with SQLite caching, upstream cache directives, conditional revalidation, stale-while-revalidate, and LRU eviction. Rustdoc dark-mode injection is applied at serve time. Called synchronously from the WebView2 UI thread via `Handle::block_on`. |
+| **Backend** | Rust (rusqlite + reqwest + `http-cache-semantics`), in-process — no axum, no bound TCP listener of its own | **The Brain** | Provider data persistence (`/api/v1/data/{file_name}`) reading/writing TOML. Site-agnostic HTTP proxy with SQLite caching, upstream cache directives, conditional revalidation, stale-while-revalidate, LRU eviction, and an explicit downstream response-header allowlist that lets WebView2 cache reusable representations safely. Rustdoc dark-mode injection is applied at serve time. Called synchronously from the WebView2 UI thread via `Handle::block_on`. |
 | **Frontend** | Svelte 5 + Vite | **The Face** | UI rendering and provider-specific integrations. The Rust provider constructs and parses sparse-index metadata requests by default and uses the crates.io API only for explicit refreshes. Vite serves all assets directly on the main port (no reverse proxy). |
 
 ### Request Flow
@@ -119,7 +119,8 @@ WebView2 iframe navigates
        │  host: server.fetch(request)  → proxy::fetch(state, request)
        └─ proxy::fetch:
             ├─ Cache HIT + fresh?  → serve cached body + dark-mode injection
-            ├─ Cache HIT + stale?  → serve cached body immediately
+            │                        + cache/representation headers for WebView2 L1 reuse
+            ├─ Cache HIT + stale?  → serve cached body immediately with downstream no-cache
             │    └─ background:      conditional revalidation (If-None-Match / If-Modified-Since)
             │         ├─ 304 Not Modified → update policy in cache
             │         └─ 2xx             → replace cache entry
@@ -413,6 +414,8 @@ Design decisions that shaped the current architecture. Organized by area.
 
 **API Response Caching**
 - One site-agnostic `http_cache` stores any intercepted upstream response that is storable under its actual HTTP headers. There are no URL-prefix TTL overrides or crate-specific tables.
+- WebView2 is the process-local L1 cache and SQLite is the persistent/offline L2. The proxy forwards an explicit allowlist of representation, freshness, validator, CORS, privacy, and timing fields; it recomputes `Content-Length` and blocks connection, cookie/authentication, reporting, unsupported range, encoding, digest, CSP, and frame-policy fields.
+- Cache entries persist the allowed upstream-derived response fields separately from `CachePolicy`. Fresh hits use the correctly aged response parts returned by `http-cache-semantics`; stale hits add downstream `Cache-Control: no-cache` so WebView2 must return after background revalidation.
 - Sparse-index files are the default crate source. The CDN currently provides explicit freshness plus validators, so normal proxy hits and background conditional revalidation apply without adaptation.
 - The crates.io API is requested only by the "Refresh Metadata" action. The frontend uses standard `fetch(..., { cache: "no-store" })`; the generic proxy recognizes the resulting request cache directive and bypasses reuse without knowing which site is being refreshed.
 - Each provider owns its upstream formats and within-session state. The Rust provider constructs Cargo index paths and parses both newline-delimited index entries and the richer API response in `metadata.ts`; its `$state` cache starts empty on each launch.
@@ -464,7 +467,8 @@ Design decisions that shaped the current architecture. Organized by area.
 **Dark Mode Injection (Serve-Time)**
 - Cache stores clean upstream content; dark mode injection applied at serve time
 - Technique: insert `<script>window.localStorage.setItem('rustdoc-theme', 'dark');</script>` after `<meta charset="UTF-8">` in rustdoc HTML responses
-- Benefits: change injection logic without invalidating cache; could later make dark mode a user preference toggle
+- The transform is stable and deterministic, so injected HTML retains upstream freshness in WebView2. Its upstream strong `ETag` and body digests are dropped because the final bytes differ; `Content-Length` is recomputed.
+- Any future state-dependent theme transform or change to the injected bytes must first revise browser-cache invalidation.
 
 ### Data Model
 
@@ -664,9 +668,10 @@ TurboDoc/
 │       │   ├── mod.rs          # `dispatch(state, req)` — path-prefix routing + per-request access log
 │       │   └── data.rs         # GET/PUT /data/{file_name} (TOML on disk via `toml` crate)
 │       ├── proxy/
-│       │   ├── mod.rs          # Generic RFC-aware fetch, request cache bypass, CORS response bridge
-│       │   ├── cache.rs        # `http_cache` table get/set + LRU eviction at 2000 entries
-│       │   ├── inject.rs       # Rustdoc dark-mode <script> injection at serve time (HTML only)
+│       │   ├── mod.rs          # Generic RFC-aware fetch, request cache bypass, response assembly
+│       │   ├── cache.rs        # `http_cache` body/policy/allowed-header storage + LRU eviction
+│       │   ├── headers.rs      # Explicit WebView2 response-header policy + scoped metadata CORS
+│       │   ├── inject.rs       # Stable rustdoc dark-mode <script> injection at serve time
 │       │   └── revalidate.rs   # Stale-while-revalidate background task + DashSet dedup
 │       └── frontend.rs         # Spawn Vite on the main port + wait_for_port readiness probe
 │
@@ -685,7 +690,7 @@ TurboDoc/
 
 ### Assumptions Made
 
-1. **Metadata CORS**: crates.io API responses allow cross-origin reads; the sparse index does not, so both configured metadata origins pass through the host proxy, which adds a CORS response header uniformly.
+1. **Metadata CORS**: crates.io API responses allow cross-origin reads; the sparse index does not, so both configured metadata origins pass through the host proxy. The response policy preserves upstream CORS and synthesizes wildcard read access only when a configured public metadata origin omitted it.
 2. **Semver compliance**: Confirmed — crates.io enforces semver, safe to rely on
 3. **Single preview page**: Each crate has at most one preview page at a time (derived from `currentUrl`)
 4. **No nested groups**: Groups contain items, not other groups (flat structure)
@@ -736,6 +741,7 @@ TurboDoc/
 
 ## Change History
 
+- **2026-07**: Expose safe upstream response semantics to WebView2 as a process-local L1 cache. Add an explicit response-header allowlist for representation, cache, validator, CORS, privacy, and timing fields; synthesize wildcard CORS only for configured public crate-metadata origins; continue blocking connection, browser-state, authentication, reporting, unsupported range, encoding, digest, CSP, and frame-policy fields. Persist allowed upstream-derived fields in the SQLite `http_cache` through an additive `response_headers` migration, use correctly aged `http-cache-semantics` parts for fresh hits, force downstream `no-cache` for stale-while-revalidate hits, and refresh stored fields after 304/modified revalidation. Dark-mode injection now reports whether it changed bytes: its stable deterministic HTML retains upstream freshness and `Last-Modified`, while the invalid upstream strong `ETag`, digest/encoding metadata, and length are removed or recomputed.
 - **2026-07**: Split Rust crate metadata sources and move all crate awareness to the frontend. Normal loads now construct Cargo sparse-index paths (`https://index.crates.io/...`) and parse newline-delimited version records in `frontend/src/providers/rust/metadata.ts`; "Refresh Metadata" alone fetches and parses the real-time crates.io API with browser cache mode `no-store`, which the generic proxy honors as a request cache bypass. Delete the backend `/api/v1/crates` endpoint, `api/crates.rs`, `crates_metadata.rs`, cache-peek/warming protocol, polling/backoff frontend code, and crates.io-specific synthetic 24-hour TTL. The proxy now applies only upstream HTTP cache policy to every site, while the host intercept list includes the sparse index and API origins so WebView2 can bridge index CORS. Default index results contain versions/yanked state; Homepage and Repository links are populated only by an explicit API refresh.
 - **2026-05**: Unify caches + remove axum + collapse to a single mode. Two intertwined cleanups: (1) the dedicated `crates_cache` SQLite table is gone — crate-metadata lookups now flow through the standard HTTP proxy, with `proxy::synth_max_age_for(url)` synthesizing `cache-control: public, max-age=86400` for `https://crates.io/api/v1/crates/*` URLs so RFC 7234 / stale-while-revalidate / LRU eviction all apply uniformly; `src/server/crates_cache.rs` collapsed to `src/server/crates_metadata.rs` (just `CrateMetadata` types + `parse_metadata`); legacy table dropped on startup via `DROP TABLE IF EXISTS crates_cache` in `src/server/db.rs`. (2) `axum` + `tower-http` removed entirely — the in-process backend no longer binds a TCP listener. WebView2's `WebResourceRequested` callback now routes intercepted requests to the backend in-process: docs URLs → `Server::fetch` (proxy + dark-mode), `/api/v1/*` paths → `Server::dispatch_api` (path-prefix dispatch into the rewritten `api::{data, crates, mod}` plain-async-fn handlers), everything else passes through. `Server` (renamed from `ProxyHandle`) wraps `AppState` + `tokio::runtime::Handle` and calls handlers via `Handle::block_on` on the UI thread — same blocking semantics as the old HTTP loopback, minus the serialize/deserialize round trip. `/api/v1/crates` is now non-blocking on cache misses: the handler peeks the proxy cache per name; fresh/stale entries are returned inline in `results`, misses are sent to a deduped warming task (via `state.revalidating`) and the name appears in `pending`. Frontend `cache.svelte.ts::batchFetchCrateCache` polls the pending names with exponential backoff (500ms → 4s, max 8 attempts). Prod mode + `--dev` flag dropped — there's only one mode now: Vite spawns on the main port directly (no port offset, no reverse proxy, no `frontend::reverse_proxy`/`prod_service`), WebView2 navigates to `localhost:{port}` (= Vite). `vite.config.ts` drops the `hmr.clientPort` override (HMR uses the page's port natively). `.justfile` drops `--dev` from the `run` recipe. Net: caches consolidated, two layers (`axum` adapters + `crates_cache`) deleted, dev/prod split collapsed.
 - **2026-05**: Bridge WebView2 `WebResourceRequested` directly to `proxy::dispatch` (precursor to the broader axum removal): replace the host-side `reqwest::blocking::Client` loopback (host → `localhost:{port}/proxy?url=...` → axum → `proxy::dispatch`) with a direct in-process call (host → `Server::fetch` → `runtime.block_on(proxy::fetch(...))`); split `proxy::dispatch` into a shared `proxy::fetch` returning `http::Response<Vec<u8>>` (used by both the axum route adapter and the new host path); add `Server` type returned by `server::start`; drop `reqwest`'s `blocking` feature from `Cargo.toml`; the axum `/proxy` route becomes a 4-line adapter calling the shared `fetch`. Eliminates one kernel loopback + one serialize/deserialize per intercepted resource (dozens per docs.rs nav).

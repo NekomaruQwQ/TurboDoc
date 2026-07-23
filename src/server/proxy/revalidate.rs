@@ -18,6 +18,7 @@ use http_cache_semantics::BeforeRequest;
 
 use crate::server::proxy::cache;
 use crate::server::proxy::cache::CacheEntry;
+use crate::server::proxy::headers;
 use crate::server::state::AppState;
 
 /// Spawn a background refetch for `url` using `cached.policy` to determine
@@ -66,40 +67,57 @@ async fn revalidate(
     let http_resp = crate::server::proxy::http_response_from_reqwest(&response);
 
     match cached.policy.after_response(&synth_req, &http_resp, SystemTime::now()) {
-        AfterResponse::NotModified(new_policy, _) => {
+        AfterResponse::NotModified(new_policy, parts) => {
             log::info!("[proxy] REVALIDATED (304, background) {url}");
-            cache::set(&state.db, url, CacheEntry { policy: new_policy, ..cached }).await?;
-        },
-        AfterResponse::Modified(new_policy, _) => {
-            log::info!("[proxy] REVALIDATED (new response, background) {url}");
-            let status = response.status().as_u16();
+            let response_headers = headers::allowed_upstream_headers(&parts.headers);
             let content_type =
-                response.headers()
-                    .get("content-type")
-                    .and_then(|v| v.to_str().ok())
-                    .unwrap_or("")
-                    .to_owned();
+                header_text(&response_headers, http::header::CONTENT_TYPE)
+                    .unwrap_or(cached.content_type);
             let location =
-                response.headers()
-                    .get("location")
-                    .and_then(|v| v.to_str().ok())
-                    .unwrap_or("")
-                    .to_owned();
-            let is_redirect = (300..400).contains(&status);
+                header_text(&response_headers, http::header::LOCATION)
+                    .unwrap_or(cached.location);
+            cache::set(&state.db, url, CacheEntry {
+                policy: new_policy,
+                status_code: parts.status.as_u16(),
+                content_type,
+                location,
+                response_headers,
+                body: cached.body,
+            }).await?;
+        },
+        AfterResponse::Modified(new_policy, parts) => {
+            log::info!("[proxy] REVALIDATED (new response, background) {url}");
+            let status = parts.status;
+            let response_headers = headers::allowed_upstream_headers(&parts.headers);
+            let content_type =
+                header_text(&response_headers, http::header::CONTENT_TYPE)
+                    .unwrap_or_default();
+            let location =
+                header_text(&response_headers, http::header::LOCATION)
+                    .unwrap_or_default();
+            let is_redirect = status.is_redirection();
             let body =
                 if is_redirect { None } else { Some(response.bytes().await?.to_vec()) };
-            if new_policy.is_storable() && (status == 200 || is_redirect) {
+            if new_policy.is_storable() && (status == http::StatusCode::OK || is_redirect) {
                 cache::set(&state.db, url, CacheEntry {
                     policy: new_policy,
-                    status_code: status,
+                    status_code: status.as_u16(),
                     content_type,
                     location,
+                    response_headers,
                     body,
                 }).await?;
             }
         },
     }
     Ok(())
+}
+
+fn header_text(headers: &http::HeaderMap, name: http::HeaderName) -> Option<String> {
+    headers
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned)
 }
 
 /// Removes `url` from `revalidating` when dropped. Runs even on panic, so
