@@ -4,7 +4,7 @@ use nkcore::debug::*;
 use crate::server::Server;
 
 pub fn run(url: &str, server: Server) {
-    use nkcore::os::windows::{
+    use nkcore::{
         prelude::RawWindowHandleExt as _,
         winit::EventLoopExt as _,
         winit::AppEvent,
@@ -89,7 +89,7 @@ fn open_external_link(window: &winit::window::Window, url: &str) {
         .show();
     match result {
         Ok(true) => {
-            use nkcore::os::windows::prelude::RawWindowHandleExt as _;
+            use nkcore::prelude::RawWindowHandleExt as _;
             use winit::raw_window_handle::HasWindowHandle as _;
             use windows::core::HSTRING;
             use windows::Win32::UI::Shell::ShellExecuteW;
