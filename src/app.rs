@@ -3,6 +3,23 @@ use nkcore::debug::*;
 
 use crate::server::Server;
 
+/// Build the exact WebView2 URL patterns whose requests TurboDoc handles.
+///
+/// Proxy bases end in `/`, so appending `*` cannot accidentally match a
+/// longer hostname. The frontend API pattern is scoped to the configured
+/// Vite origin instead of intercepting unrelated localhost traffic.
+fn web_resource_request_filters(frontend_url: &str) -> Vec<String> {
+    let proxy_filters =
+        crate::PROXIED_URL
+            .iter()
+            .map(|base_url| format!("{base_url}*"));
+    let frontend_api_filter =
+        format!("{}/api/v1/*", frontend_url.trim_end_matches('/'));
+    proxy_filters
+        .chain(std::iter::once(frontend_api_filter))
+        .collect()
+}
+
 pub fn run(url: &str, server: Server) {
     use nkcore::{
         prelude::RawWindowHandleExt as _,
@@ -43,7 +60,11 @@ pub fn run(url: &str, server: Server) {
             let webview =
                 WebView::new(window.window_handle().unwrap().as_raw().as_hwnd())
                     .expect("failed to create webview");
-            handler::setup(&window, &webview, server.take().expect("setup called twice"))
+            handler::setup(
+                &window,
+                &webview,
+                url,
+                server.take().expect("setup called twice"))
                 .expect("failed to setup webview event handlers");
             webview.navigate(url)
                 .expect("failed to load frontend");
@@ -130,8 +151,13 @@ mod handler {
     pub fn setup(
         window: &Rc<Window>,
         webview: &WebView,
+        frontend_url: &str,
         server: Server)
      -> anyhow::Result<()> {
+        for uri_pattern in super::web_resource_request_filters(frontend_url) {
+            webview.add_web_resource_requested_filter(&uri_pattern)?;
+        }
+
         webview.on_next_navigation_completed({
             let window = Rc::clone(window);
             let webview = webview.clone();
@@ -230,5 +256,24 @@ mod handler {
             cancel_navigation();
             super::open_external_link(window, url);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::web_resource_request_filters;
+
+    #[test]
+    fn web_resource_filters_are_scoped_to_handled_urls() {
+        assert_eq!(
+            web_resource_request_filters("http://localhost:5173/"),
+            [
+                "https://docs.rs/*",
+                "https://doc.rust-lang.org/*",
+                "https://microsoft.github.io/windows-docs-rs/doc/*",
+                "https://index.crates.io/*",
+                "https://crates.io/api/v1/crates/*",
+                "http://localhost:5173/api/v1/*",
+            ]);
     }
 }

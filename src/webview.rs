@@ -52,24 +52,25 @@ impl WebView {
             unsafe { controller.CoreWebView2() }
                 .context("failed to get ICoreWebView2 from ICoreWebView2Controller")?;
 
-        // We would like to intercept all web resource requests, so we add an `*` filter here.
-        // This is not necessary for general usage.
-        //
-        // Note that we need to use `AddWebResourceRequestedFilterWithRequestSourceKinds`
-        // and specify `COREWEBVIEW2_WEB_RESOURCE_REQUEST_SOURCE_KINDS_DOCUMENT` to cover
-        // requests from `<iframe>` elements as well.
-        //
-        // See https://github.com/MicrosoftEdge/WebView2Feedback/issues/2341#issuecomment-1332463257
-        // for more details on intercepting requests from `<iframe>`.
-        let core_22 = api_call!(unsafe { core.cast::<ICoreWebView2_22>() })?;
+        Ok(Self { environment, controller, core })
+    }
+
+    /// Raise `WebResourceRequested` only for requests matching `uri_pattern`.
+    ///
+    /// The document source-kind includes requests originating from the
+    /// frontend and its documentation iframe. Callers must register every
+    /// required pattern before the initial navigation.
+    pub fn add_web_resource_requested_filter(&self, uri_pattern: &str) -> anyhow::Result<()> {
+        let uri_pattern =
+            api_call!(U16CString::from_str(uri_pattern))
+                .with_context(|| context!("failed to convert argument `uri_pattern` to U16CString"))?;
+        let core_22 = api_call!(unsafe { self.core.cast::<ICoreWebView2_22>() })?;
         api_call!(unsafe {
             core_22.AddWebResourceRequestedFilterWithRequestSourceKinds(
-                w!("*"),
+                PCWSTR(uri_pattern.as_ptr()),
                 COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL,
                 COREWEBVIEW2_WEB_RESOURCE_REQUEST_SOURCE_KINDS_DOCUMENT)
-        })?;
-
-        Ok(Self { environment, controller, core })
+        })
     }
 
     pub fn set_visible(&self, visible: bool) -> anyhow::Result<()> {

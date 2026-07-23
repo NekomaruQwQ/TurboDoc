@@ -32,8 +32,8 @@ const HOSTED_URL: &[&str] = &[
 /// URL prefixes that the host intercepts and proxies to the server,
 /// instead of letting WebView2 handle them directly.
 const PROXIED_URL: &[&str] = &[
-    "https://docs.rs",
-    "https://doc.rust-lang.org",
+    "https://docs.rs/",
+    "https://doc.rust-lang.org/",
     "https://microsoft.github.io/windows-docs-rs/doc/",
     "https://index.crates.io/",
     "https://crates.io/api/v1/crates/",
