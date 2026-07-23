@@ -1,14 +1,15 @@
-//! TurboDoc — spawns Vite + hosts the WebView2 window.
+//! TurboDoc — starts Vite and hosts the WebView2 window.
 //!
 //! Lifecycle:
 //! 1. Build a multi-thread tokio runtime (backend handlers run on worker
 //!    threads via `Server::fetch`/`Server::dispatch_api`, so the main thread
 //!    is free for winit/WebView2).
-//! 2. Start the backend (await `server::start`): opens the SQLite cache,
-//!    spawns Vite on `port`, and waits for it to accept connections.
-//! 3. Launch WebView2 on the main thread, navigate to `localhost:{port}`
-//!    (= Vite). It blocks until the user closes the window.
-//! 4. Drop the runtime, which cancels in-flight tokio tasks. The Vite
+//! 2. Start the in-process backend and open the SQLite cache.
+//! 3. Spawn Vite on the runtime while the main thread creates and shows the
+//!    native window, WebView2 environment, and WebView2 controller.
+//! 4. Navigate to `localhost:{port}` only after Vite accepts connections;
+//!    reveal the controller after its first navigation completes.
+//! 5. Drop the runtime, which cancels in-flight tokio tasks. The Vite
 //!    child dies via the Job Object on host exit.
 
 mod prelude {
@@ -19,6 +20,7 @@ mod prelude {
 
 mod app;
 mod server;
+mod startup;
 mod webview;
 
 /// URL prefixes that the host can navigate to instead of opening in
@@ -40,16 +42,21 @@ const PROXIED_URL: &[&str] = &[
 ];
 
 fn main() {
+    let startup = startup::StartupProbe::start();
     pretty_env_logger::init();
-    main::main();
+    startup.mark("logger initialized");
+    main::main(startup);
 }
 
 mod main {
+    use std::env;
     use std::path::Path;
     use std::path::PathBuf;
-    use std::env;
+    use std::time::Instant;
 
     use clap::Parser;
+
+    use crate::startup::StartupProbe;
 
     /// TurboDoc — universal documentation viewer.
     #[derive(Parser)]
@@ -66,8 +73,9 @@ mod main {
         port: u16,
     }
 
-    pub fn main() {
+    pub fn main(startup: StartupProbe) {
         let args = Args::parse();
+        startup.mark("CLI arguments parsed");
         let port = args.port;
         let data_dir = args.data_dir;
 
@@ -85,27 +93,34 @@ mod main {
         // inherits this job and gets killed-on-close. Without it, killing
         // the host via Task Manager could leave orphaned Vite processes.
         let job_object = create_job_object();
+        startup.mark("process Job Object configured");
 
         // -- Build runtime and start server --
+        let runtime_started_at = Instant::now();
         let runtime =
             tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()
                 .expect("failed to build tokio runtime");
-        log::info!("starting server...");
+        startup.mark_phase("tokio runtime ready", runtime_started_at);
+
         let server =
             runtime
                 .block_on(crate::server::start(crate::server::Config {
-                    port,
                     data_dir,
-                    root_dir: root_dir.clone(),
-                }))
+                }, startup))
                 .expect("failed to start server");
-        log::info!("server ready on port {port}.");
 
-        // -- Spawn app --
-        log::info!("starting app...");
-        crate::app::run(&format!("http://localhost:{port}"), server);
+        // -- Spawn Vite and app concurrently --
+        startup.mark("starting frontend and native app");
+        crate::app::run(
+            format!("http://localhost:{port}"),
+            server,
+            crate::server::FrontendConfig {
+                port,
+                root_dir,
+            },
+            startup);
 
         // -- Cleanup --
         drop(runtime);

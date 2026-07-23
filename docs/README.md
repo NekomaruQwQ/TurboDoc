@@ -162,7 +162,7 @@ WebView2 default path → Vite on the main port (HMR WebSocket included). No int
 - **Styling**: Tailwind CSS v4 with OKLCH color space; `class={[...]}` for conditional classes (no `cn()` in app code)
 - **Icons**: `@lucide/svelte` (icons imported individually for tree-shaking)
 - **Utilities**: remeda (functional), semver, zod
-- **Backend**: Rust (rusqlite + reqwest + `http-cache-semantics`) — in-process, no HTTP listener. `server::start` opens the SQLite cache, spawns Vite, and returns a `Server` handle the host calls from the WebView2 callback via `runtime.block_on(...)`.
+- **Backend**: Rust (rusqlite + reqwest + `http-cache-semantics`) — in-process, no HTTP listener. `server::start` opens the SQLite cache and returns a `Server` handle the host calls from the WebView2 callback via `runtime.block_on(...)`; that handle also schedules Vite startup on the runtime.
 - **Host**: Rust (winit + WebView2) — window management, WebView2 request interception, server + Vite-child lifecycle. The Vite child binds the main port; the host process owns no listener.
 - **IPC**: WebView2 intercepts `/api/v1/*` requests from the frontend and dispatches them to the backend in-process (the frontend still calls plain `fetch`, oblivious to the routing); WebView2 `PostWebMessageAsJson` for navigation events; mitt-based event bus inside the frontend (`createSubscriber` bridges into Svelte reactivity).
 
@@ -315,7 +315,9 @@ just install   # Installs frontend dependencies + builds the host
 just run       # Launches the app with HMR
 ```
 
-`just run` is `cargo run -- --data data`. There is only one mode. `server::start` opens the SQLite cache, then `frontend::spawn_vite` launches `bunx --bun vite dev` on `$TURBODOC_PORT` (Vite reads the port from `TURBODOC_VITE_PORT`, set by the host). `start` returns once Vite is accepting connections, then the host opens the WebView2 window and navigates to `http://localhost:{port}/` (= Vite). HMR's WebSocket talks to Vite on the same port — no `hmr.clientPort` override, no reverse proxy.
+`just run` is `cargo run -- --data data`. There is only one mode. `server::start` opens the SQLite cache, then the host schedules `frontend::spawn_vite` on Tokio while the main thread creates WebView2. The native window is painted with the frontend workbench color and shown immediately; the WebView2 controller uses the same default background but remains hidden. Once Vite accepts connections on `$TURBODOC_PORT` (Vite reads `TURBODOC_VITE_PORT`, set by the host), a typed winit event triggers navigation to `http://localhost:{port}/`. The controller is revealed after that navigation completes. HMR's WebSocket talks to Vite on the same port — no `hmr.clientPort` override, no reverse proxy.
+
+Every initialization milestone logs through `log::info` as `startup +… ms`, with phase durations for the expensive backend, runtime, window, Vite, WebView2-environment, and WebView2-controller operations. Because every path shares one monotonic origin, concurrent Vite and native timings remain directly comparable.
 
 A Windows Job Object (set up in `src/main.rs`) ensures the spawned Vite child dies when the host exits, even on abrupt termination.
 
@@ -462,7 +464,7 @@ Design decisions that shaped the current architecture. Organized by area.
 - No URL Rewriting: the WebView still believes it is browsing `docs.rs` directly
 - No SSL Proxy: proxying happens after WebView2 intercepts the request intent
 - Interception by both URL prefix and path: docs are matched by `PROXIED_URL` (host+scheme), API calls by path prefix (`/api/v1/`). Path-based matching means the API surface works regardless of the page's origin (currently `localhost:{port}` = Vite; future packaged builds could use a virtual host).
-- Configurable Port and Data Directory: required at startup via clap CLI args (`--port`/`-p`, `--data`/`-d`) with env-var fallbacks (`TURBODOC_PORT`, `TURBODOC_DATA`); no defaults — the host fails fast if neither flag nor env var is supplied. Both are consumed in-process by `server::start`.
+- Configurable Port and Data Directory: required at startup via clap CLI args (`--port`/`-p`, `--data`/`-d`) with env-var fallbacks (`TURBODOC_PORT`, `TURBODOC_DATA`); no defaults — the host fails fast if neither flag nor env var is supplied. The data directory is consumed by `server::start`; the port is consumed by the host's concurrent frontend-startup configuration.
 
 **Dark Mode Injection (Serve-Time)**
 - Cache stores clean upstream content; dark mode injection applied at serve time
@@ -657,9 +659,10 @@ TurboDoc/
 │           └── version-group.test.ts
 │
 ├── src/                        # Rust host + in-process backend
-│   ├── main.rs                 # Tokio runtime, clap args, Job Object, server start, WebView2 launch
-│   ├── app.rs                  # WebView2 host (winit window, request interception, /api routing)
-│   ├── webview.rs              # WebView2 wrapper (environment, controller, event handlers)
+│   ├── main.rs                 # Tokio runtime, clap args, Job Object, backend start, app launch
+│   ├── app.rs                  # Concurrent Vite/native startup, winit window, request interception, /api routing
+│   ├── startup.rs              # Shared elapsed-time probe and frontend-matched startup color
+│   ├── webview.rs              # WebView2 wrapper (environment, colored controller, event handlers)
 │   └── server/                 # In-process backend (no HTTP listener)
 │       ├── mod.rs              # `Server` handle (fetch + dispatch_api), AppState, http client + USER_AGENT
 │       ├── state.rs            # AppState (DB, http_client, revalidating dedup, data_dir)
@@ -741,6 +744,7 @@ TurboDoc/
 
 ## Change History
 
+- **2026-07**: Reduce and instrument perceived startup latency. Add a shared monotonic elapsed-time probe with cumulative `log::info` milestones and phase durations; schedule Vite on Tokio concurrently with native window and WebView2 creation; synchronize through a typed winit readiness event before the first navigation. Show the native window during WebView2 initialization with the frontend's exact workbench background (`#0E0F13`), apply that color through WebView2 controller options at creation time, and keep only the controller hidden until the initial page completes.
 - **2026-07**: Scope WebView2 request interception to the supported documentation, crate-metadata, and configured localhost API URL patterns. Replace the global `*` request filter with exact origin/path filters while preserving iframe-originated request coverage; unrelated Vite assets, HMR traffic, and external URLs no longer cross the WebView2 callback boundary.
 - **2026-07**: Expose safe upstream response semantics to WebView2 as a process-local L1 cache. Add an explicit response-header allowlist for representation, cache, validator, CORS, privacy, and timing fields; synthesize wildcard CORS only for configured public crate-metadata origins; continue blocking connection, browser-state, authentication, reporting, unsupported range, encoding, digest, CSP, and frame-policy fields. Persist allowed upstream-derived fields in the SQLite `http_cache` through an additive `response_headers` migration, use correctly aged `http-cache-semantics` parts for fresh hits, force downstream `no-cache` for stale-while-revalidate hits, and refresh stored fields after 304/modified revalidation. Dark-mode injection now reports whether it changed bytes: its stable deterministic HTML retains upstream freshness and `Last-Modified`, while the invalid upstream strong `ETag`, digest/encoding metadata, and length are removed or recomputed.
 - **2026-07**: Split Rust crate metadata sources and move all crate awareness to the frontend. Normal loads now construct Cargo sparse-index paths (`https://index.crates.io/...`) and parse newline-delimited version records in `frontend/src/providers/rust/metadata.ts`; "Refresh Metadata" alone fetches and parses the real-time crates.io API with browser cache mode `no-store`, which the generic proxy honors as a request cache bypass. Delete the backend `/api/v1/crates` endpoint, `api/crates.rs`, `crates_metadata.rs`, cache-peek/warming protocol, polling/backoff frontend code, and crates.io-specific synthetic 24-hour TTL. The proxy now applies only upstream HTTP cache policy to every site, while the host intercept list includes the sparse index and API origins so WebView2 can bridge index CORS. Default index results contain versions/yanked state; Homepage and Repository links are populated only by an explicit API refresh.

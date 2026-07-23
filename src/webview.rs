@@ -6,6 +6,7 @@ use std::env;
 use std::path::PathBuf;
 use std::result::Result;
 use std::sync::mpsc;
+use std::time::Instant;
 
 use widestring::U16CString;
 
@@ -17,6 +18,7 @@ use webview2_com::take_pwstr;
 use webview2_com::Microsoft::Web::WebView2::Win32::*;
 
 use crate::prelude::*;
+use crate::startup::StartupProbe;
 
 #[derive(Debug, Clone)]
 pub struct WebView {
@@ -41,16 +43,33 @@ fn user_data_folder() -> anyhow::Result<PathBuf> {
 }
 
 impl WebView {
-    pub fn new(hwnd: HWND) -> anyhow::Result<Self> {
+    /// Create an initially hidden WebView2 controller for `hwnd`.
+    ///
+    /// The controller's default background is configured during creation so
+    /// revealing it after navigation cannot expose WebView2's white default.
+    pub fn new(hwnd: HWND, startup: StartupProbe) -> anyhow::Result<Self> {
         let user_data_folder = user_data_folder()?;
         log::info!("WebView2 user-data folder: {}", user_data_folder.display());
+
+        let environment_started_at = Instant::now();
         let environment =
             blocking::create_core_webview2_environment(&user_data_folder)?;
+        startup.mark_phase(
+            "WebView2 environment created",
+            environment_started_at);
+
+        let controller_started_at = Instant::now();
         let controller =
-            blocking::create_core_webview2_controller(&environment, hwnd);
+            blocking::create_core_webview2_controller(&environment, hwnd)?;
+        startup.mark_phase(
+            "WebView2 controller created",
+            controller_started_at);
+        api_call!(unsafe { controller.SetIsVisible(false) })?;
+
         let core =
             unsafe { controller.CoreWebView2() }
                 .context("failed to get ICoreWebView2 from ICoreWebView2Controller")?;
+        startup.mark("WebView2 core acquired and controller hidden");
 
         Ok(Self { environment, controller, core })
     }
@@ -283,23 +302,50 @@ mod blocking {
             .context("failed to cast to ICoreWebView2Environment2")
     }
 
-    pub fn create_core_webview2_controller(environment: &ICoreWebView2Environment2, hwnd: HWND)
-        -> ICoreWebView2Controller {
-        let environment = environment.clone();
+    /// Create the controller with an opaque workbench-colored default surface.
+    ///
+    /// Controller options must be set before creation; setting the background
+    /// afterward leaves a race where the attached child window can paint white.
+    pub fn create_core_webview2_controller(
+        environment: &ICoreWebView2Environment2,
+        hwnd: HWND)
+     -> anyhow::Result<ICoreWebView2Controller> {
+        let environment =
+            environment.cast::<ICoreWebView2Environment10>()
+                .context("failed to cast to ICoreWebView2Environment10")?;
+        let controller_options =
+            unsafe { environment.CreateCoreWebView2ControllerOptions() }
+                .context("failed to create WebView2 controller options")?;
+        let controller_options_3 =
+            controller_options.cast::<ICoreWebView2ControllerOptions3>()
+                .context("failed to cast to ICoreWebView2ControllerOptions3")?;
+        let color = crate::startup::STARTUP_BACKGROUND;
+        unsafe {
+            controller_options_3.SetDefaultBackgroundColor(COREWEBVIEW2_COLOR {
+                A: 255,
+                R: color.red,
+                G: color.green,
+                B: color.blue,
+            })
+        }.context("failed to set WebView2 startup background")?;
+
         let (tx, rx) = mpsc::channel();
 
         CreateCoreWebView2ControllerCompletedHandler::wait_for_async_operation(
             Box::new(move |handler| unsafe {
                 environment
-                    .CreateCoreWebView2Controller(hwnd, &handler)
+                    .CreateCoreWebView2ControllerWithOptions(
+                        hwnd,
+                        &controller_options,
+                        &handler)
                     .map_err(webview2_com::Error::WindowsError)
             }),
             send_on_completed(tx),
-        ).expect("failed to create ICoreWebView2Controller");
+        ).context("failed to create ICoreWebView2Controller")?;
 
         rx
             .recv()
-            .expect("failed to receive from mpsc channel")
+            .context("failed to receive ICoreWebView2Controller")
     }
 
     #[expect(clippy::or_fun_call, reason = "function call is cheap")]

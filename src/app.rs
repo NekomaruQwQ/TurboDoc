@@ -1,7 +1,9 @@
 use nkcore::prelude::*;
 use nkcore::debug::*;
 
+use crate::server::FrontendConfig;
 use crate::server::Server;
+use crate::startup::StartupProbe;
 
 /// Build the exact WebView2 URL patterns whose requests TurboDoc handles.
 ///
@@ -20,7 +22,16 @@ fn web_resource_request_filters(frontend_url: &str) -> Vec<String> {
         .collect()
 }
 
-pub fn run(url: &str, server: Server) {
+/// Run the native host while Vite and WebView2 initialize concurrently.
+///
+/// The native window is shown as soon as its workbench-colored client area
+/// is painted. Initial navigation remains gated on Vite's readiness event,
+/// and the WebView2 controller remains hidden until navigation completes.
+pub fn run(
+    url: String,
+    server: Server,
+    frontend_config: FrontendConfig,
+    startup: StartupProbe) {
     use nkcore::{
         prelude::RawWindowHandleExt as _,
         winit::EventLoopExt as _,
@@ -30,14 +41,42 @@ pub fn run(url: &str, server: Server) {
     use crate::webview::WebView;
 
     use std::rc::Rc;
+    use std::time::Instant;
     use windows::Win32::Foundation::RECT;
     use winit::{
         dpi::LogicalSize,
         event::WindowEvent,
         event_loop::EventLoop,
+        platform::windows::Color,
+        platform::windows::WindowAttributesExtWindows as _,
         raw_window_handle::HasWindowHandle as _,
+        window::Theme,
         window::Window,
     };
+
+    /// Cross-thread startup result delivered from Tokio to the UI loop.
+    enum StartupEvent {
+        FrontendReady(anyhow::Result<()>),
+    }
+
+    let event_loop_started_at = Instant::now();
+    let mut event_loop =
+        EventLoop::<StartupEvent>::with_user_event()
+            .build()
+            .expect("failed to create event loop");
+    startup.mark_phase("winit event loop ready", event_loop_started_at);
+
+    // Vite starts on Tokio immediately. Its event may queue while WebView2
+    // creation blocks, but winit dispatches it only after setup returns.
+    let event_proxy = event_loop.create_proxy();
+    server.spawn_frontend(frontend_config, startup, move |result| {
+        if event_proxy
+            .send_event(StartupEvent::FrontendReady(result))
+            .is_err()
+        {
+            log::debug!("discarding Vite readiness after event-loop shutdown");
+        }
+    });
 
     // `EventLoop::run_app_with`'s setup closure is `FnOnce`, but the wrapper
     // around it isn't reflected in the type. Move the handle into an Option
@@ -45,57 +84,166 @@ pub fn run(url: &str, server: Server) {
     // its mind over a `FnMut` capture.
     let mut server = Some(server);
 
-    EventLoop::<()>::new()
-        .expect("failed to create event loop")
-        .run_app_with(|event_loop| {
+    event_loop
+        .run_app_with(move |event_loop| {
+            let window_started_at = Instant::now();
             let window =
                 api_call! {
                     event_loop.create_window(
                         Window::default_attributes()
                             .with_title("TurboDoc")
                             .with_inner_size(LogicalSize::<u32>::new(1280, 800))
-                            .with_visible(false /* show window after page loaded */))
+                            .with_theme(Some(Theme::Dark))
+                            .with_title_background_color(Some(Color::from_rgb(
+                                crate::startup::STARTUP_BACKGROUND.red,
+                                crate::startup::STARTUP_BACKGROUND.green,
+                                crate::startup::STARTUP_BACKGROUND.blue)))
+                            .with_visible(false))
                 }.expect("failed to create window");
+            startup.mark_phase("native window created", window_started_at);
+
             let window = Rc::new(window);
+            let hwnd =
+                window
+                    .window_handle()
+                    .expect("failed to get native window handle")
+                    .as_raw()
+                    .as_hwnd();
+            paint_startup_background(hwnd)
+                .expect("failed to paint native startup background");
+            window.set_visible(true);
+            window.request_redraw();
+            startup.mark("native window shown");
+
+            let webview_started_at = Instant::now();
             let webview =
-                WebView::new(window.window_handle().unwrap().as_raw().as_hwnd())
+                WebView::new(hwnd, startup)
                     .expect("failed to create webview");
+            startup.mark_phase("WebView2 wrapper ready", webview_started_at);
+
+            let initial_size = window.inner_size();
+            webview
+                .set_bounds(RECT {
+                    left: 0,
+                    top: 0,
+                    right: initial_size.width as _,
+                    bottom: initial_size.height as _,
+                })
+                .expect("failed to set initial WebView2 bounds");
             handler::setup(
                 &window,
                 &webview,
-                url,
-                server.take().expect("setup called twice"))
+                &url,
+                server.take().expect("setup called twice"),
+                startup)
                 .expect("failed to setup webview event handlers");
-            webview.navigate(url)
-                .expect("failed to load frontend");
+            startup.mark("native and WebView2 initialization ready");
+
+            let mut initial_navigation_started = false;
 
             move |event_loop, event| {
-                if let AppEvent::WindowEvent(window_id, event) = event {
-                    if window_id == window.id() {
-                        match event {
-                            WindowEvent::CloseRequested =>
-                                event_loop.exit(),
-                            WindowEvent::Resized(size) => {
-                                let new_bounds = RECT {
-                                    left: 0,
-                                    top: 0,
-                                    right: size.width as _,
-                                    bottom: size.height as _,
-                                };
+                match event {
+                    AppEvent::UserEvent(StartupEvent::FrontendReady(result)) => {
+                        result.expect("failed to start Vite frontend");
+                        assert!(
+                            !initial_navigation_started,
+                            "Vite readiness delivered multiple times");
+                        initial_navigation_started = true;
+                        startup.mark("Vite and WebView2 synchronized");
+                        webview
+                            .navigate(&url)
+                            .expect("failed to load frontend");
+                        startup.mark("initial navigation requested");
+                    },
+                    AppEvent::WindowEvent(window_id, event) => {
+                        if window_id == window.id() {
+                            match event {
+                                WindowEvent::CloseRequested =>
+                                    event_loop.exit(),
+                                WindowEvent::RedrawRequested => {
+                                    if let Err(err) = paint_startup_background(hwnd) {
+                                        log::error!("failed to repaint native background: {err}");
+                                    }
+                                },
+                                WindowEvent::Resized(size) => {
+                                    if let Err(err) = paint_startup_background(hwnd) {
+                                        log::error!("failed to repaint resized background: {err}");
+                                    }
+                                    let new_bounds = RECT {
+                                        left: 0,
+                                        top: 0,
+                                        right: size.width as _,
+                                        bottom: size.height as _,
+                                    };
 
-                                if let Err(err) = webview.set_bounds(new_bounds) {
-                                    log::error!("failed to resize webview: {err}");
-                                }
-                            },
-                            _ => {},
+                                    if let Err(err) = webview.set_bounds(new_bounds) {
+                                        log::error!("failed to resize webview: {err}");
+                                    }
+                                },
+                                _ => {},
+                            }
+                        } else {
+                            log::warn!("ignoring event for unknown window {window_id:?}: {event:?}");
                         }
-                    } else {
-                        log::warn!("ignoring event for unknown window {window_id:?}: {event:?}");
-                    }
+                    },
+                    _ => {},
                 }
             }
         })
         .expect("failed to run event loop");
+}
+
+/// Paint the winit client area with the frontend's workbench color before the
+/// WebView2 child is visible. The DC and brush are always released, including
+/// when the fill fails.
+fn paint_startup_background(hwnd: windows::Win32::Foundation::HWND) -> anyhow::Result<()> {
+    use windows::core::Owned;
+    use windows::Win32::Foundation::COLORREF;
+    use windows::Win32::Foundation::RECT;
+    use windows::Win32::Graphics::Gdi::CreateSolidBrush;
+    use windows::Win32::Graphics::Gdi::FillRect;
+    use windows::Win32::Graphics::Gdi::GetDC;
+    use windows::Win32::Graphics::Gdi::ReleaseDC;
+    use windows::Win32::UI::WindowsAndMessaging::GetClientRect;
+
+    let device_context = unsafe { GetDC(Some(hwnd)) };
+    if device_context.is_invalid() {
+        anyhow::bail!("GetDC returned an invalid device context");
+    }
+
+    let result = (|| {
+        let mut client_rect = RECT::default();
+        unsafe { GetClientRect(hwnd, &raw mut client_rect) }
+            .context("GetClientRect failed")?;
+
+        let color = crate::startup::STARTUP_BACKGROUND;
+        let color_ref =
+            COLORREF(
+                u32::from(color.red) |
+                u32::from(color.green) << 8 |
+                u32::from(color.blue) << 16);
+        let brush_handle = unsafe { CreateSolidBrush(color_ref) };
+        if brush_handle.is_invalid() {
+            anyhow::bail!("CreateSolidBrush returned an invalid brush");
+        }
+
+        // SAFETY: CreateSolidBrush transfers ownership of this brush to the
+        // caller; Owned releases it through DeleteObject after FillRect.
+        let brush = unsafe { Owned::new(brush_handle) };
+        if unsafe { FillRect(device_context, &raw const client_rect, *brush) } == 0 {
+            anyhow::bail!("FillRect failed");
+        }
+        Ok(())
+    })();
+
+    if unsafe { ReleaseDC(Some(hwnd), device_context) } == 0 {
+        if result.is_ok() {
+            anyhow::bail!("ReleaseDC failed");
+        }
+        log::warn!("ReleaseDC failed while unwinding a startup paint error");
+    }
+
+    result
 }
 
 fn open_external_link(window: &winit::window::Window, url: &str) {
@@ -142,6 +290,7 @@ fn open_external_link(window: &winit::window::Window, url: &str) {
 mod handler {
     use crate::prelude::*;
     use crate::server::Server;
+    use crate::startup::StartupProbe;
     use crate::webview::WebView;
     use crate::webview::WebViewNavigationResult;
 
@@ -152,16 +301,16 @@ mod handler {
         window: &Rc<Window>,
         webview: &WebView,
         frontend_url: &str,
-        server: Server)
+        server: Server,
+        startup: StartupProbe)
      -> anyhow::Result<()> {
         for uri_pattern in super::web_resource_request_filters(frontend_url) {
             webview.add_web_resource_requested_filter(&uri_pattern)?;
         }
 
         webview.on_next_navigation_completed({
-            let window = Rc::clone(window);
             let webview = webview.clone();
-            move |result| on_first_navigation_completed(&window, &webview, result)
+            move |result| on_first_navigation_completed(&webview, startup, result)
         })?;
 
         webview.on_web_resource_requested(move |request| on_web_resource_requested(&server, request))?;
@@ -182,16 +331,15 @@ mod handler {
     }
 
     fn on_first_navigation_completed(
-        window: &Window,
         webview: &WebView,
+        startup: StartupProbe,
         result: WebViewNavigationResult) {
         match result {
             Ok(()) => {
-                window.set_visible(true);
-                let _ =
-                    webview
-                        .set_visible(true)
-                        .inspect_err(|err| log::error!("{err}"));
+                webview
+                    .set_visible(true)
+                    .expect("failed to show WebView2 controller");
+                startup.mark("initial navigation completed; WebView2 shown");
             },
             Err(err) =>
                 panic!("failed to load frontend with status {err:?}"),

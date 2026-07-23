@@ -1,9 +1,9 @@
 //! In-process TurboDoc backend.
 //!
-//! Spawns Vite as a child process on the main port, opens the SQLite cache,
-//! and returns a [`Server`] handle. The host's WebView2 navigates to
-//! `http://localhost:{port}/` (= Vite) and routes intercepted requests
-//! through the handle:
+//! Opens the SQLite cache and returns a [`Server`] handle. The host uses that
+//! handle to spawn Vite concurrently with native-window creation, then its
+//! WebView2 navigates to Vite and routes intercepted requests through the
+//! handle:
 //!
 //! - **Docs URLs** (`PROXIED_URL` prefixes) → [`Server::fetch`] → proxy
 //!   pipeline with caching + dark-mode injection.
@@ -23,10 +23,12 @@ mod state;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Instant;
 
 use dashmap::DashSet;
 
 use crate::prelude::*;
+use crate::startup::StartupProbe;
 use self::db::Database;
 use self::state::AppState;
 
@@ -34,13 +36,18 @@ use self::state::AppState;
 /// sites and is bumped alongside the host version.
 pub(crate) const USER_AGENT: &str = "TurboDoc/0.4 (documentation viewer)";
 
-/// Server configuration. Built from the host's CLI args in `main.rs`.
+/// In-process backend configuration. Built from the host's CLI args.
 pub struct Config {
-    /// Port Vite binds to and the WebView2 navigates to.
-    pub port: u16,
     /// Runtime data directory. Houses provider TOML files and the
     /// `cache.sqlite` database. Created on startup if it doesn't exist.
     pub data_dir: PathBuf,
+}
+
+/// Vite child-process configuration. Kept separate from [`Config`] because
+/// frontend startup runs concurrently with native window creation.
+pub struct FrontendConfig {
+    /// Port Vite binds to and the WebView2 navigates to.
+    pub port: u16,
     /// Repo root. Used to locate `frontend/` (Vite's working directory).
     pub root_dir: PathBuf,
 }
@@ -54,6 +61,27 @@ pub struct Server {
 }
 
 impl Server {
+    /// Schedule Vite startup on the Tokio runtime and invoke `on_ready` after
+    /// the port accepts connections or startup fails.
+    ///
+    /// Dropping the returned Tokio task handle intentionally detaches the
+    /// task. Its result is delivered exactly once through `on_ready`, which
+    /// the window host forwards into the winit event loop.
+    pub fn spawn_frontend<F>(
+        &self,
+        config: FrontendConfig,
+        startup: StartupProbe,
+        on_ready: F)
+    where
+        F: FnOnce(anyhow::Result<()>) + Send + 'static {
+        let _task = self.runtime.spawn(async move {
+            let result =
+                frontend::spawn_vite(&config.root_dir, config.port, startup)
+                    .await;
+            on_ready(result);
+        });
+    }
+
     /// Fetch `request` through the proxy pipeline (cache lookup, upstream
     /// fetch on miss, dark-mode injection). Request cache directives are
     /// honored, so callers can explicitly bypass a cached response.
@@ -76,9 +104,11 @@ impl Server {
     }
 }
 
-/// Build the shared state, spawn Vite, and return a [`Server`] handle. The
-/// host then launches WebView2 and navigates to `http://localhost:{port}/`.
-pub async fn start(config: Config) -> anyhow::Result<Server> {
+/// Build the shared backend state and return a [`Server`] handle. Frontend
+/// startup is deliberately separate so the host can overlap it with WebView2.
+pub async fn start(config: Config, startup: StartupProbe) -> anyhow::Result<Server> {
+    let phase_started_at = Instant::now();
+
     // Match the former server's `mkdirSync(dataDir, { recursive: true })`.
     fs::create_dir_all(&config.data_dir)?;
 
@@ -89,7 +119,7 @@ pub async fn start(config: Config) -> anyhow::Result<Server> {
         revalidating: Arc::new(DashSet::new()),
     };
 
-    frontend::spawn_vite(&config.root_dir, config.port).await?;
+    startup.mark_phase("in-process backend ready", phase_started_at);
 
     Ok(Server {
         state,
