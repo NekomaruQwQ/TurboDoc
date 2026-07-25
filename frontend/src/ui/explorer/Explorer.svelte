@@ -74,9 +74,11 @@
         {/each}
 
         {#if provider.enableItemGrouping}
-            <ExplorerGroup variant="ungrouped" providerOutput={output} />
+            <!-- The empty name is the data model's stable identity for items
+                 not assigned to a persisted group. -->
+            <ExplorerGroup groupName="" providerOutput={output} />
             {#each store.data.groupOrder.filter(g => g in store.data.groups) as groupName (groupName)}
-                <ExplorerGroup variant="default" {groupName} providerOutput={output} />
+                <ExplorerGroup {groupName} providerOutput={output} />
             {/each}
             <div class="h-1 shrink-0"></div>
             <ExplorerCreateGroupComponent />

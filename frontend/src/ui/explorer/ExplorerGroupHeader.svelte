@@ -25,11 +25,23 @@
     import { Input } from "@shadcn/components/ui/input";
     import * as Dialog from "@shadcn/components/ui/dialog";
     import * as DropdownMenu from "@shadcn/components/ui/dropdown-menu";
+    import * as Collapsible from "@shadcn/components/ui/collapsible";
 
     import * as ctx from "@/core/context.svelte";
-    import { expandItems, collapseItems, removeGroup, renameGroup, groupExpanded } from "@/core/uiState.svelte";
+    import { expandItems, collapseItems, removeGroup, renameGroup } from "@/core/uiState.svelte";
 
-    let { groupName }: { groupName: string } = $props();
+    let {
+        groupName,
+        itemIds,
+        expanded,
+    }: {
+        /** Empty for the synthetic ungrouped group. */
+        groupName: string,
+        /** Current rendered membership used by the bulk expansion actions. */
+        itemIds: string[],
+        /** Controlled state owned by the surrounding Collapsible root. */
+        expanded: boolean,
+    } = $props();
 
     const provider = ctx.getProviderInfo();
     const store = ctx.getProviderData();
@@ -38,8 +50,8 @@
     let renaming = $state(false);
     let renameValue = $state("");
 
-    const expanded =
-        $derived(groupExpanded(provider.id, groupName));
+    const isUngrouped = $derived(groupName === "");
+    const displayName = $derived(isUngrouped ? "Ungrouped" : groupName);
     const isFirst =
         $derived(store.data.groupOrder[0] === groupName);
     const isLast =
@@ -74,12 +86,12 @@
         removeGroup(provider.id, groupName);
     }
 
-    function expandAll(groupName: string) {
-        expandItems(provider.id, store.data.groups[groupName]?.items ?? []);
+    function expandAll() {
+        expandItems(provider.id, itemIds);
     }
 
-    function collapseAll(groupName: string) {
-        collapseItems(provider.id, store.data.groups[groupName]?.items ?? []);
+    function collapseAll() {
+        collapseItems(provider.id, itemIds);
     }
 
     function moveToTop(groupName: string) {
@@ -134,36 +146,39 @@
     </div>
 {:else}
     <div class={OUTER_STYLE}>
-        <button
-            class={INNER_STYLE}
-            onclick={() => expanded && (expanded.value = !expanded.value)}>
-            {#if expanded?.value}
+        <Collapsible.Trigger class={INNER_STYLE}>
+            {#if expanded}
                 <ChevronDown class="size-4" />
             {:else}
                 <ChevronRight class="size-4" />
             {/if}
-            <span class="flex-1 truncate">{groupName}</span>
-        </button>
+            <span class="flex-1 truncate">{displayName}</span>
+        </Collapsible.Trigger>
 
-        <!-- Rename pencil; visible on header hover. -->
-        <Button
-            variant="ghost"
-            class="size-7 rounded-sm opacity-0 group-hover/header:opacity-100 group-focus-within/header:opacity-100"
-            aria-label="Rename group"
-            onclick={() => startRename(groupName)}>
-            <Pencil class="size-3.5" />
-        </Button>
+        {#if !isUngrouped}
+            <!-- Rename pencil; visible on header hover. The synthetic
+                 ungrouped group has no persisted name to mutate. -->
+            <Button
+                variant="ghost"
+                class="size-7 rounded-sm opacity-0 group-hover/header:opacity-100 group-focus-within/header:opacity-100"
+                aria-label="Rename group"
+                onclick={() => startRename(groupName)}>
+                <Pencil class="size-3.5" />
+            </Button>
+        {/if}
 
-        <!-- Group dropdown menu: expand/collapse all, move ops, delete. -->
-        {@render GroupMenu(groupName, isFirst, isLast, otherGroups)}
+        <!-- Bulk item actions are shared by every group; persistence actions
+             are omitted for the synthetic ungrouped group. -->
+        {@render GroupMenu(isUngrouped, isFirst, isLast, otherGroups)}
 
-        <!-- Delete confirmation. -->
-        {@render GroupConfirmDeleteDialog(groupName)}
+        {#if !isUngrouped}
+            {@render GroupConfirmDeleteDialog(groupName)}
+        {/if}
     </div>
 {/if}
 
 {#snippet GroupMenu(
-    groupName: string,
+    isUngrouped: boolean,
     isFirst: boolean,
     isLast: boolean,
     otherGroups: string[])}
@@ -178,47 +193,49 @@
             <EllipsisVertical class="size-4" />
         </DropdownMenu.Trigger>
         <DropdownMenu.Content align="end">
-            <DropdownMenu.Item onSelect={() => expandAll(groupName)}>
+            <DropdownMenu.Item onSelect={expandAll}>
                 <ChevronsDown />
                 <span>Expand All</span>
             </DropdownMenu.Item>
-            <DropdownMenu.Item onSelect={() => collapseAll(groupName)}>
+            <DropdownMenu.Item onSelect={collapseAll}>
                 <ChevronsUp />
                 <span>Collapse All</span>
             </DropdownMenu.Item>
-            <DropdownMenu.Separator />
-            <DropdownMenu.Item disabled={isFirst} onSelect={() => moveToTop(groupName)}>
-                <ArrowUpToLine />
-                <span>Move to Top</span>
-            </DropdownMenu.Item>
-            <DropdownMenu.Item disabled={isFirst} onSelect={() => moveUp(groupName)}>
-                <ArrowUp />
-                <span>Move Up</span>
-            </DropdownMenu.Item>
-            <DropdownMenu.Item disabled={isLast} onSelect={() => moveDown(groupName)}>
-                <ArrowDown />
-                <span>Move Down</span>
-            </DropdownMenu.Item>
-            {#if store.data.groupOrder.length > 1}
-                <DropdownMenu.Sub>
-                    <DropdownMenu.SubTrigger>
-                        <LogIn />
-                        <span>Move Under</span>
-                    </DropdownMenu.SubTrigger>
-                    <DropdownMenu.SubContent>
-                        {#each otherGroups as targetName (targetName)}
-                            <DropdownMenu.Item onSelect={() => moveUnder(groupName, targetName)}>
-                                {targetName}
-                            </DropdownMenu.Item>
-                        {/each}
-                    </DropdownMenu.SubContent>
-                </DropdownMenu.Sub>
+            {#if !isUngrouped}
+                <DropdownMenu.Separator />
+                <DropdownMenu.Item disabled={isFirst} onSelect={() => moveToTop(groupName)}>
+                    <ArrowUpToLine />
+                    <span>Move to Top</span>
+                </DropdownMenu.Item>
+                <DropdownMenu.Item disabled={isFirst} onSelect={() => moveUp(groupName)}>
+                    <ArrowUp />
+                    <span>Move Up</span>
+                </DropdownMenu.Item>
+                <DropdownMenu.Item disabled={isLast} onSelect={() => moveDown(groupName)}>
+                    <ArrowDown />
+                    <span>Move Down</span>
+                </DropdownMenu.Item>
+                {#if store.data.groupOrder.length > 1}
+                    <DropdownMenu.Sub>
+                        <DropdownMenu.SubTrigger>
+                            <LogIn />
+                            <span>Move Under</span>
+                        </DropdownMenu.SubTrigger>
+                        <DropdownMenu.SubContent>
+                            {#each otherGroups as targetName (targetName)}
+                                <DropdownMenu.Item onSelect={() => moveUnder(groupName, targetName)}>
+                                    {targetName}
+                                </DropdownMenu.Item>
+                            {/each}
+                        </DropdownMenu.SubContent>
+                    </DropdownMenu.Sub>
+                {/if}
+                <DropdownMenu.Separator />
+                <DropdownMenu.Item variant="destructive" onSelect={() => deleteOpen = true}>
+                    <Trash2 />
+                    <span>Delete Group</span>
+                </DropdownMenu.Item>
             {/if}
-            <DropdownMenu.Separator />
-            <DropdownMenu.Item variant="destructive" onSelect={() => deleteOpen = true}>
-                <Trash2 />
-                <span>Delete Group</span>
-            </DropdownMenu.Item>
         </DropdownMenu.Content>
     </DropdownMenu.Root>
 {/snippet}

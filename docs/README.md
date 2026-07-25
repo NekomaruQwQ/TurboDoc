@@ -193,11 +193,10 @@ frontend/index.ts (entry point: mount(App, ...))
     │                    provider.render(ctx), wires up effects)
     │   ├── ExplorerHeader.svelte (panel label + active provider)
     │   ├── InputActionDialog.svelte (renders provider-supplied "input" actions, e.g. Import)
-    │   ├── ExplorerGroup (variant="ungrouped")
-    │   │   ├── ExplorerGroupHeader (variant="ungrouped")
-    │   │   └── ExplorerItem[] (sorted by sortKey)
-    │   ├── ExplorerGroup[] (variant="default", per group in groupOrder)
-    │   │   ├── ExplorerGroupHeader (collapsible, editable name, dropdown menu)
+    │   ├── ExplorerGroup (groupName="", derived ungrouped membership)
+    │   ├── ExplorerGroup[] (per persisted name in groupOrder)
+    │   │   ├── ExplorerGroupHeader (shared collapse + bulk actions;
+    │   │   │                      persisted groups also support rename/move/delete)
     │   │   └── ExplorerItem[] (sorted by sortKey, shown when group expanded)
     │   └── ExplorerCreateGroupComponent
     └── iframe (right panel, docs viewer)
@@ -219,8 +218,8 @@ ExplorerItem (shadcn-svelte Collapsible.Root, backed by Bits UI)
 ### Component Responsibilities
 
 - **Explorer** (`frontend/src/ui/explorer/Explorer.svelte`): Receives the active provider as a prop; owns per-provider data via `ProviderDataStore` (Svelte 5 `$state` class), constructs `ProviderContext`, calls `provider.render()` inside a `$derived`, and wires up the optional `provider.setupEffects(ctx)` hook inside a `$effect` so any inner `$effect`s the provider creates are bound to this component's lifecycle. Recreated implicitly when `provider.id` changes (the `$derived` `ProviderDataStore` reinitializes with the new ID).
-- **ExplorerGroup** (`ExplorerGroup.svelte`): Renders group header + filtered/sorted items; handles ungrouped vs named variants
-- **ExplorerGroupHeader** (`ExplorerGroupHeader.svelte`): Chevron toggle, rename input, dropdown menu (expand/collapse all, move up/down/under, delete with confirmation)
+- **ExplorerGroup** (`ExplorerGroup.svelte`): Owns the shared collapsible state and renders filtered/sorted items; the empty group name identifies derived ungrouped membership
+- **ExplorerGroupHeader** (`ExplorerGroupHeader.svelte`): Shared chevron trigger and expand/collapse-all menu; persisted named groups additionally support rename, move, and deletion
 - **ExplorerCreateGroupComponent** (`ExplorerCreateGroupComponent.svelte`): Button that transforms to inline input for creating new groups
 - **ExplorerItem** (`ExplorerItem.svelte`): Collapsible card with name, version selector, menu; expansion state via `itemExpanded(providerId, itemId)` accessor
 - **ExplorerItemMenu** (`ExplorerItemMenu.svelte`): Move to group submenu, external links, custom actions
@@ -573,7 +572,7 @@ ProviderData ($state) ──► provider.render() inside $derived ──► rend
 **Collapsible Items**
 - Items use Radix Collapsible directly (not part of shadcn's standard component set; bundled separately as `@radix-ui/react-collapsible`)
 - Expansion state managed per-component via `useItemExpanded(providerId, itemId)` hook from `frontend/src/core/uiState.svelte.ts`
-- Groups use `useGroupExpanded(providerId, groupId)` — same underlying `useExpanded` hook
+- Named and ungrouped groups share the same controlled Collapsible path and `groupExpanded(providerId, groupId)` accessor; ungrouped uses the data model's empty group ID
 - Default: collapsed (both items and groups)
 - Toggled by clicking item name (items) or group header (groups)
 - Bulk operations (Expand All / Collapse All) via imperative `expandItems()` / `collapseItems()` helpers
@@ -755,6 +754,7 @@ TurboDoc/
 
 ## Change History
 
+- **2026-07**: Make the derived Ungrouped section collapsible and consolidate all explorer groups onto one controlled Bits UI Collapsible path. The empty group name remains Ungrouped's stable data-model identity and now persists expansion through the existing `groupExpanded` accessor. Reuse the shared header and bulk item expansion actions while capability-gating rename, reorder, and delete to persisted named groups.
 - **2026-07**: Diagnose and remove a frontend startup regression caused by excluding `@lucide/svelte`, `bits-ui`, and `paneforge` from Vite dependency optimization. Restore `vite-plugin-svelte`'s default prebundling and replace the remaining Lucide icon-barrel import with a direct icon import, reducing observed startup from roughly 20–28 seconds to about 7 seconds. Retain monotonic initialization milestones and phase durations as regression telemetry; remove the temporary top-level navigation lifecycle and Vite first-request probes after they isolated the delay to frontend transformation. Document cold/warm regression checks and why each remaining WebView2 event handler is functional.
 - **2026-07**: Align the hosted frontend URL with Vite's IPv4-only bind and readiness probe: navigate WebView2 to `127.0.0.1` instead of `localhost`, avoiding a possible IPv6-first `::1` connection attempt before fallback.
 - **2026-07**: Reduce and instrument perceived startup latency. Add a shared monotonic elapsed-time probe with cumulative `log::info` milestones and phase durations; schedule Vite on Tokio concurrently with native window and WebView2 creation; synchronize through a typed winit readiness event before the first navigation. Show the native window during WebView2 initialization with the frontend's exact workbench background (`#0E0F13`), apply that color through WebView2 controller options at creation time, and keep only the controller hidden until the initial page completes.
