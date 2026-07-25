@@ -2,8 +2,6 @@ use nkcore::prelude::*;
 use nkcore::debug::*;
 use nkcore::*;
 
-use std::env;
-use std::path::PathBuf;
 use std::result::Result;
 use std::sync::mpsc;
 use std::time::Instant;
@@ -34,31 +32,15 @@ pub struct WebViewNavigationResult {
     pub status: Result<(), COREWEBVIEW2_WEB_ERROR_STATUS>,
 }
 
-/// Resolve the WebView2 user-data folder independently of the executable
-/// location so installed builds never try to write browser state beside the
-/// binary.
-fn user_data_folder() -> anyhow::Result<PathBuf> {
-    let local_app_data =
-        env::var_os("LOCALAPPDATA")
-            .context("LOCALAPPDATA is not set")?;
-    Ok(PathBuf::from(local_app_data)
-        .join("NekomaruQwQ")
-        .join("TurboDoc")
-        .join("WebView2"))
-}
-
 impl WebView {
     /// Create an initially hidden WebView2 controller for `hwnd`.
     ///
     /// The controller's default background is configured during creation so
     /// revealing it after navigation cannot expose WebView2's white default.
     pub fn new(hwnd: HWND, startup: StartupProbe) -> anyhow::Result<Self> {
-        let user_data_folder = user_data_folder()?;
-        log::info!("WebView2 user-data folder: {}", user_data_folder.display());
-
         let environment_started_at = Instant::now();
         let environment =
-            blocking::create_core_webview2_environment(&user_data_folder)?;
+            blocking::create_core_webview2_environment()?;
         startup.mark_phase(
             "WebView2 environment created",
             environment_started_at);
@@ -286,19 +268,15 @@ mod blocking {
     use std::sync::mpsc;
     use std::sync::mpsc::Sender;
 
-    pub fn create_core_webview2_environment(
-        user_data_folder: &std::path::Path)
+    pub fn create_core_webview2_environment()
      -> anyhow::Result<ICoreWebView2Environment2> {
-        let user_data_folder =
-            U16CString::from_os_str(user_data_folder)
-                .context("WebView2 user-data folder contains an interior null")?;
         let (tx, rx) = mpsc::channel();
 
         CreateCoreWebView2EnvironmentCompletedHandler::wait_for_async_operation(
             Box::new(move |handler| unsafe {
                 CreateCoreWebView2EnvironmentWithOptions(
                     None,
-                    PCWSTR(user_data_folder.as_ptr()),
+                    None,
                     None, &handler)
                     .map_err(webview2_com::Error::WindowsError)
             }),
