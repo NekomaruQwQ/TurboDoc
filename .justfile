@@ -5,11 +5,11 @@ alias i := install
 
 # Run TurboDoc with existing data in the local repository.
 dev:
-    cargo run -- --data data
+    cargo run --release -- --data data
 
 # Run TurboDoc with the specified arguments.
 run *args:
-    cargo run -- {{args}}
+    cargo run --release -- {{args}}
 
 # Run the specified `svelte-check` command in the frontend directory.
 svc *args:
@@ -28,4 +28,3 @@ install:
         select \
         separator \
         collapsible
-
