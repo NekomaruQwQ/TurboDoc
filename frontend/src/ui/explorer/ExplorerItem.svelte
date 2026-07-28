@@ -109,15 +109,15 @@
 <Collapsible.Root
     class="flex flex-col truncate"
     open={expanded.value}
-    onOpenChange={v => expanded.value = v}>
+    onOpenChange={v => expanded.value = v}
+    role="group"
+    aria-label={`${item.name} crate`}
+    onpointerenter={handlePointerEnter}
+    onpointerleave={handlePointerLeave}
+    onfocusin={handleFocusIn}
+    onfocusout={handleFocusOut}>
     <div
-        class="group/item flex h-7 min-w-0 items-center rounded-sm px-0.5 hover:bg-workbench-hover focus-within:bg-workbench-hover"
-        role="group"
-        aria-label={`${item.name} crate`}
-        onpointerenter={handlePointerEnter}
-        onpointerleave={handlePointerLeave}
-        onfocusin={handleFocusIn}
-        onfocusout={handleFocusOut}>
+        class="group/item flex h-7 min-w-0 items-center rounded-sm px-0.5 hover:bg-workbench-hover focus-within:bg-workbench-hover">
         <Collapsible.Trigger
             class="flex h-7 min-w-0 flex-1 items-center gap-1 pl-1.5 text-left font-mono text-[13px]">
             {#if expanded.value}

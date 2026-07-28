@@ -10,9 +10,9 @@ rendering work on controls the user might never open.
 
 M4 moves automatic crates.io sparse-index requests to the first meaningful
 interaction with a crate's version selector. The selector is progressively
-disclosed on card hover, keyboard focus, or touch-capable layouts. Explicit
-**Refresh Metadata** remains an intentional request to the richer crates.io
-API.
+disclosed while hovering or focusing anywhere in the crate item—including
+its expanded page rows—or on touch-capable layouts. Explicit **Refresh
+Metadata** remains an intentional request to the richer crates.io API.
 
 ## Goals
 
@@ -36,17 +36,22 @@ API.
 ### Progressive disclosure
 
 The version selector retains its existing fixed-width footprint but is
-transparent and non-pointer-interactive until its crate card is:
+transparent and non-pointer-interactive until its crate item is:
 
-- hovered with a hover-capable pointer;
-- focused within by keyboard navigation;
+- hovered with a hover-capable pointer, including over an expanded page row;
+- focused within by keyboard navigation, including a page or pin control;
 - rendered on a device that cannot express hover; or
 - keeping its portaled version menu open.
 
 Reserving the footprint avoids making long crate names jump or re-truncate
 when the selector appears. The dropdown-open condition is important because
-Bits UI portals the menu outside the card, which otherwise ends the card's
+Bits UI portals the menu outside the crate item, which otherwise ends its
 hover and focus-within state.
+
+The pointer and focus boundary lives on the outer collapsible crate item
+rather than its header. Moving between the header and page rows therefore
+does not hide the selector, cancel a pending intent timer, or cause visual
+flicker.
 
 ### Intent timing
 
@@ -55,9 +60,9 @@ window filters incidental cursor travel across a long sidebar. Keyboard focus
 and non-mouse pointer interaction request immediately because they are
 stronger signals.
 
-Leaving the card cancels only a timer that has not fired. An in-flight request
-continues so repeated entry cannot create abort/retry churn and so a useful
-cache result is not discarded.
+Leaving the entire crate item cancels only a timer that has not fired. An
+in-flight request continues so repeated entry cannot create abort/retry churn
+and so a useful cache result is not discarded.
 
 ### Selector states
 
