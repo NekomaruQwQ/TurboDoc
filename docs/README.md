@@ -46,7 +46,8 @@ The frontend uses a **multi-provider architecture** where each documentation sou
 - Move groups up/down/under via dropdown menu
 
 **Version Management:**
-- Version selector shows recommended versions (latest + semver-grouped)
+- Version selector appears on crate-card hover/focus and lazily loads
+  recommended versions (latest + semver-grouped)
 - Changing version reloads iframe with new version URL
 - Current version persisted per-item in workspace
 - Auto-sync: version selector updates when iframe navigates to different version
@@ -130,12 +131,14 @@ WebView2 iframe navigates
 **Crate metadata:**
 ```
 Rust provider needs metadata for a crate
-  ├─ Default: GET https://index.crates.io/{Cargo index path}
+  ├─ First version-selector intent:
+  │    GET https://index.crates.io/{Cargo index path}
   │    └─ proxy follows upstream Cache-Control/ETag/Last-Modified normally
   └─ "Refresh Metadata": GET https://crates.io/api/v1/crates/{name}
        └─ frontend uses fetch cache mode "no-store" for a current API result
 
 The frontend parses both representations into its in-memory CrateCache.
+Workspace startup, import, and group expansion do not request metadata.
 The backend has no crate-specific endpoint, parser, or cache policy.
 ```
 
@@ -527,7 +530,7 @@ ProviderData ($state) ──► provider.render() inside $derived ──► rend
 ```
 
 - `provider.render()` is a pure data-derivation function called inside a `$derived` block in `Explorer.svelte`. It re-runs whenever its dependencies (`ctx.data`, `ctx.currentUrl`, the `cache.svelte.ts` store) change — Svelte 5 tracks reads automatically.
-- Per-provider effects (URL sync, batch fetches, seeding) live in the optional `provider.setupEffects(ctx)` method, called once at host init. Implementations live in `*.svelte.ts` modules so their `$effect` runes bind to the host component's lifecycle.
+- Per-provider effects (URL sync and seeding) live in the optional `provider.setupEffects(ctx)` method, called once at host init. Implementations live in `*.svelte.ts` modules so their `$effect` runes bind to the host component's lifecycle. User-intent metadata requests are view-model callbacks rather than startup effects.
 - View models contain callbacks (closures over `$state`-mutating functions) — never serialized.
 - Direct mutation on `$state` proxies replaces Immer drafts — `ctx.data.crates[name] = …` is reactive.
 - `ProviderContext` is constructed once in `Explorer.svelte` with reactive getters over the `ProviderDataStore` (`@/core/providerData.svelte`).
@@ -643,8 +646,10 @@ TurboDoc/
 │       │   ├── index.ts            # Provider registry (default-exported `Provider[]`)
 │       │   └── rust/               # Unified Rust provider
 │       │       ├── index.ts            # Provider implementation (render, URL handling, page parsing, getImportCratesAction inlined)
-│       │       ├── effects.svelte.ts   # Per-provider $effect setup (URL sync, batch fetches, seed crates)
-│       │       ├── cache.svelte.ts     # `$state` singleton + concurrent sparse-index/API fetching
+│       │       ├── effects.svelte.ts   # Per-provider $effect setup (URL sync, seed crates)
+│       │       ├── cache.svelte.ts     # `$state` singleton + lazy sparse-index/API fetching
+│       │       ├── cache-core.ts       # Rune-independent deduplication and latest-wins request coordinator
+│       │       ├── cache-core.test.ts  # Lazy request lifecycle and race unit tests
 │       │       ├── metadata.ts         # Cargo index paths + sparse-index/API parsers
 │       │       ├── metadata.test.ts    # Metadata URL and parser unit tests
 │       │       ├── url.ts              # URL parsing/building (docs.rs, doc.rust-lang.org, windows-docs-rs)
@@ -758,6 +763,7 @@ TurboDoc/
 - **2026-07**: Make the derived Ungrouped section collapsible and consolidate all explorer groups onto one controlled Bits UI Collapsible path. The empty group name remains Ungrouped's stable data-model identity and now persists expansion through the existing `groupExpanded` accessor. Reuse the shared header and bulk item expansion actions while capability-gating rename, reorder, and delete to persisted named groups.
 - **2026-07**: Diagnose and remove a frontend startup regression caused by excluding `@lucide/svelte`, `bits-ui`, and `paneforge` from Vite dependency optimization. Restore `vite-plugin-svelte`'s default prebundling and replace the remaining Lucide icon-barrel import with a direct icon import, reducing observed startup from roughly 20–28 seconds to about 7 seconds. Retain monotonic initialization milestones and phase durations as regression telemetry; remove the temporary top-level navigation lifecycle and Vite first-request probes after they isolated the delay to frontend transformation. Document cold/warm regression checks and why each remaining WebView2 event handler is functional.
 - **2026-07**: Align the hosted frontend URL with Vite's IPv4-only bind and readiness probe: navigate WebView2 to `127.0.0.1` instead of `localhost`, avoiding a possible IPv6-first `::1` connection attempt before fallback.
+- **2026-07**: Make crate metadata fetching intent-driven. Remove the Rust provider's startup batch-fetch effect; expose `ItemVersions.status` + idempotent `ensureLoaded()`; reveal the selector on card hover/focus (always on non-hover devices) with idle/loading/error affordances and a 125 ms mouse hover-intent delay. Add a rune-independent `CrateCacheLoader` that deduplicates requests, retains usable data across refresh failures, and uses request generations so stale sparse-index responses cannot overwrite newer explicit API refreshes. Workspace restore and bulk import now issue no automatic crate metadata requests. See `docs/M4-LazyFetching.md`.
 - **2026-07**: Reduce and instrument perceived startup latency. Add a shared monotonic elapsed-time probe with cumulative `log::info` milestones and phase durations; schedule Vite on Tokio concurrently with native window and WebView2 creation; synchronize through a typed winit readiness event before the first navigation. Show the native window during WebView2 initialization with the frontend's exact workbench background (`#0E0F13`), apply that color through WebView2 controller options at creation time, and keep only the controller hidden until the initial page completes.
 - **2026-07**: Scope WebView2 request interception to the supported documentation, crate-metadata, and configured localhost API URL patterns. Replace the global `*` request filter with exact origin/path filters while preserving iframe-originated request coverage; unrelated Vite assets, HMR traffic, and external URLs no longer cross the WebView2 callback boundary.
 - **2026-07**: Expose safe upstream response semantics to WebView2 as a process-local L1 cache. Add an explicit response-header allowlist for representation, cache, validator, CORS, privacy, and timing fields; synthesize wildcard CORS only for configured public crate-metadata origins; continue blocking connection, browser-state, authentication, reporting, unsupported range, encoding, digest, CSP, and frame-policy fields. Persist allowed upstream-derived fields in the SQLite `http_cache` through an additive `response_headers` migration, use correctly aged `http-cache-semantics` parts for fresh hits, force downstream `no-cache` for stale-while-revalidate hits, and refresh stored fields after 304/modified revalidation. Dark-mode injection now reports whether it changed bytes: its stable deterministic HTML retains upstream freshness and `Last-Modified`, while the invalid upstream strong `ETag`, digest/encoding metadata, and length are removed or recomputed.

@@ -1,5 +1,3 @@
-import * as Utils from "@/utils/version-group";
-
 import {
     type CrateMetadata,
     getCratesApiUrl,
@@ -8,21 +6,14 @@ import {
     parseCratesIndex,
 } from "./metadata";
 import { getBaseUrlForCrate } from "./url";
+import {
+    CrateCacheLoader,
+    type CrateCache,
+    type CrateCacheEntry,
+    type RustProviderCache,
+} from "./cache-core";
 
-/** Cached metadata for a single crate. The frontend owns the upstream
- * formats; the host only provides transparent HTTP caching. */
-export interface CrateCache {
-    name: string;
-    versions: { num: string; yanked: boolean }[];
-    versionGroups: { versions: { num: string; yanked: boolean }[] }[];
-    homepage: string | null;
-    repository: string | null;
-}
-
-/** In-memory shape of the Rust provider's metadata store. */
-export interface RustProviderCache {
-    crates: Record<string, CrateCache>;
-}
+export type { CrateCache, CrateCacheEntry, RustProviderCache };
 
 /** Singleton `$state`-proxied cache. Reads inside any reactive context
  *  (`$derived`, `$effect`, component template) automatically register
@@ -30,34 +21,39 @@ export interface RustProviderCache {
  *  reactivity — no `useSyncExternalStore` bridge needed. */
 export const crateCache: RustProviderCache = $state({ crates: {} });
 
-/** Crate names currently being fetched; prevents duplicate requests when
- *  the host effect fires multiple times before a response lands. */
-export const inFlight = new Set<string>();
+const cacheLoader = new CrateCacheLoader(crateCache, fetchCrateMetadata);
 
 /** Return cached metadata for one crate, or `null` for std-library crates
  *  (no crates.io entry) and crates whose fetch hasn't completed yet.
- *  Does not trigger fetches — that's the host's responsibility. */
+ *  This read never triggers network work. */
 export function getCrateCache(crateName: string): CrateCache | null {
     if (getBaseUrlForCrate(crateName) === "https://doc.rust-lang.org/")
         return null;
-    return crateCache.crates[crateName] ?? null;
+    return cacheLoader.get(crateName)?.data ?? null;
 }
 
-/** Evict a single crate from the cache. Used by the "Refresh Metadata"
- *  action so the next render shows a stale-data placeholder until the
- *  fresh fetch lands. */
-export function deleteCrateCache(name: string) {
-    delete crateCache.crates[name];
-}
-
-function crateMetadataToCache(meta: CrateMetadata): CrateCache {
-    return {
-        name: meta.name,
-        versions: meta.versions,
-        versionGroups: Utils.computeVersionGroups(meta.versions),
-        repository: meta.repository,
-        homepage: meta.homepage,
+/** Return the lazy request state for a crate without starting a request.
+ * Missing entries are intentionally represented as idle without mutating
+ * reactive state during provider rendering. */
+export function getCrateCacheEntry(crateName: string): CrateCacheEntry {
+    return cacheLoader.get(crateName) ?? {
+        data: null,
+        status: "idle",
+        error: null,
     };
+}
+
+/** Lazily load sparse-index metadata for a docs.rs crate. Other Rust
+ * documentation hosts have static or unsupported version selectors. */
+export function ensureCrateCache(name: string): void {
+    if (getBaseUrlForCrate(name) !== "https://docs.rs/") return;
+    void cacheLoader.ensure(name);
+}
+
+/** Explicitly refresh crates.io metadata. Existing usable data remains in
+ * place if the refresh fails. */
+export function refreshCrateCache(name: string): void {
+    void cacheLoader.refresh(name);
 }
 
 /** Fetch and parse one crate from the CDN-backed sparse index by default,
@@ -71,28 +67,4 @@ async function fetchCrateMetadata(name: string, refresh: boolean): Promise<Crate
         throw new Error(`Crate metadata fetch failed for ${name}: ${response.status}`);
     const body = await response.text();
     return refresh ? parseCratesApi(body) : parseCratesIndex(name, body);
-}
-
-/** Fetch metadata for several crates concurrently and populate the in-memory
- * cache as each result arrives. Individual failures are non-fatal and do not
- * discard successful siblings. The `inFlight` guard is always cleared so a
- * failed request cannot permanently block a later attempt. */
-export async function batchFetchCrateCache(
-    names: string[],
-    refresh?: boolean,
-): Promise<void> {
-    console.log(`[crates] Fetching metadata for ${names.length} crate(s)${refresh ? " (refresh)" : ""}.`);
-    for (const name of names) inFlight.add(name);
-    try {
-        await Promise.all(names.map(async name => {
-            try {
-                const metadata = await fetchCrateMetadata(name, refresh ?? false);
-                crateCache.crates[name] = crateMetadataToCache(metadata);
-            } catch (error) {
-                console.error(`Failed to fetch crate metadata for ${name}:`, error);
-            }
-        }));
-    } finally {
-        for (const name of names) inFlight.delete(name);
-    }
 }

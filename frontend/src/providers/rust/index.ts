@@ -24,9 +24,9 @@ import { setupRustEffects } from "./effects.svelte";
 import {
     type CrateCache,
     getCrateCache,
-    deleteCrateCache,
-    inFlight,
-    batchFetchCrateCache,
+    getCrateCacheEntry,
+    ensureCrateCache,
+    refreshCrateCache,
 } from "./cache.svelte";
 
 // Re-export for downstream consumers (effects, cache modules need the type).
@@ -98,6 +98,7 @@ function renderItem(
             case "https://doc.rust-lang.org/":
                 // Standard library crates: stable/nightly versions.
                 return {
+                    status: "ready",
                     current: crateData.currentVersion,
                     recommended: ["stable", "nightly"],
                     all: [["stable", "nightly"]],
@@ -107,10 +108,14 @@ function renderItem(
                 // Windows crate: only "latest" (docs URL doesn't support versioning).
                 return undefined;
             default:
-                // Regular docs.rs crates: show versions from cache.
-                return crateCache
-                    ? getCrateVersionsFromCache(crateData, crateCache, setCurrentVersion)
-                    : undefined;
+                // Regular docs.rs crates always expose the persisted current
+                // version. Full choices remain lazy until the card receives
+                // pointer, keyboard, or touch intent.
+                return getCrateVersionsFromCache(
+                    crateName,
+                    crateData,
+                    crateCache,
+                    setCurrentVersion);
         }
     }
 
@@ -134,16 +139,32 @@ function renderItem(
         name: crateName,
         sortKey: getSortKey(crateName),
         pages: getCratePages(ctx, crateName, crateData),
-        links: crateCache ? getCrateLinks(crateName, crateCache) : undefined,
+        links: getBaseUrlForCrate(crateName) === "https://doc.rust-lang.org/"
+            ? undefined
+            : getCrateLinks(crateName, crateCache),
         actions: getCrateActions(ctx, crateName),
         versions: getCrateVersions(),
     };
 }
 
 function getCrateVersionsFromCache(
+    crateName: string,
     crateData: ReadonlyDeep<CrateData>,
-    crateCache: ReadonlyDeep<CrateCache>,
+    crateCache: ReadonlyDeep<CrateCache> | null,
     setCurrentVersion: (version: string) => void): ItemVersions {
+    if (!crateCache) {
+        const entry = getCrateCacheEntry(crateName);
+        return {
+            status: entry.status === "ready" ? "idle" : entry.status,
+            error: entry.error ?? undefined,
+            current: crateData.currentVersion,
+            recommended: [],
+            all: [],
+            ensureLoaded: () => ensureCrateCache(crateName),
+            setCurrentVersion,
+        };
+    }
+
     const versions = crateCache.versionGroups;
 
     const recommended =
@@ -153,13 +174,20 @@ function getCrateVersionsFromCache(
             .filter((version): version is string => Boolean(version));
     if (crateData.currentVersion !== "latest" &&
         !recommended.includes(crateData.currentVersion)) {
-        recommended.push(crateData.currentVersion);
+        if (semver.valid(crateData.currentVersion)) {
+            recommended.push(crateData.currentVersion);
+            recommended.sort((a, b) => semver.rcompare(a, b));
+        } else {
+            // docs.rs URLs can contain non-semver aliases. Preserve the
+            // current selection without passing it to semver's comparator.
+            recommended.unshift(crateData.currentVersion);
+        }
     }
 
-    recommended.sort((a, b) => semver.rcompare(a, b));
     recommended.unshift("latest");
 
     return {
+        status: "ready",
         current: crateData.currentVersion,
         recommended,
         all: [
@@ -169,13 +197,14 @@ function getCrateVersionsFromCache(
                     .filter(version => !version.yanked)
                     .map(version => version.num))),
         ],
+        ensureLoaded: () => ensureCrateCache(crateName),
         setCurrentVersion,
     };
 }
 
 function getCrateLinks(
     crateName: string,
-    crateCache: ReadonlyDeep<CrateCache>): ItemLink[] {
+    crateCache: ReadonlyDeep<CrateCache> | null): ItemLink[] {
     const links: ItemLink[] = [];
 
     links.push({
@@ -183,11 +212,11 @@ function getCrateLinks(
         url: `https://crates.io/crates/${crateName}`,
     });
 
-    if (crateCache.homepage) {
+    if (crateCache?.homepage) {
         links.push({ name: "Homepage", url: crateCache.homepage });
     }
 
-    if (crateCache.repository) {
+    if (crateCache?.repository) {
         links.push({ name: "Repository", url: crateCache.repository });
     }
 
@@ -205,11 +234,7 @@ function getCrateActions(
         actions.push({
             name: "Refresh Metadata",
             icon: { type: "lucide", icon: RotateCw },
-            invoke: () => {
-                deleteCrateCache(crateName);
-                inFlight.delete(crateName);
-                void batchFetchCrateCache([crateName], true);
-            },
+            invoke: () => refreshCrateCache(crateName),
         });
     }
 
@@ -448,4 +473,3 @@ function getImportCratesAction(ctx: RustProviderContext): ProviderAction {
         },
     };
 }
-

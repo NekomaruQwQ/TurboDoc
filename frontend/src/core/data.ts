@@ -83,7 +83,7 @@ export interface Provider<T = unknown>
 
     /** Optional. Called once during `ExplorerProvider`'s component init.
      *  Implementations should use Svelte 5 `$effect` runes inside to wire
-     *  up reactive side effects (URL sync, batch fetches, seeding, etc.).
+     *  up reactive side effects (URL sync, seeding, etc.).
      *  Because this runs synchronously during init, the runes bind to the
      *  host component's lifecycle. The body must therefore live in a
      *  `*.svelte.ts` module so the compiler accepts the rune calls. */
@@ -205,6 +205,15 @@ export interface ItemAction {
 
 /** The view model of the version selector for a package item. */
 export interface ItemVersions {
+    /** Availability of the selector's remotely discovered choices.
+     *
+     * `current` remains usable in every state so an offline metadata request
+     * never invalidates the persisted workspace selection. */
+    status: "idle" | "loading" | "ready" | "error",
+
+    /** Human-readable failure detail when `status` is `"error"`. */
+    error?: string,
+
     /**
      * List of all versions available, grouped by semver compatibility.
      *
@@ -221,6 +230,10 @@ export interface ItemVersions {
 
     /** List of versions that are listed in the version selector combobox. */
     recommended: string[],
+
+    /** Idempotently request lazy choices after the UI observes user intent.
+     * Eager/static providers may omit this callback. */
+    ensureLoaded?(): void,
 
     /** Callback to select a version as the current version. */
     setCurrentVersion(version: string): void,

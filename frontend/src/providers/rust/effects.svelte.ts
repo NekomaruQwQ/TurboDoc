@@ -1,24 +1,19 @@
 import type { ProviderContext } from "@/core/data";
 
 import type { RustProviderData } from "./index";
-import { parseUrl, buildUrl, getBaseUrlForCrate } from "./url";
-import {
-    crateCache,
-    getCrateCache,
-    inFlight,
-    batchFetchCrateCache,
-} from "./cache.svelte";
+import { parseUrl, buildUrl } from "./url";
 
 /** Wire up the Rust provider's per-host effects. Called once during the
  *  ExplorerProvider component's init phase, so the `$effect` runes inside
  *  bind to that component's lifecycle.
  *
- *  Three concerns:
+ *  Two concerns:
  *  1. Seed starter crates on a fresh install (so the sidebar isn't empty).
  *  2. Sync the iframe's current URL to provider data — auto-import unknown
  *     crates and update the active version when the URL pin changes.
- *  3. Batch-fetch metadata for any crate that lacks an in-memory cache
- *     entry. */
+ *
+ *  Metadata loading is deliberately absent here. Version selectors request
+ *  it only after the corresponding item receives user intent. */
 export function setupRustEffects(ctx: ProviderContext<RustProviderData>) {
     // (1) Seed starter crates. `hasCrates` reads `ctx.data.crates`, which
     // is the $state proxy — Svelte tracks the read and re-runs once the
@@ -36,26 +31,6 @@ export function setupRustEffects(ctx: ProviderContext<RustProviderData>) {
     // (2) Current-URL sync.
     $effect(() => {
         handleCurrentUrl(ctx);
-    });
-
-    // (3) Batch-fetch metadata for uncached crates. The `crateKeys` derived
-    // string forces this to re-run only when the *set* of crate names
-    // changes — additions and removals — not on every property mutation.
-    $effect(() => {
-        // Track via a stable key string so the effect doesn't fire on
-        // unrelated mutations like `currentVersion` updates.
-        const crateNames = Object.keys(ctx.data.crates ?? {});
-        // Read into the dep graph: explicit access for tracking.
-        void crateNames.join(",");
-
-        const uncached = crateNames.filter(name =>
-            !crateCache.crates[name]
-            && !inFlight.has(name)
-            && getBaseUrlForCrate(name) !== "https://doc.rust-lang.org/");
-        if (uncached.length > 0) {
-            for (const name of uncached) inFlight.add(name);
-            void batchFetchCrateCache(uncached);
-        }
     });
 }
 
@@ -88,7 +63,3 @@ function handleCurrentUrl(ctx: ProviderContext<RustProviderData>) {
         };
     }
 }
-
-// Re-export getCrateCache so call sites can tree-shake to a single import
-// surface alongside the effect setup. Unused otherwise.
-export { getCrateCache };

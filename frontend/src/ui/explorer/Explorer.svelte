@@ -35,7 +35,7 @@
     // mutation in the proxy graph re-runs this effect.
     $effect(() => { store.autoSave(); });
 
-    // Provider-specific effects (e.g. URL sync, batch fetches). Defined
+    // Provider-specific effects (e.g. URL sync and initial seeding). Defined
     // in a `*.svelte.ts` module so its inner `$effect` calls bind to this
     // host component's lifecycle.
     $effect(() => provider.setupEffects?.(providerContext));
