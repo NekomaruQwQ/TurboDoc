@@ -3,12 +3,13 @@
 //! Lifecycle:
 //! 1. Build a multi-thread tokio runtime (backend handlers run on worker
 //!    threads via `Server::fetch`/`Server::dispatch_api`, so the main thread
-//!    is free for winit/WebView2).
+//!    is free for eframe/WebView2).
 //! 2. Start the in-process backend and open the SQLite cache.
-//! 3. Spawn Vite on the runtime while the main thread creates and shows the
-//!    native window, WebView2 environment, and WebView2 controller.
-//! 4. Navigate to `127.0.0.1:{port}` only after Vite accepts connections;
-//!    reveal the controller after its first navigation completes.
+//! 3. Spawn Vite on the runtime while eframe creates the root winit window
+//!    and renders a native egui startup surface through wgpu.
+//! 4. Create WebView2 asynchronously as a hidden child of that window.
+//!    Navigate to `127.0.0.1:{port}` only after both WebView2 and Vite are
+//!    ready, then reveal the controller after its first navigation completes.
 //! 5. Drop the runtime, which cancels in-flight tokio tasks. The Vite
 //!    child dies via the Job Object on host exit.
 

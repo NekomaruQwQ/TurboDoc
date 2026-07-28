@@ -2,6 +2,8 @@ use nkcore::prelude::*;
 use nkcore::debug::*;
 use nkcore::*;
 
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::result::Result;
 use std::sync::mpsc;
 use std::time::Instant;
@@ -32,33 +34,169 @@ pub struct WebViewNavigationResult {
     pub status: Result<(), COREWEBVIEW2_WEB_ERROR_STATUS>,
 }
 
+/// One-shot callback shared between the two asynchronous WebView2 creation
+/// stages. Both completion handlers run on the UI thread, so `Rc<RefCell<_>>`
+/// preserves the COM apartment boundary without synchronization overhead.
+type WebViewCreationCallback =
+    Rc<RefCell<Option<Box<dyn FnOnce(anyhow::Result<WebView>)>>>>;
+
 impl WebView {
-    /// Create an initially hidden WebView2 controller for `hwnd`.
+    /// Begin creating an initially hidden WebView2 controller for `hwnd`.
     ///
     /// The controller's default background is configured during creation so
     /// revealing it after navigation cannot expose WebView2's white default.
-    pub fn new(hwnd: HWND, startup: StartupProbe) -> anyhow::Result<Self> {
+    /// WebView2 invokes `callback` on the UI thread after both its environment
+    /// and controller are ready, or after either asynchronous stage fails.
+    pub fn begin_create<F>(
+        hwnd: HWND,
+        startup: StartupProbe,
+        callback: F)
+     -> anyhow::Result<()>
+    where
+        F: FnOnce(anyhow::Result<Self>) + 'static {
+        let callback: WebViewCreationCallback =
+            Rc::new(RefCell::new(Some(Box::new(callback))));
         let environment_started_at = Instant::now();
-        let environment =
-            blocking::create_core_webview2_environment()?;
-        startup.mark_phase(
-            "WebView2 environment created",
-            environment_started_at);
+        let completion_callback = Rc::clone(&callback);
+        let handler =
+            CreateCoreWebView2EnvironmentCompletedHandler::create(
+                Box::new(move |error_code, environment| {
+                    let result = (|| {
+                        error_code
+                            .ok()
+                            .context("WebView2 environment creation failed")?;
+                        let environment =
+                            environment
+                                .context("WebView2 returned no environment")?
+                                .cast::<ICoreWebView2Environment2>()
+                                .context("failed to cast to ICoreWebView2Environment2")?;
+                        startup.mark_phase(
+                            "WebView2 environment created",
+                            environment_started_at);
+                        Self::begin_controller_creation(
+                            environment,
+                            hwnd,
+                            startup,
+                            Rc::clone(&completion_callback))
+                    })();
+
+                    if let Err(err) = result {
+                        Self::finish_creation(
+                            &completion_callback,
+                            Err(err.context("failed to create WebView2")));
+                    }
+                    Ok(())
+                }));
+
+        unsafe {
+            CreateCoreWebView2EnvironmentWithOptions(
+                None,
+                None,
+                None,
+                &handler)
+        }
+        .map_err(webview2_com::Error::WindowsError)
+        .context("failed to start WebView2 environment creation")
+    }
+
+    /// Begin the controller half of WebView2 creation after the environment
+    /// callback succeeds. The environment is retained in the final wrapper
+    /// because response conversion later depends on it.
+    fn begin_controller_creation(
+        environment: ICoreWebView2Environment2,
+        hwnd: HWND,
+        startup: StartupProbe,
+        callback: WebViewCreationCallback)
+     -> anyhow::Result<()> {
+        let environment_10 =
+            environment
+                .cast::<ICoreWebView2Environment10>()
+                .context("failed to cast to ICoreWebView2Environment10")?;
+        let controller_options =
+            Self::create_controller_options(&environment_10)?;
 
         let controller_started_at = Instant::now();
-        let controller =
-            blocking::create_core_webview2_controller(&environment, hwnd)?;
-        startup.mark_phase(
-            "WebView2 controller created",
-            controller_started_at);
-        api_call!(unsafe { controller.SetIsVisible(false) })?;
+        let completion_environment = environment.clone();
+        let completion_callback = Rc::clone(&callback);
+        let handler =
+            CreateCoreWebView2ControllerCompletedHandler::create(
+                Box::new(move |error_code, controller| {
+                    let result = (|| {
+                        error_code
+                            .ok()
+                            .context("WebView2 controller creation failed")?;
+                        let controller =
+                            controller
+                                .context("WebView2 returned no controller")?;
+                        startup.mark_phase(
+                            "WebView2 controller created",
+                            controller_started_at);
+                        api_call!(unsafe { controller.SetIsVisible(false) })?;
 
-        let core =
-            unsafe { controller.CoreWebView2() }
-                .context("failed to get ICoreWebView2 from ICoreWebView2Controller")?;
-        startup.mark("WebView2 core acquired and controller hidden");
+                        let core =
+                            unsafe { controller.CoreWebView2() }
+                                .context(
+                                    "failed to get ICoreWebView2 from \
+                                     ICoreWebView2Controller")?;
+                        startup.mark(
+                            "WebView2 core acquired and controller hidden");
+                        Ok(Self {
+                            environment: completion_environment,
+                            controller,
+                            core,
+                        })
+                    })();
+                    Self::finish_creation(&completion_callback, result);
+                    Ok(())
+                }));
 
-        Ok(Self { environment, controller, core })
+        unsafe {
+            environment_10.CreateCoreWebView2ControllerWithOptions(
+                hwnd,
+                &controller_options,
+                &handler)
+        }
+        .map_err(webview2_com::Error::WindowsError)
+        .context("failed to start WebView2 controller creation")
+    }
+
+    /// Configure the opaque startup color before WebView2 creates its child
+    /// window. Applying this after controller creation leaves a white-flash
+    /// race when the hidden controller is eventually revealed.
+    fn create_controller_options(
+        environment: &ICoreWebView2Environment10)
+     -> anyhow::Result<ICoreWebView2ControllerOptions> {
+        let controller_options =
+            unsafe { environment.CreateCoreWebView2ControllerOptions() }
+                .context("failed to create WebView2 controller options")?;
+        let controller_options_3 =
+            controller_options
+                .cast::<ICoreWebView2ControllerOptions3>()
+                .context("failed to cast to ICoreWebView2ControllerOptions3")?;
+        let color = crate::startup::STARTUP_BACKGROUND;
+        unsafe {
+            controller_options_3.SetDefaultBackgroundColor(COREWEBVIEW2_COLOR {
+                A: 255,
+                R: color.red,
+                G: color.green,
+                B: color.blue,
+            })
+        }
+        .context("failed to set WebView2 startup background")?;
+        Ok(controller_options)
+    }
+
+    /// Deliver the asynchronous creation result exactly once. A duplicate
+    /// completion indicates a WebView2 callback-contract violation, so it is
+    /// logged rather than panicking across the COM callback boundary.
+    fn finish_creation(
+        callback: &WebViewCreationCallback,
+        result: anyhow::Result<Self>) {
+        let Some(callback) = callback.borrow_mut().take() else {
+            log::error!("WebView2 creation completed more than once");
+            return;
+        };
+        callback(result);
     }
 
     /// Raise `WebResourceRequested` only for requests matching `uri_pattern`.
@@ -261,94 +399,6 @@ impl WebView {
         Ok(())
     }
 
-}
-
-mod blocking {
-    use super::*;
-    use std::sync::mpsc;
-    use std::sync::mpsc::Sender;
-
-    pub fn create_core_webview2_environment()
-     -> anyhow::Result<ICoreWebView2Environment2> {
-        let (tx, rx) = mpsc::channel();
-
-        CreateCoreWebView2EnvironmentCompletedHandler::wait_for_async_operation(
-            Box::new(move |handler| unsafe {
-                CreateCoreWebView2EnvironmentWithOptions(
-                    None,
-                    None,
-                    None, &handler)
-                    .map_err(webview2_com::Error::WindowsError)
-            }),
-            send_on_completed(tx),
-        ).context("failed to create ICoreWebView2Environment")?;
-
-        rx
-            .recv()
-            .context("failed to receive ICoreWebView2Environment")?
-            .cast::<ICoreWebView2Environment2>()
-            .context("failed to cast to ICoreWebView2Environment2")
-    }
-
-    /// Create the controller with an opaque workbench-colored default surface.
-    ///
-    /// Controller options must be set before creation; setting the background
-    /// afterward leaves a race where the attached child window can paint white.
-    pub fn create_core_webview2_controller(
-        environment: &ICoreWebView2Environment2,
-        hwnd: HWND)
-     -> anyhow::Result<ICoreWebView2Controller> {
-        let environment =
-            environment.cast::<ICoreWebView2Environment10>()
-                .context("failed to cast to ICoreWebView2Environment10")?;
-        let controller_options =
-            unsafe { environment.CreateCoreWebView2ControllerOptions() }
-                .context("failed to create WebView2 controller options")?;
-        let controller_options_3 =
-            controller_options.cast::<ICoreWebView2ControllerOptions3>()
-                .context("failed to cast to ICoreWebView2ControllerOptions3")?;
-        let color = crate::startup::STARTUP_BACKGROUND;
-        unsafe {
-            controller_options_3.SetDefaultBackgroundColor(COREWEBVIEW2_COLOR {
-                A: 255,
-                R: color.red,
-                G: color.green,
-                B: color.blue,
-            })
-        }.context("failed to set WebView2 startup background")?;
-
-        let (tx, rx) = mpsc::channel();
-
-        CreateCoreWebView2ControllerCompletedHandler::wait_for_async_operation(
-            Box::new(move |handler| unsafe {
-                environment
-                    .CreateCoreWebView2ControllerWithOptions(
-                        hwnd,
-                        &controller_options,
-                        &handler)
-                    .map_err(webview2_com::Error::WindowsError)
-            }),
-            send_on_completed(tx),
-        ).context("failed to create ICoreWebView2Controller")?;
-
-        rx
-            .recv()
-            .context("failed to receive ICoreWebView2Controller")
-    }
-
-    #[expect(clippy::or_fun_call, reason = "function call is cheap")]
-    fn send_on_completed<T: Interface + 'static>(sender: Sender<T>) -> CompletedClosure<HRESULT, Option<T>> {
-        Box::new(move |error, result| {
-            error?;
-            result
-                .map(|value| {
-                    sender
-                        .send(value)
-                        .unwrap_or_else(|err| panic!("failed to send over channel: {err}"));
-                })
-                .ok_or(E_POINTER.into())
-        })
-    }
 }
 
 mod convert {

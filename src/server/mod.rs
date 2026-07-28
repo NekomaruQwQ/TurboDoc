@@ -44,7 +44,7 @@ pub struct Config {
 }
 
 /// Vite child-process configuration. Kept separate from [`Config`] because
-/// frontend startup runs concurrently with native window creation.
+/// frontend startup runs concurrently with eframe and WebView2 initialization.
 pub struct FrontendConfig {
     /// Port Vite binds to and the WebView2 navigates to.
     pub port: u16,
@@ -66,7 +66,7 @@ impl Server {
     ///
     /// Dropping the returned Tokio task handle intentionally detaches the
     /// task. Its result is delivered exactly once through `on_ready`, which
-    /// the window host forwards into the winit event loop.
+    /// the native host consumes from eframe's startup coordinator.
     pub fn spawn_frontend<F>(
         &self,
         config: FrontendConfig,

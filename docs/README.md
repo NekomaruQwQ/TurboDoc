@@ -102,7 +102,7 @@ TurboDoc is an "enhanced tabbed browser with inactive tab resources released" �
 
 | **Component** | **Tech Stack** | **Role** | **Key Responsibilities** |
 |---|---|---|---|
-| **Host** | Rust (winit + WebView2) | **The Shell** | Window management. Intercepts configured upstream GETs in `WebResourceRequested` and routes them to `Server::fetch` (proxy + cache), while `/api/v1/*` routes to `Server::dispatch_api` (data only); everything else passes through to Vite. Sends `navigated` events to the frontend, opens external URLs in the system browser, and owns the Vite child through a Job Object. |
+| **Host** | Rust (eframe/egui + wgpu/DX12 + WebView2) | **The Shell** | Native window management and an extensible startup/error surface. Intercepts configured upstream GETs in `WebResourceRequested` and routes them to `Server::fetch` (proxy + cache), while `/api/v1/*` routes to `Server::dispatch_api` (data only); everything else passes through to Vite. Sends `navigated` events to the frontend, opens external URLs in the system browser, and owns the Vite child through a Job Object. |
 | **Backend** | Rust (rusqlite + reqwest + `http-cache-semantics`), in-process — no axum, no bound TCP listener of its own | **The Brain** | Provider data persistence (`/api/v1/data/{file_name}`) reading/writing TOML. Site-agnostic HTTP proxy with SQLite caching, upstream cache directives, conditional revalidation, stale-while-revalidate, LRU eviction, and an explicit downstream response-header allowlist that lets WebView2 cache reusable representations safely. Rustdoc dark-mode injection is applied at serve time. Called synchronously from the WebView2 UI thread via `Handle::block_on`. |
 | **Frontend** | Svelte 5 + Vite | **The Face** | UI rendering and provider-specific integrations. The Rust provider constructs and parses sparse-index metadata requests by default and uses the crates.io API only for explicit refreshes. Vite serves all assets directly on the main port (no reverse proxy). |
 
@@ -163,7 +163,7 @@ WebView2 default path → Vite on the main port (HMR WebSocket included). No int
 - **Icons**: `@lucide/svelte` (icons imported individually for tree-shaking)
 - **Utilities**: remeda (functional), semver, zod
 - **Backend**: Rust (rusqlite + reqwest + `http-cache-semantics`) — in-process, no HTTP listener. `server::start` opens the SQLite cache and returns a `Server` handle the host calls from the WebView2 callback via `runtime.block_on(...)`; that handle also schedules Vite startup on the runtime.
-- **Host**: Rust (winit + WebView2) — window management, WebView2 request interception, server + Vite-child lifecycle. The Vite child binds the main port; the host process owns no listener.
+- **Host**: Rust (eframe/egui + wgpu/DX12 + WebView2) — native startup/error UI, window management, WebView2 request interception, server + Vite-child lifecycle. eframe owns the root winit window and WebView2 uses its HWND as the parent for a child controller. The Vite child binds the main port; the host process owns no listener.
 - **IPC**: WebView2 intercepts `/api/v1/*` requests from the frontend and dispatches them to the backend in-process (the frontend still calls plain `fetch`, oblivious to the routing); WebView2 `PostWebMessageAsJson` for navigation events; mitt-based event bus inside the frontend (`createSubscriber` bridges into Svelte reactivity).
 
 ### Sidebar Layout
@@ -314,9 +314,9 @@ just install   # Installs frontend dependencies + builds the host
 just run       # Launches the app with HMR
 ```
 
-`just run` is `cargo run -- --data data`. There is only one mode. `server::start` opens the SQLite cache, then the host schedules `frontend::spawn_vite` on Tokio while the main thread creates WebView2. The native window is painted with the frontend workbench color and shown immediately; the WebView2 controller uses the same default background but remains hidden. Once Vite accepts connections on `$TURBODOC_PORT` (Vite reads `TURBODOC_VITE_PORT`, set by the host), a typed winit event triggers navigation to `http://127.0.0.1:{port}/`. Using the same IPv4 loopback address for Vite binding, readiness, and navigation avoids an IPv6-first `localhost` resolution mismatch. The controller is revealed after that navigation completes. HMR's WebSocket talks to Vite on the same port — no `hmr.clientPort` override, no reverse proxy.
+`just run` is `cargo run --release -- --data data`. There is only one mode. `server::start` opens the SQLite cache, then the host schedules `frontend::spawn_vite` on Tokio before eframe creates the root winit window and wgpu DX12 surface. egui immediately renders a spinner over the frontend workbench color while WebView2 creates its environment and hidden child controller through completion callbacks; no blocking wait pumps a second event loop. Once Vite accepts connections on `$TURBODOC_PORT` (Vite reads `TURBODOC_VITE_PORT`, set by the host) and WebView2 is ready, the startup coordinator navigates to `http://127.0.0.1:{port}/`. Using the same IPv4 loopback address for Vite binding, readiness, and navigation avoids an IPv6-first `localhost` resolution mismatch. The controller is revealed only after that navigation completes. A Vite, WebView2, or initial-navigation failure remains in the native egui surface with expandable and copyable details. HMR's WebSocket talks to Vite on the same port — no `hmr.clientPort` override, no reverse proxy.
 
-Initialization milestones log through `log::info` as `startup +… ms`. A shared monotonic origin makes the concurrently started Vite and native paths directly comparable. Expensive backend, runtime, window, Vite-readiness, WebView2-environment, and WebView2-controller operations also report their individual phase durations. The final `WebView2 NavigationCompleted …; controller shown` milestone is the app's measured startup latency because that is when the frontend becomes visible. The completion handler is part of startup behavior rather than diagnostic instrumentation: it reveals the initially hidden WebView2 controller only after the frontend navigation succeeds.
+Initialization milestones log through `log::info` as `startup +… ms`. A shared monotonic origin makes the concurrently started Vite and native paths directly comparable. Expensive backend, runtime, eframe/wgpu, Vite-readiness, WebView2-environment, and WebView2-controller operations also report their individual phase durations. The final `WebView2 NavigationCompleted …; controller shown` milestone is the app's measured startup latency because that is when the frontend becomes visible. The completion handler is part of startup behavior rather than diagnostic instrumentation: it reveals the initially hidden WebView2 controller only after the frontend navigation succeeds.
 
 #### Checking for Startup Regressions
 
@@ -670,7 +670,7 @@ TurboDoc/
 │
 ├── src/                        # Rust host + in-process backend
 │   ├── main.rs                 # Tokio runtime, clap args, Job Object, backend start, app launch
-│   ├── app.rs                  # Concurrent Vite/native startup, winit window, request interception, /api routing
+│   ├── app.rs                  # Concurrent Vite/WebView2 startup, eframe splash/error UI, request interception
 │   ├── startup.rs              # Shared elapsed-time probe and frontend-matched startup color
 │   ├── webview.rs              # WebView2 wrapper (environment, colored controller, event handlers)
 │   └── server/                 # In-process backend (no HTTP listener)
@@ -717,7 +717,7 @@ TurboDoc/
    - Results grouped by provider (like PowerToys Run)
    - Providers without search support are skipped
 2. **Preset picker UI**: Not yet built — switching presets requires manual workspace edit
-3. **Loading/error states**: Not yet implemented — no skeletons, spinners, or error boundaries
+3. **Frontend loading/error states**: Native host startup has a spinner and diagnostic error surface; in-app operations still have no shared skeleton/error-boundary system
 4. **Packaged-prod build**: Not yet designed — the current shape always spawns Vite. When packaging lands it'll likely use WebView2's `SetVirtualHostNameToFolderMapping` to serve `frontend/dist/` directly with no Rust file server.
 
 ### Known Limitations
@@ -741,12 +741,12 @@ TurboDoc/
 - [x] Automatic cross-crate navigation via `navigated` event
 - [x] Auto-save data and cache on every change
 - [x] HTTP proxy with SQLite cache and dark mode injection (v0.3)
-- [x] Rust host with WebView2 (winit + webview2-com)
+- [x] Rust host with native egui startup UI and WebView2 (eframe/wgpu + webview2-com)
 
 ### Remaining
 - [ ] Unified search bar
 - [ ] Provider switcher UI (and persistence of the active provider selection)
-- [ ] Loading/error states
+- [ ] Shared frontend loading/error states
 - [ ] Keyboard shortcuts
 - [ ] Cross-provider navigation (partially done via unified rust provider)
 
@@ -754,6 +754,7 @@ TurboDoc/
 
 ## Change History
 
+- **2026-07**: Replace the one-shot GDI startup paint and blocking WebView2 creation wait with an extensible native egui surface. eframe now owns the root winit window and wgpu DX12 renderer; Vite starts before GPU initialization, WebView2 creates its environment and hidden child controller through UI-thread completion callbacks, and a tested coordinator requests initial navigation exactly once after both paths are ready. Render a workbench-colored spinner during initialization and show Vite, WebView2, and initial-navigation failures in-window with expandable/copyable diagnostics. Keep the WebView2 child hidden until successful `NavigationCompleted`, preserve native-dialog confirmation for external URLs, and reserve egui viewports for future custom secondary windows.
 - **2026-07**: Make the derived Ungrouped section collapsible and consolidate all explorer groups onto one controlled Bits UI Collapsible path. The empty group name remains Ungrouped's stable data-model identity and now persists expansion through the existing `groupExpanded` accessor. Reuse the shared header and bulk item expansion actions while capability-gating rename, reorder, and delete to persisted named groups.
 - **2026-07**: Diagnose and remove a frontend startup regression caused by excluding `@lucide/svelte`, `bits-ui`, and `paneforge` from Vite dependency optimization. Restore `vite-plugin-svelte`'s default prebundling and replace the remaining Lucide icon-barrel import with a direct icon import, reducing observed startup from roughly 20–28 seconds to about 7 seconds. Retain monotonic initialization milestones and phase durations as regression telemetry; remove the temporary top-level navigation lifecycle and Vite first-request probes after they isolated the delay to frontend transformation. Document cold/warm regression checks and why each remaining WebView2 event handler is functional.
 - **2026-07**: Align the hosted frontend URL with Vite's IPv4-only bind and readiness probe: navigate WebView2 to `127.0.0.1` instead of `localhost`, avoiding a possible IPv6-first `::1` connection attempt before fallback.
