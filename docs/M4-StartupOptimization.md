@@ -9,9 +9,13 @@ not experimentally validated.
 ## Confirmed Findings
 
 TurboDoc now starts Vite concurrently with native window and WebView2
-creation, paints the native window with the frontend workbench color, waits
-until Vite accepts connections, and then requests the initial navigation. The
-WebView2 controller remains hidden until that navigation succeeds.
+creation, paints the native window with the frontend workbench color, waits up
+to five seconds for Vite's empty `GET /ready` response carrying the current
+launch token, and then requests the initial navigation. This identity check
+prevents a stale Vite process on the configured port from satisfying
+readiness. The WebView2 controller remains hidden until navigation succeeds,
+with a 30-second deadline. The host continues monitoring Vite afterward and
+returns to the native error surface if the child exits.
 
 The dominant observed regression was in the frontend development path.
 `@lucide/svelte`, `bits-ui`, and `paneforge` had been placed in both client and
@@ -53,11 +57,11 @@ remaining approximately seven seconds are stable or mostly one-time work.
 
 ### Vite transform graph and plugin cost
 
-The current telemetry identifies when Vite accepts connections, but it does
-not attribute subsequent module transforms to Svelte, Tailwind, dependency
-optimization, or application module evaluation. Large import barrels,
-dynamically discovered dependencies, and plugin transform waterfalls can all
-delay the initial page.
+The current telemetry identifies when Vite answers its readiness endpoint, but
+it does not attribute subsequent module transforms to Svelte, Tailwind,
+dependency optimization, or application module evaluation. Large import
+barrels, dynamically discovered dependencies, and plugin transform waterfalls
+can all delay the initial page.
 
 Experiment:
 
@@ -71,10 +75,10 @@ Experiment:
 
 ### Prewarming the frontend entry graph
 
-The TCP readiness probe proves that Vite is listening; it does not prove that
-the frontend entry module and its transitive Svelte components have been
-transformed. Vite warmup configuration or an explicit host-side warmup could
-move work before WebView2 navigation.
+The HTTP readiness endpoint proves that Vite's middleware is listening; it
+does not prove that the frontend entry module and its transitive Svelte
+components have been transformed. Vite warmup configuration or an explicit
+host-side warmup could move work before WebView2 navigation.
 
 Experiment:
 
@@ -181,9 +185,9 @@ Experiment:
 
 ### Vite readiness polling granularity
 
-`wait_for_port` polls every 100 milliseconds, adding between zero and roughly
-100 milliseconds after Vite begins accepting connections. This cannot explain
-multi-second regressions and has not been optimized.
+The `/ready` HTTP check polls every 100 milliseconds, adding between zero and
+roughly 100 milliseconds after Vite begins answering requests. This cannot
+explain multi-second regressions and has not been optimized.
 
 Experiment only if sub-100-millisecond startup work becomes worthwhile:
 compare a shorter polling interval or a child-ready signal while checking CPU

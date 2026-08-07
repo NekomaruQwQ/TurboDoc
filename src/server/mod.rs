@@ -32,6 +32,16 @@ use crate::startup::StartupProbe;
 use self::db::Database;
 use self::state::AppState;
 
+/// Lifecycle notifications from the Vite child monitor.
+pub enum FrontendEvent {
+    /// Vite answered the dedicated HTTP readiness endpoint and can receive the
+    /// initial WebView2 navigation.
+    Ready,
+    /// Vite failed before readiness or exited later. Every child exit is
+    /// fatal because the visible application is served by that process.
+    Exited(anyhow::Error),
+}
+
 /// User-Agent for all upstream HTTP requests. Identifies TurboDoc to remote
 /// sites and is bumped alongside the host version.
 pub(crate) const USER_AGENT: &str = "TurboDoc/0.4 (documentation viewer)";
@@ -61,24 +71,26 @@ pub struct Server {
 }
 
 impl Server {
-    /// Schedule Vite startup on the Tokio runtime and invoke `on_ready` after
-    /// the port accepts connections or startup fails.
+    /// Schedule Vite startup on the Tokio runtime and report both readiness
+    /// and any later child exit through `on_event`.
     ///
     /// Dropping the returned Tokio task handle intentionally detaches the
-    /// task. Its result is delivered exactly once through `on_ready`, which
-    /// the native host consumes from eframe's startup coordinator.
+    /// monitor. The callback remains owned by that task until Vite exits, so
+    /// the native host can surface post-startup failures as well.
     pub fn spawn_frontend<F>(
         &self,
         config: FrontendConfig,
         startup: StartupProbe,
-        on_ready: F)
+        on_event: F)
     where
-        F: FnOnce(anyhow::Result<()>) + Send + 'static {
+        F: FnMut(FrontendEvent) + Send + 'static {
         let _task = self.runtime.spawn(async move {
-            let result =
-                frontend::spawn_vite(&config.root_dir, config.port, startup)
-                    .await;
-            on_ready(result);
+            frontend::monitor_vite(
+                &config.root_dir,
+                config.port,
+                startup,
+                on_event)
+                .await;
         });
     }
 

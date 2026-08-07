@@ -1,6 +1,7 @@
 use nkcore::prelude::*;
 
 use crate::server::FrontendConfig;
+use crate::server::FrontendEvent;
 use crate::server::Server;
 use crate::startup::StartupProbe;
 use crate::webview::WebView;
@@ -8,10 +9,18 @@ use crate::webview::WebView;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::sync::mpsc;
+use std::time::Duration;
+use std::time::Instant;
 use windows::Win32::Foundation::RECT;
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
+
+/// Upper bound for the first WebView2 navigation. WebView2 completion events
+/// do not have an intrinsic deadline, so a missing callback must not leave the
+/// native startup surface spinning forever.
+const INITIAL_NAVIGATION_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Build the exact WebView2 URL patterns whose requests TurboDoc handles.
 ///
@@ -40,14 +49,19 @@ pub fn run(
     server: Server,
     frontend_config: FrontendConfig,
     startup: StartupProbe) {
-    use std::time::Instant;
-
     // Start Vite before eframe initializes wgpu so the two slower startup
-    // paths overlap. The spinner's repaint loop polls this one-shot result.
-    let (frontend_tx, frontend_rx) = mpsc::sync_channel(1);
-    server.spawn_frontend(frontend_config, startup, move |result| {
-        if frontend_tx.send(result).is_err() {
-            log::debug!("discarding Vite readiness after eframe shutdown");
+    // paths overlap. The monitor requests a repaint for both readiness and a
+    // later child exit; before eframe exists, its queued event is sufficient.
+    let (frontend_tx, frontend_rx) = mpsc::channel();
+    let frontend_repaint = Arc::new(OnceLock::<eframe::egui::Context>::new());
+    let callback_repaint = Arc::clone(&frontend_repaint);
+    server.spawn_frontend(frontend_config, startup, move |event| {
+        if frontend_tx.send(event).is_err() {
+            log::debug!("discarding Vite lifecycle event after eframe shutdown");
+            return;
+        }
+        if let Some(context) = callback_repaint.get() {
+            context.request_repaint();
         }
     });
 
@@ -59,10 +73,17 @@ pub fn run(
         ..Default::default()
     };
     let eframe_started_at = Instant::now();
+    let creation_repaint = Arc::clone(&frontend_repaint);
     if let Err(err) = eframe::run_native(
         "TurboDoc",
         native_options,
         Box::new(move |creation_context| {
+            if creation_repaint
+                .set(creation_context.egui_ctx.clone())
+                .is_err()
+            {
+                log::error!("eframe repaint context initialized more than once");
+            }
             startup.mark_phase(
                 "eframe window and wgpu ready",
                 eframe_started_at);
@@ -96,7 +117,7 @@ enum StartupStatus {
 struct StartupCoordinator {
     frontend_ready: bool,
     webview_ready: bool,
-    navigation_started: bool,
+    navigation_started_at: Option<Instant>,
     status: StartupStatus,
 }
 
@@ -105,7 +126,7 @@ impl Default for StartupCoordinator {
         Self {
             frontend_ready: false,
             webview_ready: false,
-            navigation_started: false,
+            navigation_started_at: None,
             status: StartupStatus::Initializing,
         }
     }
@@ -113,7 +134,7 @@ impl Default for StartupCoordinator {
 
 impl StartupCoordinator {
     /// Record Vite readiness. Duplicate notifications are harmless because
-    /// navigation is still guarded by `navigation_started`.
+    /// navigation is still guarded by `navigation_started_at`.
     fn mark_frontend_ready(&mut self) {
         self.frontend_ready = true;
     }
@@ -125,18 +146,28 @@ impl StartupCoordinator {
 
     /// Claim the single initial-navigation request once both startup paths
     /// are ready. Failures permanently suppress navigation.
-    fn begin_navigation_if_ready(&mut self) -> bool {
+    fn begin_navigation_if_ready(&mut self, now: Instant) -> bool {
         if self.status == StartupStatus::Initializing
             && self.frontend_ready
             && self.webview_ready
-            && !self.navigation_started
+            && self.navigation_started_at.is_none()
         {
-            self.navigation_started = true;
+            self.navigation_started_at = Some(now);
             self.status = StartupStatus::Navigating;
             true
         } else {
             false
         }
+    }
+
+    /// Report a missing first-navigation completion event once its bounded
+    /// wait has elapsed. A clock value before the recorded start is treated as
+    /// not timed out, which keeps synthetic test clocks safe.
+    fn navigation_timed_out(&self, now: Instant, timeout: Duration) -> bool {
+        self.status == StartupStatus::Navigating
+            && self.navigation_started_at
+                .and_then(|started_at| now.checked_duration_since(started_at))
+                .is_some_and(|elapsed| elapsed >= timeout)
     }
 
     /// Complete startup after the initial navigation successfully paints.
@@ -163,7 +194,7 @@ struct TurboDocApp {
     window: Arc<Window>,
     url: String,
     server: Option<Server>,
-    frontend_rx: mpsc::Receiver<anyhow::Result<()>>,
+    frontend_rx: mpsc::Receiver<FrontendEvent>,
     webview_result: Rc<RefCell<Option<anyhow::Result<WebView>>>>,
     navigation_result: Rc<RefCell<Option<anyhow::Result<()>>>>,
     webview: Option<WebView>,
@@ -181,7 +212,7 @@ impl TurboDocApp {
         creation_context: &eframe::CreationContext<'_>,
         url: String,
         server: Server,
-        frontend_rx: mpsc::Receiver<anyhow::Result<()>>,
+        frontend_rx: mpsc::Receiver<FrontendEvent>,
         startup: StartupProbe)
      -> anyhow::Result<Self> {
         use nkcore::prelude::RawWindowHandleExt as _;
@@ -245,27 +276,15 @@ impl TurboDocApp {
     /// Advance all callback-driven startup paths without blocking eframe's
     /// render loop.
     fn poll_startup(&mut self, context: &eframe::egui::Context) {
-        if self.coordinator.status == StartupStatus::Failed
-            || self.coordinator.status == StartupStatus::Ready
-        {
+        if self.coordinator.status == StartupStatus::Failed {
             return;
         }
 
-        match self.frontend_rx.try_recv() {
-            Ok(Ok(())) => {
-                self.coordinator.mark_frontend_ready();
-                self.startup.mark("Vite frontend ready");
-            },
-            Ok(Err(err)) =>
-                self.fail("The frontend failed to start.", err),
-            Err(mpsc::TryRecvError::Disconnected)
-                if !self.coordinator.frontend_ready =>
-                self.fail(
-                    "The frontend stopped before it became ready.",
-                    anyhow::anyhow!("Vite readiness channel disconnected")),
-            Err(mpsc::TryRecvError::Empty | mpsc::TryRecvError::Disconnected) => {},
-        }
+        self.poll_frontend();
         if self.coordinator.status == StartupStatus::Failed {
+            return;
+        }
+        if self.coordinator.status == StartupStatus::Ready {
             return;
         }
 
@@ -289,8 +308,23 @@ impl TurboDocApp {
                     self.fail("TurboDoc could not load its frontend.", err),
             }
         }
+        if self.coordinator.status == StartupStatus::Failed {
+            return;
+        }
 
-        if self.coordinator.begin_navigation_if_ready() {
+        if self.coordinator.navigation_timed_out(
+            Instant::now(),
+            INITIAL_NAVIGATION_TIMEOUT)
+        {
+            self.fail(
+                "TurboDoc could not load its frontend.",
+                anyhow::anyhow!(
+                    "initial navigation did not complete within {:?}",
+                    INITIAL_NAVIGATION_TIMEOUT));
+            return;
+        }
+
+        if self.coordinator.begin_navigation_if_ready(Instant::now()) {
             self.startup.mark("Vite and WebView2 synchronized");
             let navigate_result =
                 self.webview
@@ -298,9 +332,43 @@ impl TurboDocApp {
                     .expect("coordinator marked a missing WebView2 ready")
                     .navigate(&self.url);
             match navigate_result {
-                Ok(()) => self.startup.mark("initial navigation requested"),
+                Ok(()) => {
+                    self.startup.mark("initial navigation requested");
+                    context.request_repaint_after(INITIAL_NAVIGATION_TIMEOUT);
+                },
                 Err(err) =>
                     self.fail("TurboDoc could not begin navigation.", err),
+            }
+        }
+    }
+
+    /// Drain Vite lifecycle events so an exit queued immediately after
+    /// readiness wins over beginning or retaining a frontend navigation.
+    fn poll_frontend(&mut self) {
+        loop {
+            match self.frontend_rx.try_recv() {
+                Ok(FrontendEvent::Ready) => {
+                    if !self.coordinator.frontend_ready {
+                        self.coordinator.mark_frontend_ready();
+                        self.startup.mark("Vite frontend ready");
+                    }
+                },
+                Ok(FrontendEvent::Exited(err)) => {
+                    let summary = if self.coordinator.frontend_ready {
+                        "The frontend stopped unexpectedly."
+                    } else {
+                        "The frontend failed to start."
+                    };
+                    self.fail(summary, err);
+                    return;
+                },
+                Err(mpsc::TryRecvError::Empty) => return,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    self.fail(
+                        "The frontend monitor stopped unexpectedly.",
+                        anyhow::anyhow!("Vite lifecycle channel disconnected"));
+                    return;
+                },
             }
         }
     }
@@ -344,6 +412,13 @@ impl TurboDocApp {
     /// surface. The full chain remains available through "Show details".
     fn fail(&mut self, summary: &'static str, error: anyhow::Error) {
         log::error!("{summary} {error:#}");
+        // A post-startup Vite exit happens while the child controller covers
+        // egui; hide it so the persistent native failure UI becomes visible.
+        if let Some(webview) = &self.webview
+            && let Err(err) = webview.set_visible(false)
+        {
+            log::error!("failed to hide WebView2 after startup failure: {err:#}");
+        }
         self.failure = Some(StartupFailure {
             summary,
             details: format!("{error:#}"),
@@ -706,43 +781,63 @@ mod handler {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+    use std::time::Instant;
+
     use super::StartupCoordinator;
     use super::StartupStatus;
     use super::web_resource_request_filters;
 
     #[test]
     fn startup_waits_for_both_independent_readiness_paths() {
+        let now = Instant::now();
         let mut frontend_first = StartupCoordinator::default();
         frontend_first.mark_frontend_ready();
-        assert!(!frontend_first.begin_navigation_if_ready());
+        assert!(!frontend_first.begin_navigation_if_ready(now));
         frontend_first.mark_webview_ready();
-        assert!(frontend_first.begin_navigation_if_ready());
-        assert!(!frontend_first.begin_navigation_if_ready());
+        assert!(frontend_first.begin_navigation_if_ready(now));
+        assert!(!frontend_first.begin_navigation_if_ready(now));
 
         let mut webview_first = StartupCoordinator::default();
         webview_first.mark_webview_ready();
-        assert!(!webview_first.begin_navigation_if_ready());
+        assert!(!webview_first.begin_navigation_if_ready(now));
         webview_first.mark_frontend_ready();
-        assert!(webview_first.begin_navigation_if_ready());
-        assert!(!webview_first.begin_navigation_if_ready());
+        assert!(webview_first.begin_navigation_if_ready(now));
+        assert!(!webview_first.begin_navigation_if_ready(now));
     }
 
     #[test]
     fn startup_success_and_failure_are_terminal() {
+        let now = Instant::now();
         let mut successful = StartupCoordinator::default();
         successful.mark_frontend_ready();
         successful.mark_webview_ready();
-        assert!(successful.begin_navigation_if_ready());
+        assert!(successful.begin_navigation_if_ready(now));
         successful.mark_ready();
         assert_eq!(successful.status, StartupStatus::Ready);
-        assert!(!successful.begin_navigation_if_ready());
+        assert!(!successful.begin_navigation_if_ready(now));
 
         let mut failed = StartupCoordinator::default();
         failed.mark_frontend_ready();
         failed.mark_webview_ready();
         failed.mark_failed();
         assert_eq!(failed.status, StartupStatus::Failed);
-        assert!(!failed.begin_navigation_if_ready());
+        assert!(!failed.begin_navigation_if_ready(now));
+    }
+
+    #[test]
+    fn initial_navigation_timeout_is_bounded_at_the_deadline() {
+        let started_at = Instant::now();
+        let timeout = Duration::from_secs(30);
+        let mut coordinator = StartupCoordinator::default();
+        coordinator.mark_frontend_ready();
+        coordinator.mark_webview_ready();
+        assert!(coordinator.begin_navigation_if_ready(started_at));
+
+        assert!(!coordinator.navigation_timed_out(
+            started_at + timeout - Duration::from_millis(1),
+            timeout));
+        assert!(coordinator.navigation_timed_out(started_at + timeout, timeout));
     }
 
     #[test]
