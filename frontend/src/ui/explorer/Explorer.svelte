@@ -243,16 +243,23 @@
 
 <div class="flex min-h-0 flex-1 flex-col">
     <ExplorerHeader {provider} />
-    <div
-        bind:this={scrollViewport}
-        class="flex min-h-0 flex-1 flex-col overflow-y-auto p-1.5">
-        {#if output.search}
+    {#if output.search}
+        <!-- Search owns a fixed row so crate navigation and manual scrolling
+             use only the unobstructed list viewport below it. -->
+        <div class="shrink-0 px-1.5">
             <ExplorerSearch
                 items={output.items}
                 search={output.search}
                 {recentItemIds} />
-        {/if}
+        </div>
+    {/if}
 
+    <div
+        bind:this={scrollViewport}
+        class={[
+            "flex min-h-0 flex-1 flex-col overflow-y-auto px-1.5 pb-1.5",
+            output.search ? "pt-0" : "pt-1.5",
+        ]}>
         <!-- Provider-level actions (e.g. "Import"). Only the "input" variant
              renders a dialog; "menu" is reserved for future inline menu items. -->
         {#each output.actions ?? [] as action, i (i)}

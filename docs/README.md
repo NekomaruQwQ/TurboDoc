@@ -173,12 +173,12 @@ WebView2 default path → Vite on the main port (HMR WebSocket included). No int
 
 ```
 ┌─────────────────────────────────┐
-│ [⌕ Search crates…             ] │  ← Prefix search / recent crates
+│ [⌕ Search crates…             ] │  ← Pinned prefix search / recent crates
 │   serde                         │  ← Up to five suggestions
 │   ────────────────────────────  │
 │   + Add crate "ser"             │  ← Free-form action (non-exact input)
 ├─────────────────────────────────┤
-│   ▶ Ungrouped                   │  ← Ungrouped items
+│   ▶ Ungrouped                   │  ← Scrollable crate/group region
 │   ▼ My Project                  │  ← Group (expanded)
 │       tokio                     │
 │       async-std                 │
@@ -224,8 +224,8 @@ ExplorerItem (shadcn-svelte Collapsible.Root, backed by Bits UI)
 
 ### Component Responsibilities
 
-- **Explorer** (`frontend/src/ui/explorer/Explorer.svelte`): Receives the active provider, latest reported navigation ID, and optional fractional center range as props; owns per-provider data via `ProviderDataStore` (Svelte 5 `$state` class), constructs `ProviderContext`, calls `provider.render()` inside a `$derived`, and wires up the optional `provider.setupEffects(ctx)` hook inside a `$effect` so any inner `$effect`s the provider creates are bound to this component's lifecycle. A recognized reported navigation expands the containing group and item, waits for their clipping animations, then calculates one scroll position: card centering is the preference, while placing the complete selected page row inside the center range is the constraint. Recreated implicitly when `provider.id` changes (the `$derived` `ProviderDataStore` reinitializes with the new ID).
-- **ExplorerSearch** (`ExplorerSearch.svelte`): Accessible Bits UI combobox over every provider item; shows at most five case-insensitive prefix matches, or the five most recently accessed items for empty input; dispatches provider-owned select/add actions and opens the existing Import dialog
+- **Explorer** (`frontend/src/ui/explorer/Explorer.svelte`): Receives the active provider, latest reported navigation ID, and optional fractional center range as props; owns per-provider data via `ProviderDataStore` (Svelte 5 `$state` class), constructs `ProviderContext`, calls `provider.render()` inside a `$derived`, and wires up the optional `provider.setupEffects(ctx)` hook inside a `$effect` so any inner `$effect`s the provider creates are bound to this component's lifecycle. The search occupies a fixed row beneath the panel header while the crate/group region owns the only scroll viewport. A recognized reported navigation expands the containing group and item, waits for their clipping animations, then calculates one scroll position: card centering is the preference, while placing the complete selected page row inside the center range is the constraint. Recreated implicitly when `provider.id` changes (the `$derived` `ProviderDataStore` reinitializes with the new ID).
+- **ExplorerSearch** (`ExplorerSearch.svelte`): Accessible Bits UI combobox pinned above the scrolling crate/group region; shows at most five case-insensitive prefix matches, or the five most recently accessed items for empty input; dispatches provider-owned select/add actions and opens the existing Import dialog
 - **ExplorerGroup** (`ExplorerGroup.svelte`): Owns the shared collapsible state and renders filtered/sorted items; the empty group name identifies derived ungrouped membership
 - **ExplorerGroupHeader** (`ExplorerGroupHeader.svelte`): Shared chevron trigger and expand/collapse-all menu; persisted named groups additionally support rename, move, and deletion
 - **ExplorerCreateGroupComponent** (`ExplorerCreateGroupComponent.svelte`): Button that transforms to inline input for creating new groups
@@ -621,7 +621,7 @@ ProviderData ($state) ──► provider.render() inside $derived ──► rend
 
 **Auto-Reveal on Navigation**
 - Runs only for accepted WebView2 `navigated` reports, not incidental URL-storage or provider-data changes
-- Uses a parameterized fractional center range with a default of `[1/3, 2/3]` of the Explorer viewport
+- Uses a parameterized fractional center range with a default of `[1/3, 2/3]` of the unobstructed, scrollable Explorer viewport below the pinned search
 - Always expands the containing group and crate before measuring their final layout
 - Leaves the Explorer untouched only when the crate card intersects the center range and the complete selected page row is inside it
 - Otherwise prefers centering the complete crate card on the range midpoint, then constrains that position so the selected page row finishes inside the range
@@ -788,6 +788,7 @@ TurboDoc/
 
 ## Change History
 
+- **2026-08**: Pin the Explorer search beneath the panel header by separating it from the crate/group scroll viewport. Keep search and Import actions accessible at every list position, preserve provider layouts without search, and let navigation reveals calculate their center range from only the unobstructed list region.
 - **2026-08**: Auto-reveal reported iframe navigation in the Explorer. Pass the accepted WebView2 navigation ID separately from persisted `currentUrl` so metadata, storage, and other reactive updates cannot move the sidebar. Expand the containing group and crate, wait for Bits UI clipping animations, then calculate one constrained position from a parameterized center range (default `[1/3, 2/3]`): preserve scroll only when the card intersects the range and the complete page row is inside it; otherwise prefer centering the card while constraining the page row to the range, with physical scroll bounds and a crate-header fallback. Cancel stale reveal work by navigation generation, retain iframe focus, honor reduced motion, and cover default/custom ranges, card centering, page constraints, and bounds with dependency-free unit tests.
 - **2026-08**: Replace the Rust provider's standalone Import button with a provider-aware Explorer combobox. Non-empty input performs case-insensitive prefix matching over all crates, returns at most five `sortKey`-ordered results, suppresses Add only for exact matches, and retains the existing bulk Import dialog as the empty-input footer action. Empty input shows up to five provider-scoped recently accessed crates stored in localStorage; history advances from the active item derived from IPC-persisted `currentUrl`, not frontend click intent. Selecting or adding navigates to the crate root, while metadata remains lazy. Keep the matching and MRU algorithms rune-independent and unit tested.
 - **2026-08**: Split visible-shell startup from restored documentation loading. `App.svelte` initially renders a blank iframe beneath an editor-pane spinner; all early `navigateTo()` calls pass through a latest-request-wins gate. After successful top-level `NavigationCompleted`, the host reveals WebView2 and posts `frontend-shown`; the frontend waits one animation frame before assigning the iframe source. Hosted frame starts/completions carry string navigation IDs so stale results cannot settle the placeholder, while failure or a 30-second document timeout produces an in-pane Retry state without hiding the usable workbench. The persistent top-level handler repeats release after full Vite reloads, and standalone browser development falls back to the iframe `load` event.
