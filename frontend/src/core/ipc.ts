@@ -89,7 +89,7 @@ window.chrome?.webview?.addEventListener("message", ({ data }) => {
 /** Load a provider's data. Returns `{}` on HTTP errors (non-fatal).
  *  No validation — resolves to `unknown`. */
 export async function loadProviderData(providerId: string): Promise<unknown> {
-    const response = await fetch(`/api/v1/data/${encodeURIComponent(providerId)}`);
+    const response = await fetch(`/api/data/${encodeURIComponent(providerId)}`);
     return response.ok ? response.json() : {};
 }
 
@@ -97,7 +97,7 @@ export async function loadProviderData(providerId: string): Promise<unknown> {
 export async function saveProviderData(
     providerId: string, data: object,
 ): Promise<void> {
-    const response = await fetch(`/api/v1/data/${encodeURIComponent(providerId)}`, {
+    const response = await fetch(`/api/data/${encodeURIComponent(providerId)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),

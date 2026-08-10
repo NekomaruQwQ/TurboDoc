@@ -103,14 +103,14 @@ TurboDoc is an "enhanced tabbed browser with inactive tab resources released" �
 
 | **Component** | **Tech Stack** | **Role** | **Key Responsibilities** |
 |---|---|---|---|
-| **Host** | Rust (eframe/egui + wgpu/DX12 + WebView2) | **The Shell** | Native window management and an extensible startup/error surface. Intercepts configured upstream GETs in `WebResourceRequested` and routes them to `Server::fetch` (proxy + cache), while `/api/v1/*` routes to `Server::dispatch_api` (data only); everything else passes through to Vite. Sends `navigated` events to the frontend, opens external URLs in the system browser, and owns the Vite child through a Job Object. |
-| **Backend** | Rust (rusqlite + reqwest + `http-cache-semantics`), in-process — no axum, no bound TCP listener of its own | **The Brain** | Provider data persistence (`/api/v1/data/{file_name}`) reading/writing TOML. Site-agnostic HTTP proxy with SQLite caching, upstream cache directives, conditional revalidation, stale-while-revalidate, LRU eviction, and an explicit downstream response-header allowlist that lets WebView2 cache reusable representations safely. Rustdoc dark-mode injection is applied at serve time. Called synchronously from the WebView2 UI thread via `Handle::block_on`. |
+| **Host** | Rust (eframe/egui + wgpu/DX12 + WebView2) | **The Shell** | Native window management and an extensible startup/error surface. Intercepts configured upstream GETs in `WebResourceRequested` and routes them to `Server::fetch` (proxy + cache). Rust owns `/api/data/{provider_id}` and rejection of unknown `/api` paths; `/api/ready` passes through to Vite. Sends `navigated` events to the frontend, opens external URLs in the system browser, and owns the Vite child through a Job Object. |
+| **Backend** | Rust (rusqlite + reqwest + `http-cache-semantics`), in-process — no axum, no bound TCP listener of its own | **The Brain** | Provider data persistence (`/api/data/{provider_id}`) reading/writing TOML. Site-agnostic HTTP proxy with SQLite caching, upstream cache directives, conditional revalidation, stale-while-revalidate, LRU eviction, and an explicit downstream response-header allowlist that lets WebView2 cache reusable representations safely. Rustdoc dark-mode injection is applied at serve time. Called synchronously from the WebView2 UI thread via `Handle::block_on`. |
 | **Frontend** | Svelte 5 + Vite | **The Face** | UI rendering and provider-specific integrations. The Rust provider constructs and parses sparse-index metadata requests by default and uses the crates.io API only for explicit refreshes. Vite serves all assets directly on the main port (no reverse proxy). |
 
 ### Request Flow
 
-There is no loopback HTTP. The host's `WebResourceRequested` callback calls
-the backend in-process on the UI thread via `Handle::block_on`.
+There is no loopback backend round-trip. The host's `WebResourceRequested`
+callback calls the backend in-process on the UI thread via `Handle::block_on`.
 
 **Docs page (e.g. https://docs.rs/serde/latest/serde/):**
 ```
@@ -142,17 +142,24 @@ Workspace startup, import, and group expansion do not request metadata.
 The backend has no crate-specific endpoint, parser, or cache policy.
 ```
 
-**Frontend `fetch("/api/v1/...")`:**
+**Frontend `fetch("/api/...")`:**
 ```
-WebView2 fetch from the Svelte app
-  └─ OnWebResourceRequested (path starts with /api/v1/):
+WebView2 request under /api
+  ├─ GET /api/ready
+  │    └─ Rust returns no replacement → Vite validates the launch token
+  └─ every other /api request
        │  host: server.dispatch_api(request)  → api::dispatch
        └─ api::dispatch routes by (method, path):
-            ├─ GET  /api/v1/data/{f}   → read TOML, return as JSON
-            └─ PUT  /api/v1/data/{f}   → write JSON as TOML
+            ├─ GET  /api/data/{provider_id}   → read TOML, return as JSON
+            ├─ PUT  /api/data/{provider_id}   → write JSON as TOML
+            ├─ known route + wrong method     → 405
+            └─ unknown /api path              → 404
 ```
 
-**Frontend asset request (anything else):**
+Vite independently rejects every non-readiness `/api` path, so direct or
+standalone requests cannot fall through to frontend content.
+
+**Non-API frontend asset request:**
 WebView2 default path → Vite on the main port (HMR WebSocket included). No interception.
 
 ### Technology Stack
@@ -167,7 +174,7 @@ WebView2 default path → Vite on the main port (HMR WebSocket included). No int
 - **Utilities**: remeda (functional), semver, zod
 - **Backend**: Rust (rusqlite + reqwest + `http-cache-semantics`) — in-process, no HTTP listener. `server::start` opens the SQLite cache and returns a `Server` handle the host calls from the WebView2 callback via `runtime.block_on(...)`; that handle also schedules Vite startup on the runtime.
 - **Host**: Rust (eframe/egui + wgpu/DX12 + WebView2) — native startup/error UI, window management, WebView2 request interception, server + Vite-child lifecycle. eframe owns the root winit window and WebView2 uses its HWND as the parent for a child controller. The Vite child binds the main port; the host process owns no listener.
-- **IPC**: WebView2 intercepts `/api/v1/*` requests from the frontend and dispatches them to the backend in-process (the frontend still calls plain `fetch`, oblivious to the routing); WebView2 `PostWebMessageAsJson` for navigation events; mitt-based event bus inside the frontend (`createSubscriber` bridges into Svelte reactivity).
+- **IPC**: WebView2 intercepts the `/api` namespace. `/api/ready` passes through to Vite, while Rust dispatches `/api/data/{provider_id}` and rejects every other API path in-process (the frontend still calls plain `fetch`, oblivious to the routing); WebView2 `PostWebMessageAsJson` handles navigation events, and a mitt-based event bus bridges them into Svelte reactivity.
 
 ### Sidebar Layout
 
@@ -332,7 +339,7 @@ just install   # Installs frontend dependencies + builds the host
 just run       # Launches the app with HMR
 ```
 
-`just run` is `cargo run --release -- --data data`. There is only one mode. `server::start` opens the SQLite cache, then the host schedules the Vite child monitor on Tokio before eframe creates the root winit window and wgpu DX12 surface. egui immediately renders a spinner over the frontend workbench color while WebView2 creates its environment and hidden child controller through completion callbacks; no blocking wait pumps a second event loop. For each launch, the host generates an identity token and passes it to Vite as `TURBODOC_VITE_READY_TOKEN`. Vite owns `GET /ready`, which returns an empty `200` with the matching `X-TurboDoc-Vite-Ready-Token` header after its middleware stack is listening. The host polls that endpoint for at most five seconds, rejecting responses from stale Vite instances, then navigates to `http://127.0.0.1:{port}/` once both Vite and WebView2 are ready. Using the same IPv4 loopback address for Vite binding, readiness, and navigation avoids an IPv6-first `localhost` resolution mismatch. The initial Svelte render leaves the documentation iframe without a `src` and shows an editor-pane placeholder. WebView2's resulting `about:blank` frame bootstrap is allowed but ignored by document tracking; other unsupported frame URLs retain the normal external-link policy. After the top-level navigation completes, the host reveals the controller and posts `frontend-shown`; the frontend waits one animation frame before releasing its latest queued documentation URL. A persistent top-level completion handler repeats that notification after full Vite reloads. A Vite launch/exit, WebView2, readiness-timeout, or initial frontend-navigation failure remains in the native egui surface with expandable and copyable details. Documentation failures stay inside the visible editor pane with a bounded spinner and Retry action. The child handle stays owned and monitored after startup; an unexpected exit hides WebView2 so the native failure UI is visible. HMR's WebSocket talks to Vite on the same port — no `hmr.clientPort` override, no reverse proxy.
+`just run` is `cargo run --release -- --data data`. There is only one mode. `server::start` opens the SQLite cache, then the host schedules the Vite child monitor on Tokio before eframe creates the root winit window and wgpu DX12 surface. egui immediately renders a spinner over the frontend workbench color while WebView2 creates its environment and hidden child controller through completion callbacks; no blocking wait pumps a second event loop. For each launch, the host generates an identity token and passes it to Vite as `TURBODOC_VITE_READY_TOKEN`. Vite owns `GET /api/ready`, which returns an empty `200` with the matching `X-TurboDoc-Vite-Ready-Token` header after its middleware stack is listening. The host polls that endpoint for at most five seconds, rejecting responses from stale Vite instances, then navigates to `http://127.0.0.1:{port}/` once both Vite and WebView2 are ready. Using the same IPv4 loopback address for Vite binding, readiness, and navigation avoids an IPv6-first `localhost` resolution mismatch. The initial Svelte render leaves the documentation iframe without a `src` and shows an editor-pane placeholder. WebView2's resulting `about:blank` frame bootstrap is allowed but ignored by document tracking; other unsupported frame URLs retain the normal external-link policy. After the top-level navigation completes, the host reveals the controller and posts `frontend-shown`; the frontend waits one animation frame before releasing its latest queued documentation URL. A persistent top-level completion handler repeats that notification after full Vite reloads. A Vite launch/exit, WebView2, readiness-timeout, or initial frontend-navigation failure remains in the native egui surface with expandable and copyable details. Documentation failures stay inside the visible editor pane with a bounded spinner and Retry action. The child handle stays owned and monitored after startup; an unexpected exit hides WebView2 so the native failure UI is visible. HMR's WebSocket talks to Vite on the same port — no `hmr.clientPort` override, no reverse proxy.
 
 Initialization milestones log through `log::info` as `startup +… ms`. A shared monotonic origin makes the concurrently started Vite and native paths directly comparable. Expensive backend, runtime, eframe/wgpu, Vite-readiness, WebView2-environment, and WebView2-controller operations also report their individual phase durations. `WebView2 NavigationCompleted …; controller shown; document loading released` is the perceived-startup milestone because that is when the workbench becomes visible. The separate one-shot `initial document NavigationCompleted …` milestone measures time until the restored documentation becomes usable. Both completion handlers are application behavior rather than diagnostic instrumentation: the top-level handler preserves visibility-before-iframe ordering, while frame completion settles the editor placeholder.
 
@@ -478,21 +485,21 @@ Design decisions that shaped the current architecture. Organized by area.
 
 **Migration & Compatibility**
 - On startup, if data files don't exist or don't match expected format, initialize with empty defaults
-- The Rust server's `/api/v1/data/{fileName}` route accepts any `fileName`, so picking a provider ID that collides with an unrelated file would write to the same TOML — use distinct provider IDs
+- The Rust server's `/api/data/{providerId}` route accepts lowercase ASCII provider IDs up to 64 characters, with digits and `.`, `_`, or `-` allowed after the first character. Each validated ID maps to exactly one `<providerId>.toml` file.
 
 **Provider API Surface**
 - No `serialize`/`deserialize` methods — view model callbacks mutate `$state`-proxied data directly
 - No provider collapsing in sidebar — exactly one provider is active at a time, chosen by the (forthcoming) switcher
 
 **Thin-Callback Pattern**
-- All proxy and caching logic lives in the in-process backend (`src/server/`). WebView2 registers exact origin/path filters for `PROXIED_URL` and the configured IPv4-loopback `/api/v1/*` origin, so unrelated frontend, HMR, and external traffic never enters the callback. The callback is a router: match the request URL against `PROXIED_URL` prefixes → `server.fetch`; match the path against `/api/v1/` → `server.dispatch_api`; otherwise pass through.
+- All proxy and caching logic lives in the in-process backend (`src/server/`). WebView2 registers exact origin/path filters for `PROXIED_URL`, `/api`, and `/api/*` on the configured IPv4-loopback origin, so unrelated frontend, HMR, and external traffic never enters the callback. The callback routes `PROXIED_URL` GETs to `server.fetch`, passes `/api/ready` through to Vite, dispatches the remaining `/api` namespace to Rust, and otherwise passes through.
 - Backend futures run through the tokio runtime via `Handle::block_on` from the WebView2 UI callback, avoiding a serialize/deserialize round trip or bound TCP listener.
 - No axum, no tower-http. The crate has no HTTP server of its own; only the Vite child binds the network.
 
 **Architectural Constraints**
 - No URL Rewriting: the WebView still believes it is browsing `docs.rs` directly
 - No SSL Proxy: proxying happens after WebView2 intercepts the request intent
-- Interception by both URL prefix and path: docs are matched by `PROXIED_URL` (host+scheme), API calls by path prefix (`/api/v1/`). Path-based matching means the API surface works regardless of the page's origin (currently `127.0.0.1:{port}` = Vite; future packaged builds could use a virtual host).
+- Interception by both URL prefix and path: docs are matched by `PROXIED_URL` (host+scheme), while API ownership is classified by exact `/api` segment boundaries. The filters remain scoped to the configured frontend origin; a future packaged frontend must register its own origin before using the same path contract.
 - Configurable Port and Data Directory: required at startup via clap CLI args (`--port`/`-p`, `--data`/`-d`) with env-var fallbacks (`TURBODOC_PORT`, `TURBODOC_DATA`); no defaults — the host fails fast if neither flag nor env var is supplied. The data directory is consumed by `server::start`; the port is consumed by the host's concurrent frontend-startup configuration.
 
 **Dark Mode Injection (Serve-Time)**
@@ -511,7 +518,7 @@ Design decisions that shaped the current architecture. Organized by area.
   - **Array** (`turbodoc:expanded`): flat string array of expanded item/group keys. Key format: `<providerId>:<itemId>` for items, `<providerId>:group:<groupId>` for groups. Membership-check hooks (`useGroupExpanded`, `useItemExpanded`) with selective re-rendering via mitt events — only hooks whose specific key changed re-render.
   - Each slot validated with Zod on load; invalid/missing data falls back to empty defaults (default URL `https://docs.rs/`, nothing expanded). See `frontend/src/core/localStorage.ts` and `frontend/src/core/uiState.svelte.ts`.
 - Sparse-index responses use the same RFC-aware `http_cache` SQLite table as documentation pages. Parsed crate metadata is provider-owned, within-session state in the Rust provider's module-level `$state` singleton.
-- Server-persisted via HTTP API (`/api/v1/data/{fileName}` — one route per provider data file, plain JSON over `fetch`).
+- Server-persisted via HTTP API (`/api/data/{providerId}` — one route per provider data file, plain JSON over `fetch`).
 - Provider-data save failures are non-fatal (log + return `{}`). Auto-save on every state change (no debouncing — files are small).
 
 **Preview Page (Derived State)**
@@ -559,7 +566,7 @@ ProviderData ($state) ──► provider.render() inside $derived ──► rend
 - Each atom has independent auto-save — a change in one slice doesn't trigger writes to others.
 
 **Hybrid IPC**
-- Per-provider data CRUD via `/api/v1/data/{file_name}` — frontend calls `fetch()` like any HTTP API; WebView2 intercepts the path and routes it to the in-process `api::data` handlers (no network hop, no axum).
+- Per-provider data CRUD via `/api/data/{provider_id}` — frontend calls `fetch()` like any HTTP API; WebView2 intercepts the path and routes it to the in-process `api::data` handlers (no network hop, no axum).
 - UI state via localStorage (`turbodoc:current-url`, `turbodoc:expanded`) — no IPC round-trip.
 - Documentation and sparse-index caching via the proxy's `http_cache` SQLite (upstream freshness directives, conditional stale-while-revalidate, LRU eviction). The frontend fetches upstream metadata URLs directly and parses their bodies.
 - Navigation events via WebView2 `postMessage` (low-latency, event-driven).
@@ -788,6 +795,7 @@ TurboDoc/
 
 ## Change History
 
+- **2026-08**: Simplify and harden the internal HTTP namespace. Move provider persistence from `/api/v1/data/{provider_id}` to Rust-owned `/api/data/{provider_id}`, move Vite readiness from `/ready` to `/api/ready`, and reject every other `/api` path instead of allowing Vite's frontend fallback. Preserve the launch-token readiness contract, validate provider IDs before mapping them to TOML files, and cover ownership, methods, invalid identifiers, legacy paths, and prefix traps with focused Rust and Bun tests.
 - **2026-08**: Pin the Explorer search beneath the panel header by separating it from the crate/group scroll viewport. Keep search and Import actions accessible at every list position, preserve provider layouts without search, and let navigation reveals calculate their center range from only the unobstructed list region.
 - **2026-08**: Auto-reveal reported iframe navigation in the Explorer. Pass the accepted WebView2 navigation ID separately from persisted `currentUrl` so metadata, storage, and other reactive updates cannot move the sidebar. Expand the containing group and crate, wait for Bits UI clipping animations, then calculate one constrained position from a parameterized center range (default `[1/3, 2/3]`): preserve scroll only when the card intersects the range and the complete page row is inside it; otherwise prefer centering the card while constraining the page row to the range, with physical scroll bounds and a crate-header fallback. Cancel stale reveal work by navigation generation, retain iframe focus, honor reduced motion, and cover default/custom ranges, card centering, page constraints, and bounds with dependency-free unit tests.
 - **2026-08**: Replace the Rust provider's standalone Import button with a provider-aware Explorer combobox. Non-empty input performs case-insensitive prefix matching over all crates, returns at most five `sortKey`-ordered results, suppresses Add only for exact matches, and retains the existing bulk Import dialog as the empty-input footer action. Empty input shows up to five provider-scoped recently accessed crates stored in localStorage; history advances from the active item derived from IPC-persisted `currentUrl`, not frontend click intent. Selecting or adding navigates to the crate root, while metadata remains lazy. Keep the matching and MRU algorithms rune-independent and unit tested.

@@ -25,17 +25,22 @@ const INITIAL_NAVIGATION_TIMEOUT: Duration = Duration::from_secs(30);
 /// Build the exact WebView2 URL patterns whose requests TurboDoc handles.
 ///
 /// Proxy bases end in `/`, so appending `*` cannot accidentally match a
-/// longer hostname. The frontend API pattern is scoped to the configured
-/// Vite origin instead of intercepting unrelated localhost traffic.
+/// longer hostname. The frontend API patterns are scoped to the configured
+/// Vite origin instead of intercepting unrelated localhost traffic. Both
+/// `/api` and its descendants are covered so unknown API requests cannot fall
+/// through to Vite's frontend fallback.
 fn web_resource_request_filters(frontend_url: &str) -> Vec<String> {
     let proxy_filters =
         crate::PROXIED_URL
             .iter()
             .map(|base_url| format!("{base_url}*"));
-    let frontend_api_filter =
-        format!("{}/api/v1/*", frontend_url.trim_end_matches('/'));
+    let frontend_origin = frontend_url.trim_end_matches('/');
+    let frontend_api_filters = [
+        format!("{frontend_origin}/api"),
+        format!("{frontend_origin}/api/*"),
+    ];
     proxy_filters
-        .chain(std::iter::once(frontend_api_filter))
+        .chain(frontend_api_filters)
         .collect()
 }
 
@@ -730,7 +735,7 @@ mod handler {
         })?;
 
         // TurboDoc has no loopback backend server. This handler supplies the
-        // in-process `/api/v1/*` routes and documentation proxy responses for
+        // in-process `/api/*` routes and documentation proxy responses for
         // the exact filters above; returning `None` lets ordinary Vite assets
         // and HMR traffic continue through WebView2's network stack.
         webview.on_web_resource_requested(move |request| on_web_resource_requested(&server, request))?;
@@ -808,8 +813,9 @@ mod handler {
     ///
     /// - **Docs URLs** (`PROXIED_URL` prefixes, GET): through the proxy
     ///   cache + dark-mode injection pipeline.
-    /// - **`/api/v1/*`** (any method): dispatched to the data/crates
-    ///   handlers.
+    /// - **`/api/ready`**: passed through to Vite's readiness handler.
+    /// - **Every other `/api` request**: dispatched to Rust, where the data
+    ///   handler owns `/api/data/{provider_id}` and rejects unknown routes.
     /// - **Everything else**: returns `None` so WebView2 falls through to
     ///   its default path (frontend assets served by Vite, HMR WebSocket,
     ///   navigations to external sites).
@@ -831,11 +837,38 @@ mod handler {
             };
         }
 
-        if request.uri().path().starts_with("/api/v1/") {
-            return Some(server.dispatch_api(request));
+        match api_request_handler(request.uri().path()) {
+            Some(ApiRequestHandler::Rust) =>
+                return Some(server.dispatch_api(request)),
+            Some(ApiRequestHandler::Vite) => return None,
+            None => {},
         }
 
         None
+    }
+
+    /// Owner of a request inside the frontend's `/api` namespace.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    enum ApiRequestHandler {
+        /// The in-process Rust dispatcher handles data routes and rejections.
+        Rust,
+        /// Vite handles its launch-token-protected readiness route.
+        Vite,
+    }
+
+    /// Classify frontend API paths without prefix ambiguity.
+    ///
+    /// `/api/ready` is the only Vite-owned API path. Rust receives the entire
+    /// remaining namespace so unknown routes get an explicit HTTP response
+    /// instead of falling through to frontend content.
+    fn api_request_handler(path: &str) -> Option<ApiRequestHandler> {
+        if path == "/api/ready" {
+            Some(ApiRequestHandler::Vite)
+        } else if path == "/api" || path.starts_with("/api/") {
+            Some(ApiRequestHandler::Rust)
+        } else {
+            None
+        }
     }
 
     /// Intercepts iframe navigations.
@@ -904,6 +937,8 @@ mod handler {
 
     #[cfg(test)]
     mod tests {
+        use super::api_request_handler;
+        use super::ApiRequestHandler;
         use super::classify_frame_navigation;
         use super::FrameNavigationKind;
 
@@ -933,6 +968,32 @@ mod handler {
             assert_eq!(
                 classify_frame_navigation("https://example.com/"),
                 FrameNavigationKind::External);
+        }
+
+        #[test]
+        fn data_api_is_owned_by_rust() {
+            assert_eq!(
+                api_request_handler("/api/data/rust"),
+                Some(ApiRequestHandler::Rust));
+        }
+
+        #[test]
+        fn ready_api_is_owned_by_vite() {
+            assert_eq!(
+                api_request_handler("/api/ready"),
+                Some(ApiRequestHandler::Vite));
+        }
+
+        #[test]
+        fn unknown_api_is_rejected_by_rust() {
+            assert_eq!(
+                api_request_handler("/api/database"),
+                Some(ApiRequestHandler::Rust));
+        }
+
+        #[test]
+        fn api_prefix_without_separator_is_not_intercepted() {
+            assert_eq!(api_request_handler("/apiary"), None);
         }
     }
 }
@@ -1008,7 +1069,8 @@ mod tests {
                 "https://microsoft.github.io/windows-docs-rs/doc/*",
                 "https://index.crates.io/*",
                 "https://crates.io/api/v1/crates/*",
-                "http://localhost:5173/api/v1/*",
+                "http://localhost:5173/api",
+                "http://localhost:5173/api/*",
             ]);
     }
 }

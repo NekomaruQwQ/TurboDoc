@@ -7,8 +7,9 @@
 //!
 //! - **Docs URLs** (`PROXIED_URL` prefixes) → [`Server::fetch`] → proxy
 //!   pipeline with caching + dark-mode injection.
-//! - **`/api/v1/*`** → [`Server::dispatch_api`] → data persistence + crates
-//!   metadata.
+//! - **`/api/data/*`** → [`Server::dispatch_api`] → data persistence.
+//! - **Unknown `/api/*`** → [`Server::dispatch_api`] → explicit rejection.
+//! - **`/api/ready`** → passed through to Vite.
 //! - **Everything else** → passed through to Vite (frontend assets, HMR).
 //!
 //! There is no axum, no bound TCP listener of our own — only the Vite
@@ -106,9 +107,9 @@ impl Server {
         self.runtime.block_on(proxy::fetch(&self.state, request))
     }
 
-    /// Dispatch an intercepted `/api/v1/*` request to the matching
+    /// Dispatch an intercepted Rust-owned `/api/*` request to the matching
     /// in-process handler. Always returns a response — errors are
-    /// converted to 4xx/5xx JSON bodies inside the handler.
+    /// converted to 4xx/5xx responses inside the handler.
     ///
     /// Same thread-safety constraint as [`Self::fetch`].
     pub fn dispatch_api(&self, req: WebRequest) -> WebResponse {

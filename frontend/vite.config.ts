@@ -11,16 +11,50 @@ const VITE_PORT = parseInt(process.env.TURBODOC_VITE_PORT ?? "0", 10);
 const VITE_READY_TOKEN = process.env.TURBODOC_VITE_READY_TOKEN;
 const VITE_READY_TOKEN_HEADER = "X-TurboDoc-Vite-Ready-Token";
 
-/** Expose host-managed Vite readiness without involving TurboDoc's API interception. */
-function readinessEndpoint(readyToken: string | undefined): vite.Plugin {
+/** Vite's disposition for one request path at its API boundary. */
+export type ViteApiRequestKind =
+    | "passthrough"
+    | "ready"
+    | "method-not-allowed"
+    | "not-found";
+
+/** Classify the Vite-owned readiness route and reject its remaining API namespace. */
+export function classifyViteApiRequest(
+    method: string | undefined, pathname: string,
+): ViteApiRequestKind {
+    if (pathname !== "/api" && !pathname.startsWith("/api/")) return "passthrough";
+    if (pathname !== "/api/ready") return "not-found";
+    return method === "GET" ? "ready" : "method-not-allowed";
+}
+
+/** Expose host-managed readiness and prevent API paths from reaching Vite content. */
+function apiEndpoints(readyToken: string | undefined): vite.Plugin {
     return {
-        name: "turbodoc-readiness-endpoint",
+        name: "turbodoc-api-endpoints",
         configureServer(server) {
             server.middlewares.use((request, response, next) => {
                 const url = new URL(request.url ?? "/", "http://127.0.0.1");
-                if (request.method !== "GET" || url.pathname !== "/ready") {
-                    next();
-                    return;
+                switch (classifyViteApiRequest(request.method, url.pathname)) {
+                    case "passthrough":
+                        next();
+                        return;
+                    case "method-not-allowed":
+                        response.writeHead(405, {
+                            "Allow": "GET",
+                            "Cache-Control": "no-store",
+                            "Content-Length": "0",
+                        });
+                        response.end();
+                        return;
+                    case "not-found":
+                        response.writeHead(404, {
+                            "Cache-Control": "no-store",
+                            "Content-Length": "0",
+                        });
+                        response.end();
+                        return;
+                    case "ready":
+                        break;
                 }
 
                 if (!readyToken) {
@@ -46,7 +80,7 @@ function readinessEndpoint(readyToken: string | undefined): vite.Plugin {
 export default vite.defineConfig({
     root: __dirname,
     plugins: [
-        readinessEndpoint(VITE_READY_TOKEN),
+        apiEndpoints(VITE_READY_TOKEN),
         tailwindcss(),
         svelte(),
     ],

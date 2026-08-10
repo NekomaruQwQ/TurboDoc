@@ -1,4 +1,4 @@
-//! Provider data persistence: `${dataDir}/{file_name}.toml`.
+//! Provider data persistence: `${dataDir}/{provider_id}.toml`.
 //!
 //! Each provider stores its workspace state (items, groups, pinned pages,
 //! …) as a TOML file. The frontend speaks JSON, so this module converts
@@ -15,18 +15,18 @@ use serde_json::Value;
 
 use crate::server::state::AppState;
 
-/// Build the absolute path for `<file_name>.toml`. The route parameter is a
-/// single URL segment, so it can't contain `/` — no traversal possible.
-fn path_for(state: &AppState, file_name: &str) -> PathBuf {
-    state.data_dir.join(format!("{file_name}.toml"))
+/// Build the absolute path for `<provider_id>.toml`. The API dispatcher validates
+/// the provider ID before either handler can reach this filesystem boundary.
+fn path_for(state: &AppState, provider_id: &str) -> PathBuf {
+    state.data_dir.join(format!("{provider_id}.toml"))
 }
 
-/// `GET /api/v1/data/{file_name}` — read TOML, return as JSON.
+/// `GET /api/data/{provider_id}` — read TOML, return as JSON.
 ///
 /// Missing file → `200 {}` (a fresh install has no provider data yet).
 /// Other I/O or parse errors → `500`.
-pub async fn get(state: &AppState, file_name: &str) -> http::Response<Vec<u8>> {
-    let path = path_for(state, file_name);
+pub async fn get(state: &AppState, provider_id: &str) -> http::Response<Vec<u8>> {
+    let path = path_for(state, provider_id);
     let text =
         match tokio::fs::read_to_string(&path).await {
             Ok(text) => text,
@@ -48,11 +48,11 @@ pub async fn get(state: &AppState, file_name: &str) -> http::Response<Vec<u8>> {
     json_ok(&json_value)
 }
 
-/// `PUT /api/v1/data/{file_name}` — write JSON as TOML.
+/// `PUT /api/data/{provider_id}` — write JSON as TOML.
 ///
 /// Body must be a JSON object (matches the former `zValidator("json",
 /// z.object())` schema). Non-object bodies → `400`.
-pub async fn put(state: &AppState, file_name: &str, body: &[u8]) -> http::Response<Vec<u8>> {
+pub async fn put(state: &AppState, provider_id: &str, body: &[u8]) -> http::Response<Vec<u8>> {
     let parsed: Value =
         match serde_json::from_slice(body) {
             Ok(v) => v,
@@ -66,7 +66,7 @@ pub async fn put(state: &AppState, file_name: &str, body: &[u8]) -> http::Respon
             Ok(t) => t,
             Err(err) => return json_error(500, format!("serialize failed: {err}")),
         };
-    let path = path_for(state, file_name);
+    let path = path_for(state, provider_id);
     if let Err(err) = tokio::fs::write(&path, toml_text).await {
         return json_error(500, format!("write failed: {err}"));
     }

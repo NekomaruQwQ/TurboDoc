@@ -25,12 +25,12 @@ const READINESS_REQUEST_TIMEOUT: Duration = Duration::from_millis(500);
 const READINESS_RETRY_INTERVAL: Duration = Duration::from_millis(100);
 /// Environment variable carrying the identity of one Vite launch.
 const READY_TOKEN_ENV: &str = "TURBODOC_VITE_READY_TOKEN";
-/// Response header that proves `/ready` belongs to the child just spawned.
+/// Response header that proves `/api/ready` belongs to the child just spawned.
 const READY_TOKEN_HEADER: &str = "x-turbodoc-vite-ready-token";
 
 /// Own and monitor Vite for the lifetime of the child process.
 ///
-/// `on_event` first receives [`FrontendEvent::Ready`] after `GET /ready`
+/// `on_event` first receives [`FrontendEvent::Ready`] after `GET /api/ready`
 /// returns an empty `200` response carrying this launch's token. Any later
 /// child exit is unexpected and is reported through
 /// [`FrontendEvent::Exited`], including an exit status of zero. Token
@@ -129,7 +129,7 @@ async fn wait_for_ready(
         .timeout(READINESS_REQUEST_TIMEOUT)
         .build()
         .context("failed to build the Vite readiness client")?;
-    let url = format!("http://127.0.0.1:{port}/ready");
+    let url = format!("http://127.0.0.1:{port}/api/ready");
 
     let poll = async {
         loop {
