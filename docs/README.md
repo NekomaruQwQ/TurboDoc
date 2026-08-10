@@ -56,7 +56,7 @@ The frontend uses a **multi-provider architecture** where each documentation sou
 ### Feature Requirements
 
 #### Implemented
-- Search and add crates from crates.io (via provider import action)
+- Prefix-search, open, and add Explorer crates through a non-exhaustive combobox
 - Display crate metadata (versions and links)
 - Version selection with intelligent grouping
 - Pin/unpin documentation pages
@@ -70,7 +70,6 @@ The frontend uses a **multi-provider architecture** where each documentation sou
 - Unified Rust provider (docs.rs + doc.rust-lang.org + windows-docs-rs)
 
 #### Remaining
-- Unified search bar (deferred to post-v0.2)
 - Preset picker UI
 - Loading states and error handling
 - Keyboard shortcuts
@@ -174,7 +173,10 @@ WebView2 default path → Vite on the main port (HMR WebSocket included). No int
 
 ```
 ┌─────────────────────────────────┐
-│ [+ Import Crates]               │  ← Provider action (rust)
+│ [⌕ Search crates…             ] │  ← Prefix search / recent crates
+│   serde                         │  ← Up to five suggestions
+│   ────────────────────────────  │
+│   + Add crate "ser"             │  ← Free-form action (non-exact input)
 ├─────────────────────────────────┤
 │   ▶ Ungrouped                   │  ← Ungrouped items
 │   ▼ My Project                  │  ← Group (expanded)
@@ -196,7 +198,8 @@ frontend/index.ts (entry point: mount(App, ...))
     │                    owns ProviderDataStore, derives view model via
     │                    provider.render(ctx), wires up effects)
     │   ├── ExplorerHeader.svelte (panel label + active provider)
-    │   ├── InputActionDialog.svelte (renders provider-supplied "input" actions, e.g. Import)
+    │   ├── ExplorerSearch.svelte (prefix matches, five-item MRU, Add/Import actions)
+    │   │   └── InputActionDialog.svelte (existing Import dialog, externally triggered)
     │   ├── ExplorerGroup (groupName="", derived ungrouped membership)
     │   ├── ExplorerGroup[] (per persisted name in groupOrder)
     │   │   ├── ExplorerGroupHeader (shared collapse + bulk actions;
@@ -222,13 +225,14 @@ ExplorerItem (shadcn-svelte Collapsible.Root, backed by Bits UI)
 ### Component Responsibilities
 
 - **Explorer** (`frontend/src/ui/explorer/Explorer.svelte`): Receives the active provider as a prop; owns per-provider data via `ProviderDataStore` (Svelte 5 `$state` class), constructs `ProviderContext`, calls `provider.render()` inside a `$derived`, and wires up the optional `provider.setupEffects(ctx)` hook inside a `$effect` so any inner `$effect`s the provider creates are bound to this component's lifecycle. Recreated implicitly when `provider.id` changes (the `$derived` `ProviderDataStore` reinitializes with the new ID).
+- **ExplorerSearch** (`ExplorerSearch.svelte`): Accessible Bits UI combobox over every provider item; shows at most five case-insensitive prefix matches, or the five most recently accessed items for empty input; dispatches provider-owned select/add actions and opens the existing Import dialog
 - **ExplorerGroup** (`ExplorerGroup.svelte`): Owns the shared collapsible state and renders filtered/sorted items; the empty group name identifies derived ungrouped membership
 - **ExplorerGroupHeader** (`ExplorerGroupHeader.svelte`): Shared chevron trigger and expand/collapse-all menu; persisted named groups additionally support rename, move, and deletion
 - **ExplorerCreateGroupComponent** (`ExplorerCreateGroupComponent.svelte`): Button that transforms to inline input for creating new groups
 - **ExplorerItem** (`ExplorerItem.svelte`): Collapsible card with name, version selector, menu; expansion state via `itemExpanded(providerId, itemId)` accessor
 - **ExplorerItemMenu** (`ExplorerItemMenu.svelte`): Move to group submenu, external links, custom actions
 - **ExplorerPageList** (`ExplorerPageList.svelte`): Sorted page list with symbol color coding and pinning buttons
-- **InputActionDialog** (`InputActionDialog.svelte`): Generic dialog for `ProviderAction` of type `"input"` — provider supplies labels and an `invoke(value)` callback; the dialog owns the textarea/input UI
+- **InputActionDialog** (`InputActionDialog.svelte`): Generic dialog for `ProviderAction` of type `"input"` — provider supplies labels and an `invoke(value)` callback; the dialog owns the textarea/input UI and supports either its legacy button or an externally controlled trigger
 
 ### Identification Scheme
 
@@ -249,6 +253,7 @@ ExplorerItem (shadcn-svelte Collapsible.Root, backed by Bits UI)
 
 Providers register in `frontend/src/providers/index.ts` as a plain `Provider[]` array (default export) and implement the `Provider<T>` interface from `frontend/src/core/data.ts`. Only one provider is rendered at a time — see "Active Provider Selection" below. Each provider's `render()` returns a `ProviderOutput` containing:
 - `items: Record<string, Item>` — uniform view models with pages, links, actions, versions
+- `search?: ProviderSearch` — provider wording and callbacks for generic item matching, activation, creation, and the empty-input action
 - `actions?: ProviderAction[]` — provider-level UI (e.g., import dialog)
 
 View models contain callbacks (e.g., `setPinned`, `setCurrentVersion`, `invoke`) that update provider data by directly mutating the `$state`-proxied store. View models are derived inside a `$derived` block — never memoized manually, never serialized. See `frontend/src/core/data.ts` for the full type definitions.
@@ -261,6 +266,7 @@ View models contain callbacks (e.g., `setPinned`, `setCurrentVersion`, `invoke`)
 <providerId>.toml ──────────► ProviderDataStore.load() ────► ProviderOutput (View Model)
 localStorage (turbodoc:current-url) ──► currentUrl.value ──────► current URL (createSubscriber)
 localStorage (turbodoc:expanded) ────► groupExpanded/itemExpanded ► expansion state
+localStorage (turbodoc:recent-items) ─► ExplorerSearch ─────────► five-item provider MRU
 http_cache SQLite (upstream RFC policy) ─► cache.svelte.ts ───► in-memory crate metadata $state
 ```
 
@@ -464,6 +470,7 @@ Design decisions that shaped the current architecture. Organized by area.
 **Import Mechanism**
 - No `importItem` method on the `Provider` interface — import UI varies too much between providers.
 - Instead, providers expose a `ProviderAction` with `type: "input"`: pure data (label, icon, dialog title/description, placeholder, multiline, callback). The Explorer renders the dialog via the generic `InputActionDialog.svelte`.
+- The Rust provider references that same input action from `ProviderSearch.emptyAction`, so empty search offers `Import…` without duplicating the bulk-import dialog or parser.
 - Earlier (React) iterations of this codebase used `type: "node"` carrying a `ReactNode` — the Svelte migration replaced that with the declarative `"input"` shape, eliminating the need for providers to ship UI components.
 
 **Migration & Compatibility**
@@ -496,8 +503,8 @@ Design decisions that shaped the current architecture. Organized by area.
 **Split Data Persistence**
 - Workspace persisted as **TOML** files under `$TURBODOC_DATA/` (parsed/serialized via the `toml` crate in `src/server/api/data.rs`); the HTTP wire format remains JSON, so the frontend sees no difference:
   - `<providerId>.toml` — per-provider user data (groups, provider-specific data). Loaded lazily per-provider by `ProviderDataStore.load()` inside `Explorer.svelte`.
-- Transient UI state stored in **localStorage** as individual slots, not on the server. Two slot types managed by `frontend/src/core/localStorage.ts`:
-  - **Primitive** (`turbodoc:current-url`): current URL, simple get/set
+- Transient UI state stored in **localStorage** as individual slots, not on the server. Two storage shapes managed by `frontend/src/core/localStorage.ts`:
+  - **Primitive** (`turbodoc:current-url`, `turbodoc:recent-items`): current URL plus provider-keyed five-item MRU lists, simple get/set
   - **Array** (`turbodoc:expanded`): flat string array of expanded item/group keys. Key format: `<providerId>:<itemId>` for items, `<providerId>:group:<groupId>` for groups. Membership-check hooks (`useGroupExpanded`, `useItemExpanded`) with selective re-rendering via mitt events — only hooks whose specific key changed re-render.
   - Each slot validated with Zod on load; invalid/missing data falls back to empty defaults (default URL `https://docs.rs/`, nothing expanded). See `frontend/src/core/localStorage.ts` and `frontend/src/core/uiState.svelte.ts`.
 - Sparse-index responses use the same RFC-aware `http_cache` SQLite table as documentation pages. Parsed crate metadata is provider-owned, within-session state in the Rust provider's module-level `$state` singleton.
@@ -647,8 +654,10 @@ TurboDoc/
 │       │   ├── documentLifecycle.test.ts # Deferred-navigation and stale-completion unit tests
 │       │   ├── providerData.svelte.ts  # `ProviderDataStore` reactive class — `$state` data + load + autosave
 │       │   ├── ipc.ts                  # HTTP data wrappers + validated WebView2 top-level/frame lifecycle events
+│       │   ├── itemSearch.ts           # Prefix index/matching + recent-item algorithms
+│       │   ├── itemSearch.test.ts      # Prefix, exact-match, limit, and MRU unit tests
 │       │   ├── localStorage.ts         # Typed localStorage abstraction (Zod validation, mitt events, primitive + array APIs)
-│       │   └── uiState.svelte.ts       # Reactive accessors over mitt+localStorage (currentUrl, groupExpanded, itemExpanded) + imperative helpers
+│       │   └── uiState.svelte.ts       # Reactive URL, expansion, and recent-item accessors over mitt+localStorage
 │       │
 │       ├── providers/
 │       │   ├── index.ts            # Provider registry (default-exported `Provider[]`)
@@ -675,6 +684,7 @@ TurboDoc/
 │       │       ├── ExplorerItem.svelte              # Collapsible item card with version selector
 │       │       ├── ExplorerItemMenu.svelte          # Item menu (move to group, links, actions)
 │       │       ├── ExplorerPageList.svelte          # Page list with symbol colors + pinning
+│       │       ├── ExplorerSearch.svelte            # Prefix/MRU combobox with Add and Import footer actions
 │       │       └── InputActionDialog.svelte         # Generic dialog for `"input"` ProviderAction
 │       │
 │       └── utils/
@@ -724,14 +734,9 @@ TurboDoc/
 
 ### Remaining Items
 
-1. **Unified search**: Deferred to post-v0.2 — will need `Provider` interface extension
-   - Single search bar at the top of explorer
-   - Each provider that supports search contributes results
-   - Results grouped by provider (like PowerToys Run)
-   - Providers without search support are skipped
-2. **Preset picker UI**: Not yet built — switching presets requires manual workspace edit
-3. **Frontend loading/error states**: Native host startup has a spinner and diagnostic error surface; in-app operations still have no shared skeleton/error-boundary system
-4. **Packaged-prod build**: Not yet designed — the current shape always spawns Vite. When packaging lands it'll likely use WebView2's `SetVirtualHostNameToFolderMapping` to serve `frontend/dist/` directly with no Rust file server.
+1. **Preset picker UI**: Not yet built — switching presets requires manual workspace edit
+2. **Frontend loading/error states**: Native host startup has a spinner and diagnostic error surface; in-app operations still have no shared skeleton/error-boundary system
+3. **Packaged-prod build**: Not yet designed — the current shape always spawns Vite. When packaging lands it'll likely use WebView2's `SetVirtualHostNameToFolderMapping` to serve `frontend/dist/` directly with no Rust file server.
 
 ### Known Limitations
 
@@ -752,12 +757,12 @@ TurboDoc/
 - [x] Import crates from docs.rs URLs
 - [x] Symbol parsing with One Dark color coding
 - [x] Automatic cross-crate navigation via `navigated` event
+- [x] Provider-aware Explorer search with prefix matching, Add/Import actions, and IPC-derived recent crates
 - [x] Auto-save data and cache on every change
 - [x] HTTP proxy with SQLite cache and dark mode injection (v0.3)
 - [x] Rust host with native egui startup UI and WebView2 (eframe/wgpu + webview2-com)
 
 ### Remaining
-- [ ] Unified search bar
 - [ ] Provider switcher UI (and persistence of the active provider selection)
 - [ ] Shared frontend loading/error states
 - [ ] Keyboard shortcuts
@@ -767,6 +772,7 @@ TurboDoc/
 
 ## Change History
 
+- **2026-08**: Replace the Rust provider's standalone Import button with a provider-aware Explorer combobox. Non-empty input performs case-insensitive prefix matching over all crates, returns at most five `sortKey`-ordered results, suppresses Add only for exact matches, and retains the existing bulk Import dialog as the empty-input footer action. Empty input shows up to five provider-scoped recently accessed crates stored in localStorage; history advances from the active item derived from IPC-persisted `currentUrl`, not frontend click intent. Selecting or adding navigates to the crate root, while metadata remains lazy. Keep the matching and MRU algorithms rune-independent and unit tested.
 - **2026-08**: Split visible-shell startup from restored documentation loading. `App.svelte` initially renders a blank iframe beneath an editor-pane spinner; all early `navigateTo()` calls pass through a latest-request-wins gate. After successful top-level `NavigationCompleted`, the host reveals WebView2 and posts `frontend-shown`; the frontend waits one animation frame before assigning the iframe source. Hosted frame starts/completions carry string navigation IDs so stale results cannot settle the placeholder, while failure or a 30-second document timeout produces an in-pane Retry state without hiding the usable workbench. The persistent top-level handler repeats release after full Vite reloads, and standalone browser development falls back to the iframe `load` event.
 - **2026-08**: Replace Vite's one-shot TCP-port probe with a Vite-owned `GET /ready` endpoint and a five-second HTTP readiness deadline. Verify each response against the launch-specific `TURBODOC_VITE_READY_TOKEN` so a stale Vite instance cannot satisfy the probe. Retain and monitor the child handle for its full lifetime so pre- and post-startup exits reach the native error surface, and bound the initial WebView2 navigation wait to 30 seconds.
 - **2026-07**: Replace the one-shot GDI startup paint and blocking WebView2 creation wait with an extensible native egui surface. eframe now owns the root winit window and wgpu DX12 renderer; Vite starts before GPU initialization, WebView2 creates its environment and hidden child controller through UI-thread completion callbacks, and a tested coordinator requests initial navigation exactly once after both paths are ready. Render a workbench-colored spinner during initialization and show Vite, WebView2, and initial-navigation failures in-window with expandable/copyable diagnostics. Keep the WebView2 child hidden until successful `NavigationCompleted`, preserve native-dialog confirmation for external URLs, and reserve egui viewports for future custom secondary windows.

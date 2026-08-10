@@ -1,5 +1,6 @@
 import { createSubscriber } from "svelte/reactivity";
 import * as storage from "@/core/localStorage";
+import { recordRecentItemId } from "@/core/itemSearch";
 
 // ============================================================================
 // Reactive bridges over the mitt event bus exposed by localStorage.ts.
@@ -36,6 +37,37 @@ export const currentUrl = {
         storage.save("currentUrl", v);
     },
 };
+
+// -- recentItems: provider-keyed MRU item identifiers ------------------------
+
+let recentItemsCache = storage.load("recentItems");
+const subscribeRecentItems = createSubscriber(update => {
+    const handler = (ev: { value: Record<string, string[]> }) => {
+        recentItemsCache = ev.value;
+        update();
+    };
+    storage.on("recentItems", handler);
+    return () => storage.off("recentItems", handler);
+});
+
+/** Read the five most recently accessed item IDs for one provider. The result
+ *  is reactive when called inside a Svelte component or derived expression. */
+export function recentlyAccessedItemIds(providerId: string): readonly string[] {
+    subscribeRecentItems();
+    return recentItemsCache[providerId] ?? [];
+}
+
+/** Record an accepted provider item navigation. Repeated access moves the item
+ *  to the front; a no-op canonical list performs no localStorage write. */
+export function recordItemAccess(providerId: string, itemId: string): void {
+    const previous = recentItemsCache[providerId] ?? [];
+    const next = recordRecentItemId(previous, itemId);
+    if (next === previous) return;
+    storage.save("recentItems", {
+        ...recentItemsCache,
+        [providerId]: [...next],
+    });
+}
 
 // -- expanded: a factory keyed by element id ----------------------------------
 

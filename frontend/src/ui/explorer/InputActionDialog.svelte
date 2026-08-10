@@ -10,11 +10,18 @@
     /** Generic dialog rendered for every `"input"` ProviderAction. The
      *  textarea/input is read on submit only — no `bind:value`, no
      *  per-keystroke reactivity. After submission the field clears. */
-    let { action }: {
+    let {
+        action,
+        open = $bindable(false),
+        showTrigger = true,
+    }: {
         action: Extract<ProviderAction, { type: "input" }>;
+        /** Controlled open state used when another component owns the trigger. */
+        open?: boolean;
+        /** Preserve the legacy provider-action button outside a combobox. */
+        showTrigger?: boolean;
     } = $props();
 
-    let open = $state(false);
     let textareaEl: HTMLTextAreaElement | undefined = $state();
     let inputEl: HTMLInputElement | undefined = $state();
 
@@ -29,13 +36,15 @@
     }
 </script>
 
-<Button
-    variant="outline"
-    class="mb-1 h-7 w-full justify-start rounded-sm border-workbench-divider bg-transparent px-2 text-xs font-normal"
-    onclick={() => open = true}>
-    <Icon icon={action.icon} size="sm" />
-    <span>{action.name}</span>
-</Button>
+{#if showTrigger}
+    <Button
+        variant="outline"
+        class="mb-1 h-7 w-full justify-start rounded-sm border-workbench-divider bg-transparent px-2 text-xs font-normal"
+        onclick={() => open = true}>
+        <Icon icon={action.icon} size="sm" />
+        <span>{action.name}</span>
+    </Button>
+{/if}
 
 <Dialog.Root bind:open>
     <Dialog.Content>

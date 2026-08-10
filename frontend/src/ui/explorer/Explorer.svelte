@@ -2,12 +2,17 @@
     import type { Provider, ProviderContext, ProviderData } from "@/core/data";
     import * as ctx from "@/core/context.svelte";
     import { ProviderDataStore } from "@/core/providerData.svelte";
-    import { currentUrl } from "@/core/uiState.svelte";
+    import {
+        currentUrl,
+        recentlyAccessedItemIds,
+        recordItemAccess,
+    } from "@/core/uiState.svelte";
 
     import ExplorerItem from "@/ui/explorer/ExplorerItem.svelte";
     import ExplorerGroup from "@/ui/explorer/ExplorerGroup.svelte";
     import ExplorerCreateGroupComponent from "@/ui/explorer/ExplorerCreateGroupComponent.svelte";
     import ExplorerHeader from "@/ui/explorer/ExplorerHeader.svelte";
+    import ExplorerSearch from "@/ui/explorer/ExplorerSearch.svelte";
     import InputActionDialog from "@/ui/explorer/InputActionDialog.svelte";
 
     let { provider }: { provider: Provider } = $props();
@@ -43,6 +48,17 @@
     // -- Derived view model --
 
     const output = $derived(provider.render(providerContext));
+    const recentItemIds = $derived(recentlyAccessedItemIds(provider.id));
+
+    // Record navigation-derived access only after the provider can resolve the
+    // active URL to an item currently present in its output. Search clicks do
+    // not write history directly; the accepted IPC navigation remains the
+    // source of truth and repeated effects become storage no-ops.
+    $effect(() => {
+        const activeItemId = output.search?.activeItemId;
+        if (activeItemId && activeItemId in output.items)
+            recordItemAccess(provider.id, activeItemId);
+    });
 
     // -- Eager orphan cleanup --
     // Items can disappear (e.g. crate deleted) while their IDs still
@@ -65,6 +81,13 @@
 <div class="flex min-h-0 flex-1 flex-col">
     <ExplorerHeader {provider} />
     <div class="flex min-h-0 flex-1 flex-col overflow-y-auto p-1.5">
+        {#if output.search}
+            <ExplorerSearch
+                items={output.items}
+                search={output.search}
+                {recentItemIds} />
+        {/if}
+
         <!-- Provider-level actions (e.g. "Import"). Only the "input" variant
              renders a dialog; "menu" is reserved for future inline menu items. -->
         {#each output.actions ?? [] as action, i (i)}

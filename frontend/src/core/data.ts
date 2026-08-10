@@ -123,8 +123,49 @@ export interface ProviderContext<T = unknown> {
 
 export type ProviderOutput = {
     items: Record<string, Item>,
+    search?: ProviderSearch,
     actions?: ProviderAction[],
 };
+
+/** Configuration for the Explorer's provider-agnostic item search.
+ *
+ *  The Explorer owns prefix matching and recent-item presentation. Providers
+ *  own domain wording, item activation, and creation because those operations
+ *  depend on provider-specific identifiers and navigation rules. */
+export interface ProviderSearch {
+    /** Placeholder shown while the editable combobox is empty. */
+    placeholder: string,
+
+    /** Item selected by the accepted navigation URL, if that URL belongs to
+     *  this provider. The Explorer records this ID in recent-access history. */
+    activeItemId?: string,
+
+    /** Open an existing item selected from the search results. Missing IDs
+     *  must be ignored because items can disappear while the menu is open. */
+    selectItem(itemId: string): void,
+
+    /** Build the provider-specific creation action for free-form input.
+     *  Return `null` when the input is not a valid identifier. */
+    getAddAction(searchText: string): ProviderSearchAction | null,
+
+    /** Guidance shown when input has neither matches nor a valid add action. */
+    invalidText: string,
+
+    /** Existing input action offered below recent items when search is empty. */
+    emptyAction?: Extract<ProviderAction, { type: "input" }>,
+}
+
+/** A provider-specific action rendered as a selectable combobox row. */
+export interface ProviderSearchAction {
+    /** User-facing action label. */
+    name: string,
+
+    /** Icon distinguishing the action from item results. */
+    icon: IconProp,
+
+    /** Perform the action represented by the current search text. */
+    invoke(): void,
+}
 
 /** A provider-level action, rendered by the Explorer above the items list.
  *

@@ -16,6 +16,11 @@ const STORAGE = {
         type: "array" as const,
         schema: z.array(z.string()).default([]),
     },
+    recentItems: {
+        key: "turbodoc:recent-items",
+        type: "value" as const,
+        schema: z.record(z.string(), z.array(z.string()).max(5)).default({}),
+    },
 } as const;
 
 type StorageKey = keyof typeof STORAGE;
@@ -36,6 +41,7 @@ type StorageTypeOf<K extends StorageKey> =
 type StorageEvents = {
     currentUrl: { value: string },
     expanded: { element: string, present: boolean },
+    recentItems: { value: Record<string, string[]> },
 };
 
 const EVENTS = mitt<StorageEvents>();

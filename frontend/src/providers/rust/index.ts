@@ -4,6 +4,7 @@ import * as semver from "semver";
 import RotateCw from "@lucide/svelte/icons/rotate-cw";
 import Trash2 from "@lucide/svelte/icons/trash-2";
 import Plus from "@lucide/svelte/icons/plus";
+import ImportIcon from "@lucide/svelte/icons/import";
 
 import type {
     Provider,
@@ -69,12 +70,58 @@ function render(ctx: RustProviderContext): ProviderOutput {
         const crateCache = getCrateCache(crateName);
         items[crateName] = renderItem(ctx, crateName, crateData, crateCache);
     }
+    const currentCrateName = parseUrl(ctx.currentUrl)?.name;
     return {
         items,
-        actions: [
-            getImportCratesAction(ctx),
-        ],
+        search: {
+            placeholder: "Search crates",
+            activeItemId: currentCrateName,
+            selectItem(itemId: string) {
+                navigateToCrateRoot(ctx, itemId);
+            },
+            getAddAction(searchText: string) {
+                if (!/^[a-z0-9_-]+$/i.test(searchText)) return null;
+                const crateName = searchText.toLowerCase();
+                return {
+                    name: `Add crate "${searchText}"`,
+                    icon: { type: "lucide", icon: Plus },
+                    invoke() {
+                        ensureCrate(ctx, crateName);
+                        navigateToCrateRoot(ctx, crateName);
+                    },
+                };
+            },
+            invalidText: "Crate names use letters, numbers, hyphens, or underscores.",
+            emptyAction: getImportCratesAction(ctx),
+        },
     };
+}
+
+/** Return the existing crate or add its minimal lazy-metadata record. Standard
+ *  library crates start on stable; every other source retains the established
+ *  latest alias and performs no metadata request. */
+function ensureCrate(ctx: RustProviderContext, crateName: string): CrateData {
+    ctx.data.crates ??= {};
+    return ctx.data.crates[crateName] ??= {
+        currentVersion:
+            getBaseUrlForCrate(crateName) === "https://doc.rust-lang.org/"
+                ? "stable"
+                : "latest",
+        pinnedPages: [],
+    };
+}
+
+/** Navigate to a crate's root module using its persisted version. A stale
+ *  combobox result can outlive deletion, so a missing record is a safe no-op. */
+function navigateToCrateRoot(ctx: RustProviderContext, crateName: string): void {
+    const crate = ctx.data.crates?.[crateName];
+    if (!crate) return;
+    ctx.navigateTo(buildUrl({
+        baseUrl: getBaseUrlForCrate(crateName),
+        name: crateName,
+        version: crate.currentVersion,
+        pathSegments: [crateName.replaceAll("-", "_")],
+    }));
 }
 
 function renderItem(
@@ -401,11 +448,12 @@ function getCratePages(
 // Import action — opens an `"input"` dialog rendered by the Explorer.
 // ============================================================================
 
-function getImportCratesAction(ctx: RustProviderContext): ProviderAction {
+function getImportCratesAction(
+    ctx: RustProviderContext): Extract<ProviderAction, { type: "input" }> {
     return {
         type: "input",
         name: "Import",
-        icon: { type: "lucide", icon: Plus },
+        icon: { type: "lucide", icon: ImportIcon },
         dialogTitle: "Import from URLs",
         dialogDescription:
             "Paste crate names or docs.rs / doc.rust-lang.org URLs (one per line) to add crates and pages.",
@@ -454,17 +502,7 @@ function getImportCratesAction(ctx: RustProviderContext): ProviderAction {
             }
 
             for (const [crateName, newPages] of Object.entries(importCrates)) {
-                // Use "stable" for std crates, "latest" for crates.io crates.
-                const defaultVersion =
-                    getBaseUrlForCrate(crateName) === "https://doc.rust-lang.org/"
-                        ? "stable"
-                        : "latest";
-                ctx.data.crates[crateName] ??= {
-                    currentVersion: defaultVersion,
-                    pinnedPages: [],
-                };
-                // biome-ignore lint/style/noNonNullAssertion: assigned above.
-                const pinnedPages = ctx.data.crates[crateName]!.pinnedPages;
+                const pinnedPages = ensureCrate(ctx, crateName).pinnedPages;
                 for (const page of newPages) {
                     if (!pinnedPages.includes(page)) pinnedPages.push(page);
                 }
