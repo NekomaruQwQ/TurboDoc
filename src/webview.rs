@@ -224,6 +224,18 @@ impl WebView {
         api_call!(unsafe { self.controller.SetBounds(bounds) })
     }
 
+    /// Close the controller and release its registered event handlers.
+    ///
+    /// Consuming the wrapper prevents further calls after WebView2 invalidates
+    /// the controller and breaks callback reference cycles during host exit.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when WebView2 rejects the synchronous close request.
+    pub fn close(self) -> anyhow::Result<()> {
+        api_call!(unsafe { self.controller.Close() })
+    }
+
     pub fn navigate(&self, url: &str) -> anyhow::Result<()> {
         let url =
             api_call!(U16CString::from_str(url))

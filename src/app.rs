@@ -559,6 +559,22 @@ impl eframe::App for TurboDocApp {
             1.0,
         ]
     }
+
+    fn on_exit(&mut self) {
+        // Creation may complete after the last logic pass but before eframe
+        // begins shutdown, leaving the new controller in the callback slot.
+        let pending_webview =
+            self.webview_result
+                .borrow_mut()
+                .take()
+                .and_then(Result::ok);
+        let webview = self.webview.take().or(pending_webview);
+        if let Some(webview) = webview
+            && let Err(err) = webview.close()
+        {
+            log::error!("failed to close WebView2 during host shutdown: {err:#}");
+        }
+    }
 }
 
 /// Convert the shared startup color token into egui's packed sRGB color.
