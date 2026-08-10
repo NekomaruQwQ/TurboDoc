@@ -23,6 +23,10 @@
         status: "waiting",
         url: initialUrl,
     });
+    /** Latest accepted WebView2 navigation report. Keeping this ephemeral
+     * signal separate from the persisted URL prevents unrelated storage or
+     * provider updates from moving the Explorer. */
+    let reportedNavigationId = $state<string | null>(null);
     let releaseFrame: number | undefined;
 
     /** Persist an accepted frame navigation and correlate the initial loading
@@ -35,6 +39,7 @@
         // localStorage values change in another browsing context.
         if (event.url === "https://docs.rs/-/storage-change-detection.html") return;
         storage.save("currentUrl", event.url);
+        reportedNavigationId = event.navigationId;
         documentLoad = reduceInitialDocumentLoad(documentLoad, {
             type: "started",
             url: event.url,
@@ -122,7 +127,7 @@
             <section
                 class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-workbench-divider bg-sidebar"
                 aria-label="Documentation explorer">
-                <Explorer {provider} />
+                <Explorer {provider} {reportedNavigationId} />
             </section>
         </Resizable.Pane>
         <Resizable.Handle

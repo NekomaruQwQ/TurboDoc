@@ -108,6 +108,7 @@
 
 <Collapsible.Root
     class="flex flex-col truncate"
+    data-explorer-item-id={item.id}
     open={expanded.value}
     onOpenChange={v => expanded.value = v}
     role="group"
@@ -117,6 +118,7 @@
     onfocusin={handleFocusIn}
     onfocusout={handleFocusOut}>
     <div
+        data-explorer-item-header
         class="group/item flex h-7 min-w-0 items-center rounded-sm px-0.5 hover:bg-workbench-hover focus-within:bg-workbench-hover">
         <Collapsible.Trigger
             class="flex h-7 min-w-0 flex-1 items-center gap-1 pl-1.5 text-left font-mono text-[13px]">

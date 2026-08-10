@@ -137,7 +137,8 @@ export interface ProviderSearch {
     placeholder: string,
 
     /** Item selected by the accepted navigation URL, if that URL belongs to
-     *  this provider. The Explorer records this ID in recent-access history. */
+     *  this provider. The Explorer records this ID in recent-access history
+     *  and uses it to reveal navigation-reported pages. */
     activeItemId?: string,
 
     /** Open an existing item selected from the search results. Missing IDs

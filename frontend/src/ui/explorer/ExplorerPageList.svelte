@@ -42,6 +42,7 @@
         }]}>
         <button
             onclick={() => navigateTo(page.url)}
+            aria-current={page.url === currentUrl.value ? "page" : undefined}
             class={["inline-flex min-w-0 flex-1 items-center truncate rounded-sm px-1.5 text-left font-mono focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring", {
                 "italic": page.pinned === false,
             }]}>
