@@ -18,18 +18,27 @@
     import ExplorerHeader from "@/ui/explorer/ExplorerHeader.svelte";
     import ExplorerSearch from "@/ui/explorer/ExplorerSearch.svelte";
     import InputActionDialog from "@/ui/explorer/InputActionDialog.svelte";
-    import { isVerticallyVisibleWithin } from "@/ui/explorer/visibility";
+    import {
+        calculateExplorerRevealScrollTop,
+        DEFAULT_EXPLORER_CENTER_RANGE,
+        type ExplorerCenterRange,
+    } from "@/ui/explorer/reveal";
 
     let {
         provider,
         reportedNavigationId,
+        centerRange = DEFAULT_EXPLORER_CENTER_RANGE,
     }: {
         provider: Provider,
         /** Latest accepted host navigation. Unlike `currentUrl`, this changes
          * only when WebView2 reports navigation user-visible to the app. */
         reportedNavigationId: string | null,
+        /** Fractional viewport band used to stabilize and constrain reveals. */
+        centerRange?: Readonly<ExplorerCenterRange>,
     } = $props();
 
+    // Ignore subpixel layout noise that cannot produce a visible movement.
+    const SCROLL_EPSILON_PX = 0.5;
     let scrollViewport: HTMLDivElement;
     let revealGeneration = 0;
     let observedNavigationKey: string | null = null;
@@ -98,17 +107,15 @@
         return "";
     }
 
-    /** Wait until the browser has created and completed any group/item opening
-     * animations that clip the target. Cancelled animations are harmless: the
-     * caller re-checks whether its navigation is still current afterward. */
-    async function waitForRevealLayout(
-        target: HTMLElement,
-    ): Promise<void> {
+    /** Wait until the browser has created and completed the group/item opening
+     * animations that determine the card's final bounds. Cancelled animations
+     * are harmless: the caller checks its navigation generation afterward. */
+    async function waitForRevealLayout(card: HTMLElement): Promise<void> {
         await new Promise<void>(resolve =>
             window.requestAnimationFrame(() => resolve()));
 
-        const animations: Animation[] = [];
-        let ancestor = target.parentElement;
+        const animations = card.getAnimations({ subtree: true });
+        let ancestor = card.parentElement;
         while (ancestor && ancestor !== scrollViewport) {
             if (ancestor.dataset.slot === "collapsible-content")
                 animations.push(...ancestor.getAnimations());
@@ -126,15 +133,14 @@
         programmaticScrollMayBeActive = false;
     }
 
-    /** Minimally reveal `target`, remembering that smooth movement may still be
-     * active so the next navigation can explicitly interrupt it. A completed
-     * scroll makes that later cancellation a harmless same-position no-op. */
-    function scrollTargetIntoView(target: HTMLElement): void {
+    /** Apply one calculated reveal position, remembering that smooth movement
+     * may still be active so the next navigation can explicitly interrupt it. */
+    function scrollToRevealPosition(scrollTop: number): void {
         const behavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches
             ? "auto"
             : "smooth";
         programmaticScrollMayBeActive = behavior === "smooth";
-        target.scrollIntoView({ behavior, block: "nearest", inline: "nearest" });
+        scrollViewport.scrollTo({ top: scrollTop, behavior });
     }
 
     /** Reveal the active page for one reported navigation. The operation is
@@ -148,39 +154,38 @@
         await tick();
         if (generation !== revealGeneration) return;
 
-        let itemElement = findItemElement(activeItemId);
-        const visiblePage = itemElement?.querySelector<HTMLElement>(
-            '[aria-current="page"]');
-        if (visiblePage &&
-            isVerticallyVisibleWithin(visiblePage, scrollViewport)) {
-            handledNavigationKey = navigationKey;
-            return;
-        }
-
-        // A page hidden by either collapsible must first be mounted and given
-        // its final layout before the minimal nearest-edge scroll is computed.
+        // Both collapsibles must be open before the complete card and selected
+        // page can supply stable bounds for the single constrained scroll.
         if (provider.enableItemGrouping)
             expandGroup(provider.id, findItemGroupName(activeItemId));
         expandItems(provider.id, [activeItemId]);
         await tick();
         if (generation !== revealGeneration) return;
 
-        itemElement = findItemElement(activeItemId);
+        const itemElement = findItemElement(activeItemId);
         const itemHeader = itemElement?.querySelector<HTMLElement>(
             "[data-explorer-item-header]");
         const page = itemElement?.querySelector<HTMLElement>(
             '[aria-current="page"]');
         const target = page ?? itemHeader;
-        if (!target) {
+        if (!itemElement || !target) {
             handledNavigationKey = navigationKey;
             return;
         }
 
-        await waitForRevealLayout(target);
+        await waitForRevealLayout(itemElement);
         if (generation !== revealGeneration) return;
 
-        if (!isVerticallyVisibleWithin(target, scrollViewport))
-            scrollTargetIntoView(target);
+        const currentScrollTop = scrollViewport.scrollTop;
+        const nextScrollTop = calculateExplorerRevealScrollTop({
+            viewport: scrollViewport.getBoundingClientRect(),
+            card: itemElement.getBoundingClientRect(),
+            target: target.getBoundingClientRect(),
+            scrollTop: currentScrollTop,
+            maxScrollTop: scrollViewport.scrollHeight - scrollViewport.clientHeight,
+        }, centerRange);
+        if (Math.abs(nextScrollTop - currentScrollTop) > SCROLL_EPSILON_PX)
+            scrollToRevealPosition(nextScrollTop);
         handledNavigationKey = navigationKey;
     }
 
