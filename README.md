@@ -1,78 +1,85 @@
 # TurboDoc
 
-A local-first documentation viewer for Rust developers.
+A fast, local-first Rust documentation workbench for Windows.
 
-![TurboDoc screenshot](docs/img/screenshot.png)
+![TurboDoc showing Rust documentation in its compact desktop workbench](docs/img/screenshot.png)
 
-## Motivation
+TurboDoc keeps the Rust documentation you use every day in one focused workspace. Search for crates, pin important pages, organize references into groups, and follow cross-crate links without growing another forest of browser tabs. Visited documentation is cached locally and revalidated in the background, keeping repeat navigation quick without freezing the ecosystem at an offline snapshot.
 
-Documentation viewers like Zeal and Dash work well for some languages like C++, but Rust's ecosystem lives on docs.rs — and offline doc bundles can't keep up with rapidly-evolving crates and their cross-linked dependencies. I found myself juggling dozens of browser tabs across docs.rs, the standard library, and crate references, often losing track of focus along the way.
+> [!NOTE]
+> TurboDoc is under active development, currently supports Rust documentation, and is built from source on Windows.
 
-TurboDoc is a dedicated viewer that proxies and caches docs.rs locally, lets you organize crates into named groups, pin pages, and follow cross-crate links seamlessly. Reading documentation is a workspace activity — the tool should help you manage your references, not fight against them.
+## Why TurboDoc?
 
-## Features
+Offline documentation browsers work well when a language ships stable, self-contained docsets. Rust's ecosystem is different: crates evolve quickly on [docs.rs](https://docs.rs/), link freely into the standard library and one another, and are often consulted together while working on a project.
 
-- **Unified Rust docs** — browse docs.rs, doc.rust-lang.org, and windows-docs-rs as a single provider
-- **Local HTTP proxy with SQLite cache** — documentation loads instantly after the first visit; stale-while-revalidate keeps things fresh in the background
-- **Pin/unpin pages** — VS Code-style preview tabs: navigate freely, pin the pages you want to keep
-- **Version selection** — semver-grouped version picker with "latest" tracking that auto-updates
-- **Named groups** — organize crates into collapsible groups with drag-free reordering
-- **Cross-crate navigation** — follow a link to `std::vec::Vec` from a docs.rs page and TurboDoc auto-imports the crate
-- **Symbol parsing** — module paths and type names colored
-- **Dark mode injection** — rustdoc pages served in dark mode at the proxy level, no flicker
-- **Extensible provider architecture** — adding a new documentation source (C++, Python, etc.) means implementing a single `Provider` interface
+TurboDoc treats documentation as a workspace rather than a collection of disconnected tabs. It combines live upstream docs with a persistent explorer and an HTTP-aware local cache, so references stay organized while their content stays current.
+
+## Highlights
+
+- **Focused desktop workbench** — a compact, VS Code-inspired interface with a native Windows title bar, resizable explorer, and dedicated document pane
+- **Unified Rust documentation** — browse docs.rs, doc.rust-lang.org, and windows-docs-rs through one provider
+- **Fast crate access** — search crates from the pinned explorer combobox or import docs.rs URLs in bulk
+- **Persistent organization** — arrange crates into collapsible named groups and keep versions, pinned pages, and expansion state across sessions
+- **Preview and pin workflow** — navigate freely through one transient preview page per crate, then pin the references worth keeping
+- **Navigation-aware explorer** — cross-crate links are recognized automatically and the matching crate and page are revealed in the sidebar
+- **Version selection** — load recommended releases on demand and switch through semver-grouped versions, including `latest`
+- **Local HTTP cache** — SQLite-backed caching follows upstream freshness rules, serves stale content immediately while revalidating, and evicts old entries with an LRU policy
+- **Consistent dark rendering** — rustdoc dark mode is injected as pages are served, avoiding a bright flash during navigation
+- **Extensible provider model** — the frontend renders a common view model, keeping future documentation sources isolated behind provider implementations
 
 ## Getting Started
 
-> **Windows only** — TurboDoc uses WebView2, which requires Windows 10/11.
+TurboDoc currently targets Windows 10/11 and uses the Microsoft Edge WebView2 Runtime.
 
 ### Prerequisites
 
-- [Rust toolchain](https://rustup.rs/) (for the host + in-process server)
-- [Bun](https://bun.sh/) (for the frontend build / dev server)
-- [just](https://github.com/casey/just) (task runner)
+- A current [Rust toolchain](https://rustup.rs/) using the Windows MSVC target
+- [Bun](https://bun.sh/)
+- [just](https://github.com/casey/just)
+- [Nushell](https://www.nushell.sh/), used by the `just` recipes
+- [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/), normally included with current Windows installations
 
-### Build & Run
+### Build and Run
 
 ```sh
-just install   # Install frontend dependencies + build the host
-just run       # Run TurboDoc in dev mode (Vite HMR enabled)
+# Install the frontend dependencies and vendored shadcn-svelte components.
+just install
+
+# Build an optimized Rust host and run with repository-local data.
+just run --data data --port 5173
 ```
 
-### Tech Stack
-
-| Layer | Technologies |
-|-------|-------------|
-| **Host + Server** | Rust · winit · webview2-com · WebView2 · axum · rusqlite · reqwest · http-cache-semantics |
-| **Frontend** | Svelte 5 · Vite · Tailwind CSS v4 · shadcn-svelte (Bits UI) |
-| **Tooling** | just (task runner) · Biome (linter) |
+The directory passed to `--data` stores the workspace files and HTTP cache. `--port` is used by the Vite frontend process; both options also accept the `TURBODOC_DATA` and `TURBODOC_PORT` environment variables.
 
 ## Architecture
 
-TurboDoc is a two-process desktop application — one Rust binary plus (in dev mode) a Vite child process for HMR:
+The desktop shell and backend live in one Rust process. During development, that process owns a Vite child process for frontend assets and hot-module replacement. There is no loopback HTTP server for documentation or application data: WebView2 requests are intercepted and dispatched directly to the in-process backend.
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│  Rust binary                                                 │
-│  ├─ WebView2 host (winit window, navigation interception)    │
-│  └─ axum server task (REST + /proxy + frontend serving)      │
-├──────────────────────────────────────────────────────────────┤
-│  Frontend (Svelte 5 + Vite)                                  │
-│  Explorer sidebar, iframe documentation viewer               │
-└──────────────────────────────────────────────────────────────┘
+```text
+WebView2
+├─ docs.rs / Rust standard library / windows-docs-rs
+│  └─ WebResourceRequested → Server::fetch
+│       └─ SQLite cache ↔ upstream documentation
+├─ /api/v1/*
+│  └─ WebResourceRequested → Server::dispatch_api
+│       └─ TOML workspace data
+└─ Frontend assets and HMR
+   └─ Vite child process
 ```
 
-The Rust binary hosts both the WebView2 window and the axum server (running on a tokio worker thread). When the WebView2 iframe navigates to a documentation URL, the host intercepts the request and forwards it over loopback to the server's `/proxy` endpoint. The server checks its SQLite cache (RFC 7234 freshness via `http-cache-semantics`, LRU eviction) and either serves the cached response or fetches upstream:
+The proxy cache applies upstream cache directives, conditional revalidation, stale-while-revalidate, and LRU eviction before returning responses directly to WebView2. The Svelte frontend remains unaware of that routing and uses ordinary navigation and `fetch` calls.
 
-```
-iframe navigates to https://docs.rs/serde/latest/serde/
-  → Host intercepts, forwards to Server /proxy?url=...
-    → Cache HIT:  serve cached + dark mode injection
-    → Cache MISS: fetch upstream, cache, serve
-  → Host fires "navigated" event to Frontend
-    → Frontend auto-detects crate, updates sidebar state
-```
+| Layer | Technologies |
+|---|---|
+| **Desktop shell** | Rust · eframe/egui · wgpu/DX12 · winit · WebView2 |
+| **In-process backend** | Tokio · reqwest · rusqlite · http-cache-semantics |
+| **Frontend** | Svelte 5 · Vite 8 · Tailwind CSS 4 · shadcn-svelte/Bits UI · Paneforge |
+| **Tooling** | Bun · just · Nushell · Biome |
+
+See [the architecture and implementation notes](docs/README.md) for the provider model, request flow, persistence, and frontend structure.
 
 ## License
 
 [GPL-3.0](LICENSE)
+
