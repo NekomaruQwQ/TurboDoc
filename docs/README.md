@@ -190,7 +190,7 @@ WebView2 default path → Vite on the main port (HMR WebSocket included). No int
 ```
 frontend/index.ts (entry point: mount(App, ...))
 └── App.svelte (owns active `providerId` $state, IPC `navigated` listener,
-                and resizable workbench layout)
+                initial-document loading state, and resizable workbench layout)
     ├── WorkbenchToolbar.svelte (product identity + read-only current URL)
     ├── Explorer.svelte (left panel; receives the active provider as a prop,
     │                    owns ProviderDataStore, derives view model via
@@ -203,7 +203,7 @@ frontend/index.ts (entry point: mount(App, ...))
     │   │   │                      persisted groups also support rename/move/delete)
     │   │   └── ExplorerItem[] (sorted by sortKey, shown when group expanded)
     │   └── ExplorerCreateGroupComponent
-    └── iframe (right panel, docs viewer)
+    └── editor pane (deferred iframe + loading/error placeholder)
 ```
 
 **ExplorerItem.svelte structure:**
@@ -266,14 +266,19 @@ http_cache SQLite (upstream RFC policy) ─► cache.svelte.ts ───► in-m
 
 **Navigation flow:**
 ```
-navigateTo(url) ──► iframe.src = url
-                        │
-                        └─► WebView2 fires "navigated" IPC event
-                              │
-                              └─► App.svelte handler: storage.save("currentUrl", url)
-                                    │
-                                    └─► mitt event ──► createSubscriber wakes every
-                                          `currentUrl.value` reader in the component tree
+navigateTo(url) ──► DeferredNavigation.request(url)
+                         ├─ before `frontend-shown`: retain latest URL
+                         └─ after release: iframe.src = url
+                                                │
+                                                └─► WebView2 posts "navigated"
+                                                      + navigationId
+                                                            │
+                                                            ├─► persist currentUrl
+                                                            └─► correlate initial placeholder
+
+FrameNavigationCompleted(navigationId) ──► matching initial load only
+                                              ├─ success: reveal iframe
+                                              └─ failure: show Retry state
 ```
 
 #### Unified Rust Provider
@@ -318,20 +323,20 @@ just install   # Installs frontend dependencies + builds the host
 just run       # Launches the app with HMR
 ```
 
-`just run` is `cargo run --release -- --data data`. There is only one mode. `server::start` opens the SQLite cache, then the host schedules the Vite child monitor on Tokio before eframe creates the root winit window and wgpu DX12 surface. egui immediately renders a spinner over the frontend workbench color while WebView2 creates its environment and hidden child controller through completion callbacks; no blocking wait pumps a second event loop. For each launch, the host generates an identity token and passes it to Vite as `TURBODOC_VITE_READY_TOKEN`. Vite owns `GET /ready`, which returns an empty `200` with the matching `X-TurboDoc-Vite-Ready-Token` header after its middleware stack is listening. The host polls that endpoint for at most five seconds, rejecting responses from stale Vite instances, then navigates to `http://127.0.0.1:{port}/` once both Vite and WebView2 are ready. Using the same IPv4 loopback address for Vite binding, readiness, and navigation avoids an IPv6-first `localhost` resolution mismatch. The controller is revealed only after that navigation completes, with a 30-second completion deadline. A Vite launch/exit, WebView2, readiness-timeout, or initial-navigation failure remains in the native egui surface with expandable and copyable details. The child handle stays owned and monitored after startup; an unexpected exit hides WebView2 so the native failure UI is visible. HMR's WebSocket talks to Vite on the same port — no `hmr.clientPort` override, no reverse proxy.
+`just run` is `cargo run --release -- --data data`. There is only one mode. `server::start` opens the SQLite cache, then the host schedules the Vite child monitor on Tokio before eframe creates the root winit window and wgpu DX12 surface. egui immediately renders a spinner over the frontend workbench color while WebView2 creates its environment and hidden child controller through completion callbacks; no blocking wait pumps a second event loop. For each launch, the host generates an identity token and passes it to Vite as `TURBODOC_VITE_READY_TOKEN`. Vite owns `GET /ready`, which returns an empty `200` with the matching `X-TurboDoc-Vite-Ready-Token` header after its middleware stack is listening. The host polls that endpoint for at most five seconds, rejecting responses from stale Vite instances, then navigates to `http://127.0.0.1:{port}/` once both Vite and WebView2 are ready. Using the same IPv4 loopback address for Vite binding, readiness, and navigation avoids an IPv6-first `localhost` resolution mismatch. The initial Svelte render leaves the documentation iframe without a `src` and shows an editor-pane placeholder. WebView2's resulting `about:blank` frame bootstrap is allowed but ignored by document tracking; other unsupported frame URLs retain the normal external-link policy. After the top-level navigation completes, the host reveals the controller and posts `frontend-shown`; the frontend waits one animation frame before releasing its latest queued documentation URL. A persistent top-level completion handler repeats that notification after full Vite reloads. A Vite launch/exit, WebView2, readiness-timeout, or initial frontend-navigation failure remains in the native egui surface with expandable and copyable details. Documentation failures stay inside the visible editor pane with a bounded spinner and Retry action. The child handle stays owned and monitored after startup; an unexpected exit hides WebView2 so the native failure UI is visible. HMR's WebSocket talks to Vite on the same port — no `hmr.clientPort` override, no reverse proxy.
 
-Initialization milestones log through `log::info` as `startup +… ms`. A shared monotonic origin makes the concurrently started Vite and native paths directly comparable. Expensive backend, runtime, eframe/wgpu, Vite-readiness, WebView2-environment, and WebView2-controller operations also report their individual phase durations. The final `WebView2 NavigationCompleted …; controller shown` milestone is the app's measured startup latency because that is when the frontend becomes visible. The completion handler is part of startup behavior rather than diagnostic instrumentation: it reveals the initially hidden WebView2 controller only after the frontend navigation succeeds.
+Initialization milestones log through `log::info` as `startup +… ms`. A shared monotonic origin makes the concurrently started Vite and native paths directly comparable. Expensive backend, runtime, eframe/wgpu, Vite-readiness, WebView2-environment, and WebView2-controller operations also report their individual phase durations. `WebView2 NavigationCompleted …; controller shown; document loading released` is the perceived-startup milestone because that is when the workbench becomes visible. The separate one-shot `initial document NavigationCompleted …` milestone measures time until the restored documentation becomes usable. Both completion handlers are application behavior rather than diagnostic instrumentation: the top-level handler preserves visibility-before-iframe ordering, while frame completion settles the editor placeholder.
 
 #### Checking for Startup Regressions
 
 Measure both cold and warm dependency-optimization behavior:
 
 1. Close TurboDoc and remove only `frontend/node_modules/.vite`.
-2. Run `just run`, then record the `startup +… ms` lines through `WebView2 NavigationCompleted …; controller shown`. This is the cold-cache result and includes Vite dependency prebundling.
+2. Run `just run`, then record the `startup +… ms` lines through both `WebView2 NavigationCompleted …; controller shown; document loading released` and `initial document NavigationCompleted …`. This is the cold-cache result and includes Vite dependency prebundling.
 3. Close TurboDoc and run `just run` again without changing dependencies, `bun.lock`, or Vite configuration. Record the same lines. Repeat once if needed; these are warm-cache results and represent normal development startup.
-4. Compare like with like against previous measurements. A slower `Vite ready on port …` phase points to Vite startup or dependency optimization. Slower WebView2 environment/controller phases point to native browser initialization. If those milestones remain stable but the final completion time grows, temporarily add targeted navigation lifecycle probes rather than keeping per-navigation handlers in the normal runtime.
+4. Compare like with like against previous measurements. A slower `Vite ready on port …` phase points to Vite startup or dependency optimization. Slower WebView2 environment/controller phases point to native browser initialization. If those milestones remain stable but either the shell-visible or initial-document time grows, temporarily add targeted navigation lifecycle probes rather than keeping additional per-navigation telemetry in the normal runtime.
 
-Use the final completion timestamp as the headline number, but retain the intermediate milestones with the result so the responsible path remains identifiable. Avoid adding Svelte libraries to `optimizeDeps.exclude` merely because they ship `.svelte` sources: `vite-plugin-svelte` supports prebundling them, and excluding large libraries shifts their module graph into the initial on-demand transform path. Keep Lucide imports at individual icon paths such as `@lucide/svelte/icons/pin` so Vite does not traverse the complete icon collection.
+Use the controller-shown timestamp as the perceived-startup headline and retain the initial-document completion as the time-to-content companion metric. Keep the intermediate milestones with both results so the responsible path remains identifiable. Avoid adding Svelte libraries to `optimizeDeps.exclude` merely because they ship `.svelte` sources: `vite-plugin-svelte` supports prebundling them, and excluding large libraries shifts their module graph into the initial on-demand transform path. Keep Lucide imports at individual icon paths such as `@lucide/svelte/icons/pin` so Vite does not traverse the complete icon collection.
 
 A Windows Job Object (set up in `src/main.rs`) ensures the spawned Vite child dies when the host exits, even on abrupt termination.
 
@@ -552,7 +557,7 @@ ProviderData ($state) ──► provider.render() inside $derived ──► rend
 
 **Decomposed Root State (no AppContext class)**
 - `App.svelte` owns the active `providerId` ($state) and passes the derived `provider` object as a prop to `Explorer.svelte`. There is no server-persisted `appData` — first paint does not wait on any network round-trip.
-- `navigateTo(url)` is a plain function exported from `@/core/context.svelte` that imperatively writes `viewerRef.value.src`. Any module can `import * as ctx from "@/core/context.svelte"` and call `ctx.navigateTo(url)` — no provider/consumer pairing needed.
+- `navigateTo(url)` is a plain function exported from `@/core/context.svelte`. Before the host's `frontend-shown` event it retains only the latest requested URL; after release it imperatively writes `viewerRef.value.src`. Any module can call it without provider/consumer pairing, while startup effects cannot accidentally begin documentation loading under the hidden shell.
 - `viewerRef` (`{ value: HTMLIFrameElement | undefined }` with a `$state` field) lives in `@/core/context.svelte`. `App.svelte` writes to it via `bind:this={ctx.viewerRef.value}`; `navigateTo` in the same module reads it. No context entry needed because module-level `$state` is already a singleton.
 - `currentUrl` read via the `currentUrl.value` accessor — not part of root state.
 - Provider data loaded lazily per-provider inside `Explorer.svelte`.
@@ -637,9 +642,11 @@ TurboDoc/
 │   └── src/                    # All application TS/Svelte source (referenced via `@/*` alias)
 │       ├── core/
 │       │   ├── data.ts                 # Zod schemas + inferred types (ProviderData, Provider, Item, Page, IconProp, ProviderAction)
-│       │   ├── context.svelte.ts       # Single Svelte context for the provider pair (`ProviderContext = { info, data }`) with `setProvider` setter and `getProviderInfo` / `getProviderData` accessors; plus the shared `viewerRef` ($state-wrapped iframe handle) and the plain `navigateTo(url)` function that writes `viewerRef.value.src`
+│       │   ├── context.svelte.ts       # Provider context accessors plus the shared iframe reference and deferred `navigateTo(url)` gate
+│       │   ├── documentLifecycle.ts    # Initial iframe navigation gate + correlated placeholder state reducer
+│       │   ├── documentLifecycle.test.ts # Deferred-navigation and stale-completion unit tests
 │       │   ├── providerData.svelte.ts  # `ProviderDataStore` reactive class — `$state` data + load + autosave
-│       │   ├── ipc.ts                  # HTTP fetch wrappers (per-provider data CRUD) + WebView2 event listener (navigated)
+│       │   ├── ipc.ts                  # HTTP data wrappers + validated WebView2 top-level/frame lifecycle events
 │       │   ├── localStorage.ts         # Typed localStorage abstraction (Zod validation, mitt events, primitive + array APIs)
 │       │   └── uiState.svelte.ts       # Reactive accessors over mitt+localStorage (currentUrl, groupExpanded, itemExpanded) + imperative helpers
 │       │
@@ -760,6 +767,7 @@ TurboDoc/
 
 ## Change History
 
+- **2026-08**: Split visible-shell startup from restored documentation loading. `App.svelte` initially renders a blank iframe beneath an editor-pane spinner; all early `navigateTo()` calls pass through a latest-request-wins gate. After successful top-level `NavigationCompleted`, the host reveals WebView2 and posts `frontend-shown`; the frontend waits one animation frame before assigning the iframe source. Hosted frame starts/completions carry string navigation IDs so stale results cannot settle the placeholder, while failure or a 30-second document timeout produces an in-pane Retry state without hiding the usable workbench. The persistent top-level handler repeats release after full Vite reloads, and standalone browser development falls back to the iframe `load` event.
 - **2026-08**: Replace Vite's one-shot TCP-port probe with a Vite-owned `GET /ready` endpoint and a five-second HTTP readiness deadline. Verify each response against the launch-specific `TURBODOC_VITE_READY_TOKEN` so a stale Vite instance cannot satisfy the probe. Retain and monitor the child handle for its full lifetime so pre- and post-startup exits reach the native error surface, and bound the initial WebView2 navigation wait to 30 seconds.
 - **2026-07**: Replace the one-shot GDI startup paint and blocking WebView2 creation wait with an extensible native egui surface. eframe now owns the root winit window and wgpu DX12 renderer; Vite starts before GPU initialization, WebView2 creates its environment and hidden child controller through UI-thread completion callbacks, and a tested coordinator requests initial navigation exactly once after both paths are ready. Render a workbench-colored spinner during initialization and show Vite, WebView2, and initial-navigation failures in-window with expandable/copyable diagnostics. Keep the WebView2 child hidden until successful `NavigationCompleted`, preserve native-dialog confirmation for external URLs, and reserve egui viewports for future custom secondary windows.
 - **2026-07**: Make the derived Ungrouped section collapsible and consolidate all explorer groups onto one controlled Bits UI Collapsible path. The empty group name remains Ungrouped's stable data-model identity and now persists expansion through the existing `groupExpanded` accessor. Reuse the shared header and bulk item expansion actions while capability-gating rename, reorder, and delete to persisted named groups.

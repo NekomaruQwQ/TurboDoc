@@ -9,7 +9,9 @@
 //!    and renders a native egui startup surface through wgpu.
 //! 4. Create WebView2 asynchronously as a hidden child of that window.
 //!    Navigate to `127.0.0.1:{port}` only after both WebView2 and Vite are
-//!    ready, then reveal the controller after its first navigation completes.
+//!    ready. The first top-level completion reveals the Svelte workbench and
+//!    releases its initially blank documentation iframe on the next browser
+//!    animation frame.
 //! 5. Drop the runtime, which cancels in-flight tokio tasks. The Vite
 //!    child dies via the Job Object on host exit.
 

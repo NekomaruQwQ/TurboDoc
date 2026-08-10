@@ -5,7 +5,6 @@ use nkcore::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::result::Result;
-use std::sync::mpsc;
 use std::time::Instant;
 
 use widestring::U16CString;
@@ -256,16 +255,17 @@ impl WebView {
         api_call!(unsafe { self.core.PostWebMessageAsJson(PCWSTR(message.as_ptr())) })
     }
 
-    /// Registers a callback to be invoked when the next navigation is completed successfully.
-    /// Returns a callback that removes the event handler when invoked.
-    pub fn on_next_navigation_completed<F>(&self, callback: F) -> anyhow::Result<()>
+    /// Observe every completed top-level navigation for this WebView2 instance.
+    ///
+    /// The callback receives both successful and failed results. The handler
+    /// remains registered for the controller lifetime so development-server
+    /// reloads can repeat the frontend-visible notification.
+    pub fn on_navigation_completed<F>(&self, mut callback: F) -> anyhow::Result<()>
     where
-        F: FnOnce(WebViewNavigationResult) + 'static {
-        let (token_tx, token_rx) = mpsc::sync_channel::<i64>(1);
-        let mut state = Some((self.core.clone(), token_rx, callback));
-
+        F: FnMut(WebViewNavigationResult) + 'static {
         let handler = NavigationCompletedEventHandler::create(Box::new(move |_, args| {
-            Self::on_next_navigation_completed_handler(&mut state, args.as_ref())
+            Self::navigation_result(args.as_ref())
+                .map(&mut callback)
                 .context("an error occurred while handling webview event `NavigationCompleted`")
                 .map_err(|err| {
                     log::error!("{err}");
@@ -274,30 +274,43 @@ impl WebView {
         }));
 
         let mut token = 0i64;
-        api_call!(unsafe { self.core.add_NavigationCompleted(&handler, &raw mut token) })?;
-        token_tx
-            .send(token)
-            .context("failed to send over mpsc channel")?;
-        Ok(())
+        api_call!(unsafe { self.core.add_NavigationCompleted(&handler, &raw mut token) })
     }
 
-    fn on_next_navigation_completed_handler<F>(
-        state: &mut Option<(ICoreWebView2, mpsc::Receiver<i64>, F)>,
-        args: Option<&ICoreWebView2NavigationCompletedEventArgs>)
-     -> anyhow::Result<()>
+    /// Observe every completed child-frame navigation.
+    ///
+    /// Frame navigation IDs remain `u64` until the host serializes them as
+    /// strings for JavaScript, avoiding integer-precision loss at the IPC
+    /// boundary.
+    pub fn on_frame_navigation_completed<F>(&self, mut callback: F) -> anyhow::Result<()>
     where
-        F: FnOnce(WebViewNavigationResult) + 'static {
+        F: FnMut(WebViewNavigationResult) + 'static {
+        let handler = NavigationCompletedEventHandler::create(Box::new(move |_, args| {
+            Self::navigation_result(args.as_ref())
+                .map(&mut callback)
+                .context("an error occurred while handling webview event `FrameNavigationCompleted`")
+                .map_err(|err| {
+                    log::error!("{err}");
+                    E_UNEXPECTED.into()
+                })
+        }));
+
+        let mut token = 0i64;
+        api_call!(unsafe { self.core.add_FrameNavigationCompleted(&handler, &raw mut token) })
+    }
+
+    /// Convert WebView2 completion arguments into the host's correlation type.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when WebView2 supplies null arguments or rejects any
+    /// completion-status property read.
+    fn navigation_result(
+        args: Option<&ICoreWebView2NavigationCompletedEventArgs>)
+     -> anyhow::Result<WebViewNavigationResult> {
         let Some(args) = args else {
             anyhow::bail!("NavigationCompleted event args is null");
         };
-
-        let Some((webview, token_rx, callback)) = state.take() else {
-            anyhow::bail!("NavigationCompleted event handler called multiple times");
-        };
-
-        let token = api_call!(token_rx.recv())?;
-
-        api_call!(unsafe { webview.remove_NavigationCompleted(token) })?;
 
         let navigation_id =
             out_var_or_err(|out| api_call!(unsafe { args.NavigationId(out) }))?;
@@ -310,16 +323,15 @@ impl WebView {
             Err(out_var_or_err(|out| api_call!(unsafe { args.WebErrorStatus(out) }))?)
         };
 
-        callback(WebViewNavigationResult {
+        Ok(WebViewNavigationResult {
             navigation_id,
             status,
-        });
-        Ok(())
+        })
     }
 
     pub fn on_frame_navigation_starting<F>(&self, mut callback: F) -> anyhow::Result<()>
     where
-        F: FnMut(&str, Box<dyn FnOnce()>) + 'static, {
+        F: FnMut(u64, &str, Box<dyn FnOnce()>) + 'static, {
         let handler = NavigationStartingEventHandler::create(Box::new(move |_, args| {
             Self::on_frame_navigation_starting_handler(args.as_ref(), &mut callback)
                 .context("an error occurred while handling webview event `FrameNavigationStarting`")
@@ -338,11 +350,13 @@ impl WebView {
         callback: &mut F)
      -> anyhow::Result<()>
     where
-        F: FnMut(&str, Box<dyn FnOnce()>) + 'static, {
+        F: FnMut(u64, &str, Box<dyn FnOnce()>) + 'static, {
         let Some(args) = args else {
             anyhow::bail!("FrameNavigationStarting event args is null");
         };
 
+        let navigation_id =
+            out_var_or_err(|out| api_call!(unsafe { args.NavigationId(out) }))?;
         let mut uri = PWSTR::null();
         unsafe { args.Uri(&raw mut uri) }
             .context("ICoreWebView2NavigationStartingEventArgs::get_Uri failed")?;
@@ -350,7 +364,7 @@ impl WebView {
         let uri = take_pwstr(uri);
 
         let args = args.clone();
-        callback(&uri, Box::new(move || {
+        callback(navigation_id, &uri, Box::new(move || {
             api_call!(unsafe { args.SetCancel(true) })
                 .unwrap_or_else(|err| log::error!("{err}"));
         }));

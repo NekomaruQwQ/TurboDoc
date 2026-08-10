@@ -1,28 +1,115 @@
 <script lang="ts">
+    import { onMount } from "svelte";
     import * as Resizable from "@shadcn/components/ui/resizable";
+    import { Button } from "@shadcn/components/ui/button";
 
     import * as storage from "@/core/localStorage";
     import * as ctx from "@/core/context.svelte";
     import * as IPC from "@/core/ipc";
+    import {
+        type InitialDocumentLoadState,
+        reduceInitialDocumentLoad,
+    } from "@/core/documentLifecycle";
     import providers from "@/providers";
 
     import WorkbenchToolbar from "./WorkbenchToolbar.svelte";
     import Explorer from "./explorer/Explorer.svelte";
 
-    /** Captured once at mount; the iframe's `src` is set from this on first
-     *  render and never re-bound. All subsequent navigation goes through
-     *  the `navigateTo` context callback below. */
+    /** Captured once at mount and released only after the native host exposes
+     * the workbench. Subsequent navigation goes through `ctx.navigateTo()`. */
     const initialUrl = storage.load("currentUrl");
+    const DOCUMENT_LOAD_TIMEOUT_MS = 30_000;
+    let documentLoad = $state<InitialDocumentLoadState>({
+        status: "waiting",
+        url: initialUrl,
+    });
+    let releaseFrame: number | undefined;
 
-    // The WebView2 host posts a `navigated` IPC event when its iframe URL
-    // changes. We persist the URL to localStorage; the storage event bus
-    // propagates the change to every `currentUrl.value` reader.
-    $effect(() => IPC.on("navigated", event => {
+    /** Persist an accepted frame navigation and correlate the initial loading
+     * placeholder with its WebView2 navigation ID. */
+    function onNavigated(event: {
+        url: string,
+        navigationId: string,
+    }): void {
         // Filter the stray `storage-change-detection` ping fired when
         // localStorage values change in another browsing context.
         if (event.url === "https://docs.rs/-/storage-change-detection.html") return;
         storage.save("currentUrl", event.url);
-    }));
+        documentLoad = reduceInitialDocumentLoad(documentLoad, {
+            type: "started",
+            url: event.url,
+            navigationId: event.navigationId,
+        });
+    }
+
+    /** Settle the placeholder only when the completion belongs to the latest
+     * accepted iframe navigation. */
+    function onDocumentNavigationCompleted(event: {
+        navigationId: string,
+        success: boolean,
+        error: string | null,
+    }): void {
+        documentLoad = reduceInitialDocumentLoad(documentLoad, {
+            type: "completed",
+            navigationId: event.navigationId,
+            success: event.success,
+            error: event.error,
+        });
+    }
+
+    /** Begin documentation loading one paint opportunity after the native
+     * controller becomes visible. Duplicate host reports are ignored. */
+    function onFrontendShown(): void {
+        if (documentLoad.status !== "waiting") return;
+        documentLoad = reduceInitialDocumentLoad(documentLoad, { type: "released" });
+        releaseFrame = window.requestAnimationFrame(() => {
+            releaseFrame = undefined;
+            ctx.releaseViewerNavigation(initialUrl);
+        });
+    }
+
+    /** Retry the URL retained by the initial-load failure state. */
+    function retryDocumentNavigation(): void {
+        if (documentLoad.status !== "error") return;
+        const url = documentLoad.url;
+        documentLoad = reduceInitialDocumentLoad(documentLoad, { type: "retry" });
+        ctx.navigateTo(url);
+    }
+
+    /** Browser-only development has no native frame-completion reporter, so
+     * use the cross-origin-safe iframe load event as its success fallback. */
+    function onStandaloneIframeLoad(): void {
+        if (!IPC.isHosted &&
+            ctx.viewerRef.value?.hasAttribute("src") &&
+            documentLoad.status === "loading")
+            documentLoad = { status: "ready" };
+    }
+
+    onMount(() => {
+        IPC.on("frontend-shown", onFrontendShown);
+        IPC.on("navigated", onNavigated);
+        IPC.on("document-navigation-completed", onDocumentNavigationCompleted);
+        if (!IPC.isHosted) onFrontendShown();
+
+        return () => {
+            IPC.off("frontend-shown", onFrontendShown);
+            IPC.off("navigated", onNavigated);
+            IPC.off("document-navigation-completed", onDocumentNavigationCompleted);
+            if (releaseFrame !== undefined) window.cancelAnimationFrame(releaseFrame);
+        };
+    });
+
+    // Documentation failure is local to the editor pane; unlike frontend
+    // startup failure it must not hide the otherwise usable workbench.
+    $effect(() => {
+        if (documentLoad.status !== "loading") return;
+        const timeout = window.setTimeout(() => {
+            documentLoad = reduceInitialDocumentLoad(
+                documentLoad,
+                { type: "timed-out" });
+        }, DOCUMENT_LOAD_TIMEOUT_MS);
+        return () => window.clearTimeout(timeout);
+    });
 
     let providerId = $state(providers[0].id);
     let provider = $derived(providers.find(p => p.id === providerId) ?? providers[0]);
@@ -41,12 +128,50 @@
         <Resizable.Handle
             class="w-1 bg-transparent transition-colors after:w-2 hover:bg-ring/35 focus-visible:bg-ring/45" />
         <Resizable.Pane defaultSize={80} class="flex min-w-0 flex-col">
-            <iframe
-                bind:this={ctx.viewerRef.value}
-                src={initialUrl}
-                title="Documentation viewer"
-                class="h-full w-full rounded-lg border border-workbench-divider bg-editor">
-            </iframe>
+            <div
+                class="relative min-h-0 flex-1"
+                aria-busy={documentLoad.status !== "ready"}>
+                <iframe
+                    bind:this={ctx.viewerRef.value}
+                    onload={onStandaloneIframeLoad}
+                    title="Documentation viewer"
+                    class="h-full w-full rounded-lg border border-workbench-divider bg-editor">
+                </iframe>
+                {#if documentLoad.status !== "ready"}
+                    <div
+                        role={documentLoad.status === "error" ? "alert" : "status"}
+                        aria-live="polite"
+                        class="absolute inset-0 flex items-center justify-center rounded-lg border border-workbench-divider bg-editor">
+                        {#if documentLoad.status === "error"}
+                            <div class="flex max-w-sm flex-col items-center px-8 text-center">
+                                <p class="text-sm font-medium text-foreground">
+                                    Documentation didn’t load
+                                </p>
+                                <p class="mt-1.5 text-xs leading-5 text-muted-foreground">
+                                    {documentLoad.reason === "timeout"
+                                        ? "The page is taking too long to respond."
+                                        : "The page could not be loaded. Check the connection and try again."}
+                                </p>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    class="mt-4"
+                                    onclick={retryDocumentNavigation}>
+                                    Retry
+                                </Button>
+                            </div>
+                        {:else}
+                            <div class="flex flex-col items-center text-muted-foreground">
+                                <span
+                                    aria-hidden="true"
+                                    class="size-5 animate-spin rounded-full border-2 border-current/20 border-t-primary motion-reduce:animate-none">
+                                </span>
+                                <p class="mt-3 text-xs">Loading documentation…</p>
+                            </div>
+                        {/if}
+                    </div>
+                {/if}
+            </div>
         </Resizable.Pane>
     </Resizable.PaneGroup>
 </div>

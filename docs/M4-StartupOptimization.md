@@ -3,8 +3,9 @@
 ## Status
 
 Initial investigation complete. The confirmed dependency-optimization
-regression is fixed; the follow-up opportunities below have been analyzed but
-not experimentally validated.
+regression is fixed, and visible-shell startup is now separated from initial
+documentation loading. The remaining follow-up opportunities below have been
+analyzed but not experimentally validated.
 
 ## Confirmed Findings
 
@@ -13,9 +14,12 @@ creation, paints the native window with the frontend workbench color, waits up
 to five seconds for Vite's empty `GET /ready` response carrying the current
 launch token, and then requests the initial navigation. This identity check
 prevents a stale Vite process on the configured port from satisfying
-readiness. The WebView2 controller remains hidden until navigation succeeds,
-with a 30-second deadline. The host continues monitoring Vite afterward and
-returns to the native error surface if the child exits.
+readiness. The WebView2 controller remains hidden until top-level navigation
+succeeds, with a 30-second deadline. That navigation contains a blank
+documentation iframe and an editor placeholder. The host then reveals the
+controller and posts `frontend-shown`; one animation frame later, the frontend
+releases the latest queued documentation URL. The host continues monitoring
+Vite afterward and returns to the native error surface if the child exits.
 
 The dominant observed regression was in the frontend development path.
 `@lucide/svelte`, `bits-ui`, and `paneforge` had been placed in both client and
@@ -31,6 +35,14 @@ afterward. Permanent telemetry is intentionally limited to initialization
 milestones and phase durations attached to real startup behavior. See
 [README.md](README.md#checking-for-startup-regressions) for the cold/warm
 measurement procedure.
+
+The top-level completion handler is now persistent application behavior rather
+than temporary instrumentation: successful Vite reloads repeat the
+visibility-before-document-release notification. Hosted frame navigation IDs
+are forwarded with start/completion events so stale results cannot settle the
+initial placeholder. Documentation failure and a 30-second document timeout
+remain inside the visible editor pane with Retry; they do not replace the
+usable workbench with the native fatal-error surface.
 
 ## Analyzed but Not Yet Experimented
 
@@ -121,39 +133,6 @@ Experiment:
 Do not delete or repurpose TurboDoc's real WebView2 profile for this test,
 because it contains persistent browser state.
 
-### Controller reveal criterion
-
-The controller is revealed on successful top-level `NavigationCompleted`.
-This is robust and avoids a partially loaded surface, but it may be later than
-the first usable frontend frame. We have not compared it with
-`DOMContentLoaded` or an explicit frontend “mounted and painted” message.
-
-Experiment:
-
-- Temporarily record navigation start, DOM readiness, frontend mount, first
-  animation frame after mount, and navigation completion.
-- If a frontend-ready signal is consistently earlier, test revealing on that
-  signal while retaining navigation-failure handling and the opaque startup
-  background.
-
-This can improve perceived startup even when total background loading is
-unchanged.
-
-### Initial documentation iframe workload
-
-The frontend restores a documentation URL into an iframe during startup.
-Network access, proxy/cache work, rustdoc parsing, and iframe resources may
-compete with shell rendering or influence the top-level completion boundary.
-We have not measured startup with the iframe initially blank and restored only
-after the shell becomes visible.
-
-Experiment:
-
-- Add a temporary flag that delays iframe restoration until after the
-  workbench mounts.
-- Compare both time-to-visible-shell and time-to-usable-document.
-- Preserve the normal URL and cache state between paired runs.
-
 ### Frontend initialization after module delivery
 
 Svelte mount, local-storage restoration, provider rendering, effects, and
@@ -208,8 +187,9 @@ architecture decision rather than a tuning change to `just run`.
   power state constant unless one of them is the tested factor.
 - Report cold and warm results separately.
 - Prefer medians and ranges over a single launch.
-- Use the final `WebView2 NavigationCompleted …; controller shown` timestamp
-  as the current headline metric, while retaining intermediate phase timings
-  for attribution.
+- Use `WebView2 NavigationCompleted …; controller shown; document loading
+  released` as the perceived-startup headline and `initial document
+  NavigationCompleted …` as its time-to-content companion, while retaining
+  intermediate phase timings for attribution.
 - Revert temporary high-volume event handlers and browser/Vite tracing after
   each investigation.

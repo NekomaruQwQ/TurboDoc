@@ -640,12 +640,41 @@ mod handler {
     use crate::webview::WebView;
     use crate::webview::WebViewNavigationResult;
 
+    use std::cell::RefCell;
+    use std::collections::HashSet;
+    use std::rc::Rc;
     use std::sync::Arc;
     use winit::window::Window;
 
+    /// Host policy for a child-frame navigation request.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    enum FrameNavigationKind {
+        /// WebView2's implicit navigation for an iframe without a `src`.
+        BlankBootstrap,
+        /// Documentation that remains inside TurboDoc's viewer.
+        Hosted,
+        /// A destination that must be cancelled and offered to the OS browser.
+        External,
+    }
+
+    /// Classify a child-frame URL before applying navigation side effects.
+    ///
+    /// Only the exact browser-generated `about:blank` URL bypasses normal URL
+    /// policy. Other browser-internal schemes remain external and cancelled.
+    fn classify_frame_navigation(url: &str) -> FrameNavigationKind {
+        if url == "about:blank" {
+            FrameNavigationKind::BlankBootstrap
+        } else if crate::HOSTED_URL.iter().any(|&prefix| url.starts_with(prefix)) {
+            FrameNavigationKind::Hosted
+        } else {
+            FrameNavigationKind::External
+        }
+    }
+
     /// Install WebView2 request and navigation handlers. `on_navigation`
-    /// receives exactly one result for the initial frontend navigation so
-    /// the egui startup surface can transition to ready or failed.
+    /// receives exactly one result for native startup, while the persistent
+    /// completion handler also releases deferred iframe loading after later
+    /// development-server reloads.
     pub fn setup<F>(
         window: &Arc<Window>,
         webview: &WebView,
@@ -662,14 +691,25 @@ mod handler {
         }
 
         // The controller starts hidden to avoid exposing a partially loaded
-        // WebView2 surface. This one-shot handler is application behavior, not
-        // telemetry: successful frontend navigation is the synchronization
-        // point that reveals the controller, while failure aborts startup.
-        webview.on_next_navigation_completed({
+        // WebView2 surface. Every successful frontend navigation reveals the
+        // controller before notifying Svelte that iframe loading may begin;
+        // retaining the handler also covers full Vite reloads.
+        webview.on_navigation_completed({
             let webview = webview.clone();
+            let mut initial_navigation = Some(on_navigation);
             move |result| {
-                on_navigation(
-                    on_first_navigation_completed(&webview, startup, result));
+                let is_initial = initial_navigation.is_some();
+                let outcome =
+                    on_frontend_navigation_completed(
+                        &webview,
+                        startup,
+                        &result,
+                        is_initial);
+                if let Some(on_navigation) = initial_navigation.take() {
+                    on_navigation(outcome);
+                } else if let Err(err) = outcome {
+                    log::error!("frontend reload failed: {err:#}");
+                }
             }
         })?;
 
@@ -683,32 +723,62 @@ mod handler {
         // pass through the top-level completion handler. Observe them here to
         // keep frontend navigation state synchronized and to cancel external
         // destinations before opening them in the system browser.
+        let hosted_navigation_ids = Rc::new(RefCell::new(HashSet::new()));
         webview.on_frame_navigation_starting({
             let window = Arc::clone(window);
             let webview = webview.clone();
-            move |url, cancel_navigation| {
+            let hosted_navigation_ids = Rc::clone(&hosted_navigation_ids);
+            move |navigation_id, url, cancel_navigation| {
                 on_frame_navigation_starting(
                     &window,
                     &webview,
+                    &hosted_navigation_ids,
+                    navigation_id,
                     url,
                     cancel_navigation);
+            }
+        })?;
+        webview.on_frame_navigation_completed({
+            let webview = webview.clone();
+            let hosted_navigation_ids = Rc::clone(&hosted_navigation_ids);
+            let mut first_document_completion = true;
+            move |result| {
+                let is_hosted_document = on_frame_navigation_completed(
+                    &webview,
+                    &hosted_navigation_ids,
+                    &result);
+                if is_hosted_document && first_document_completion {
+                    startup.mark(&format!(
+                        "initial document NavigationCompleted #{} ({})",
+                        result.navigation_id,
+                        if result.status.is_ok() { "success" } else { "failure" }));
+                    first_document_completion = false;
+                }
             }
         })?;
 
         Ok(())
     }
 
-    fn on_first_navigation_completed(
+    /// Reveal the loaded frontend and release its deferred documentation load.
+    ///
+    /// `is_initial` controls startup telemetry only; successful reloads must
+    /// repeat the same visibility-before-message ordering.
+    fn on_frontend_navigation_completed(
         webview: &WebView,
         startup: StartupProbe,
-        result: WebViewNavigationResult)
+        result: &WebViewNavigationResult,
+        is_initial: bool)
      -> anyhow::Result<()> {
-        match result.status {
+        match &result.status {
             Ok(()) => {
                 webview.set_visible(true)?;
-                startup.mark(&format!(
-                    "WebView2 NavigationCompleted #{}; controller shown",
-                    result.navigation_id));
+                webview.post_message_as_json(r#"{"type":"frontend-shown"}"#)?;
+                if is_initial {
+                    startup.mark(&format!(
+                        "WebView2 NavigationCompleted #{}; controller shown; document loading released",
+                        result.navigation_id));
+                }
                 Ok(())
             },
             Err(err) =>
@@ -756,25 +826,97 @@ mod handler {
     ///
     /// - Known documentation URLs: forward a `navigated` event to the frontend
     ///   so it can update the sidebar (version selector, current item highlight).
+    /// - Blank iframe bootstrap: allow WebView2's implicit `about:blank` without
+    ///   treating it as document content.
     /// - External URLs: cancel navigation and offer to open in the system browser.
     fn on_frame_navigation_starting(
         window: &Window,
         webview: &WebView,
+        hosted_navigation_ids: &RefCell<HashSet<u64>>,
+        navigation_id: u64,
         url: &str,
         cancel_navigation: Box<dyn FnOnce()>) {
         log::info!("navigating to {url}");
-        if crate::HOSTED_URL.iter().any(|&prefix| url.starts_with(prefix)) {
-            // Notify frontend of navigation so it can update the sidebar.
-            let message = serde_json::json!({
-                "type": "navigated",
-                "url": url,
-            }).to_string();
-            let _ = webview.post_message_as_json(&message)
-                .inspect_err(|err| log::error!("failed to send navigated: {err}"));
-        } else {
-            log::info!(" -> external link, navigation cancelled");
-            cancel_navigation();
-            super::open_external_link(window, url);
+        match classify_frame_navigation(url) {
+            FrameNavigationKind::BlankBootstrap =>
+                log::debug!(" -> blank iframe bootstrap allowed"),
+            FrameNavigationKind::Hosted => {
+                hosted_navigation_ids.borrow_mut().insert(navigation_id);
+                // Notify frontend of navigation so it can update the sidebar.
+                let message = serde_json::json!({
+                    "type": "navigated",
+                    "url": url,
+                    "navigationId": navigation_id.to_string(),
+                }).to_string();
+                let _ = webview.post_message_as_json(&message)
+                    .inspect_err(|err| log::error!("failed to send navigated: {err}"));
+            },
+            FrameNavigationKind::External => {
+                log::info!(" -> external link, navigation cancelled");
+                cancel_navigation();
+                super::open_external_link(window, url);
+            },
+        }
+    }
+
+    /// Report completion only for frame navigations accepted by TurboDoc.
+    ///
+    /// Returning `true` lets the caller record the first document-completion
+    /// milestone without logging unrelated or cancelled external frames.
+    fn on_frame_navigation_completed(
+        webview: &WebView,
+        hosted_navigation_ids: &RefCell<HashSet<u64>>,
+        result: &WebViewNavigationResult)
+     -> bool {
+        if !hosted_navigation_ids.borrow_mut().remove(&result.navigation_id) {
+            return false;
+        }
+
+        let error = result.status.as_ref().err().map(|status| format!("{status:?}"));
+        let message = serde_json::json!({
+            "type": "document-navigation-completed",
+            "navigationId": result.navigation_id.to_string(),
+            "success": result.status.is_ok(),
+            "error": error,
+        }).to_string();
+        let _ = webview.post_message_as_json(&message)
+            .inspect_err(|err| {
+                log::error!("failed to send document-navigation-completed: {err}")
+            });
+        true
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::classify_frame_navigation;
+        use super::FrameNavigationKind;
+
+        #[test]
+        fn sourceless_iframe_bootstrap_is_allowed() {
+            assert_eq!(
+                classify_frame_navigation("about:blank"),
+                FrameNavigationKind::BlankBootstrap);
+        }
+
+        #[test]
+        fn other_browser_internal_urls_remain_external() {
+            assert_eq!(
+                classify_frame_navigation("about:srcdoc"),
+                FrameNavigationKind::External);
+        }
+
+        #[test]
+        fn documentation_url_remains_hosted() {
+            assert_eq!(
+                classify_frame_navigation("https://docs.rs/serde/latest/serde/"),
+                FrameNavigationKind::Hosted);
+        }
+
+        #[test]
+        fn unsupported_https_url_remains_external() {
+            assert_eq!(
+                classify_frame_navigation("https://example.com/"),
+                FrameNavigationKind::External);
         }
     }
 }
