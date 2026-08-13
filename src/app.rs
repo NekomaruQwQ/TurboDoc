@@ -658,10 +658,10 @@ mod handler {
     use crate::prelude::*;
     use crate::server::Server;
     use crate::startup::StartupProbe;
-    use crate::webview::FrontendFunction;
     use crate::webview::WebView;
     use crate::webview::WebViewNavigationResult;
 
+    use anyhow::Context as _;
     use std::cell::RefCell;
     use std::collections::HashSet;
     use std::rc::Rc;
@@ -691,6 +691,44 @@ mod handler {
         } else {
             FrameNavigationKind::External
         }
+    }
+
+    /// Queue a direct call to one named function under `window.__turboDoc__`.
+    ///
+    /// `member` is supplied only by trusted native call sites. The argument is
+    /// serialized as JSON before entering the generated JavaScript source.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when argument serialization fails or WebView2 rejects
+    /// the newly active script synchronously.
+    fn call_frontend(
+        webview: &WebView,
+        member: &str,
+        argument: Option<&serde_json::Value>)
+     -> anyhow::Result<()> {
+        webview.execute_script(frontend_call_source(member, argument)?)
+    }
+
+    /// Build an availability-checking call to one trusted frontend member.
+    fn frontend_call_source(
+        member: &str,
+        argument: Option<&serde_json::Value>)
+     -> anyhow::Result<String> {
+        let argument =
+            argument
+                .map(serde_json::to_string)
+                .transpose()
+                .context("failed to serialize frontend function argument")?
+                .unwrap_or_default();
+        Ok(format!(
+            "(() => {{\n\
+             \x20   const api = window.__turboDoc__;\n\
+             \x20   if (typeof api?.{member} !== \"function\") {{\n\
+             \x20       throw new Error(\"TurboDoc frontend function is unavailable: {member}\");\n\
+             \x20   }}\n\
+             \x20   api.{member}({argument});\n\
+             }})()"))
     }
 
     /// Install WebView2 request and navigation handlers. `on_navigation`
@@ -795,7 +833,7 @@ mod handler {
         match &result.status {
             Ok(()) => {
                 webview.set_visible(true)?;
-                webview.call_frontend(FrontendFunction::FrontendShown, None)?;
+                call_frontend(webview, "frontendShown", None)?;
                 if is_initial {
                     startup.mark(&format!(
                         "WebView2 NavigationCompleted #{}; controller shown; document loading released",
@@ -896,10 +934,10 @@ mod handler {
                     "url": url,
                     "navigationId": navigation_id.to_string(),
                 });
-                let _ = webview
-                    .call_frontend(
-                        FrontendFunction::DocumentNavigationStarted,
-                        Some(&report))
+                let _ = call_frontend(
+                    webview,
+                    "documentNavigationStarted",
+                    Some(&report))
                     .inspect_err(|err| {
                         log::error!("failed to report document navigation start: {err}")
                     });
@@ -931,10 +969,10 @@ mod handler {
             "success": result.status.is_ok(),
             "error": error,
         });
-        let _ = webview
-            .call_frontend(
-                FrontendFunction::DocumentNavigationCompleted,
-                Some(&report))
+        let _ = call_frontend(
+            webview,
+            "documentNavigationCompleted",
+            Some(&report))
             .inspect_err(|err| {
                 log::error!("failed to report document navigation completion: {err}")
             });
@@ -946,7 +984,42 @@ mod handler {
         use super::api_request_handler;
         use super::ApiRequestHandler;
         use super::classify_frame_navigation;
+        use super::frontend_call_source;
         use super::FrameNavigationKind;
+
+        #[test]
+        fn frontend_call_source_round_trips_untrusted_argument_as_json() {
+            let report = serde_json::json!({
+                "url": "https://docs.rs/\"); globalThis.hacked = true; //\nserde/",
+                "navigationId": "18446744073709551615",
+            });
+            let source =
+                frontend_call_source("documentNavigationStarted", Some(&report))
+                    .expect("frontend source should build");
+            let argument =
+                source
+                    .lines()
+                    .find_map(|line| {
+                        line.trim()
+                            .strip_prefix("api.documentNavigationStarted(")
+                            .and_then(|line| line.strip_suffix(");"))
+                    })
+                    .expect("source should contain direct frontend call");
+
+            assert_eq!(
+                serde_json::from_str::<serde_json::Value>(argument)
+                    .expect("argument should remain valid JSON"),
+                report);
+        }
+
+        #[test]
+        fn frontend_call_source_omits_argument_for_frontend_shown() {
+            let source =
+                frontend_call_source("frontendShown", None)
+                    .expect("frontend source should build");
+
+            assert!(source.contains("api.frontendShown();"), "source was: {source}");
+        }
 
         #[test]
         fn sourceless_iframe_bootstrap_is_allowed() {

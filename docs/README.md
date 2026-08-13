@@ -174,7 +174,7 @@ WebView2 default path → Vite on the main port (HMR WebSocket included). No int
 - **Utilities**: remeda (functional), semver, zod
 - **Backend**: Rust (rusqlite + reqwest + `http-cache-semantics`) — in-process, no HTTP listener. `server::start` opens the SQLite cache and returns a `Server` handle the host calls from the WebView2 callback via `runtime.block_on(...)`; that handle also schedules Vite startup on the runtime.
 - **Host**: Rust (eframe/egui + wgpu/DX12 + WebView2) — native startup/error UI, window management, WebView2 request interception, server + Vite-child lifecycle. eframe owns the root winit window and WebView2 uses its HWND as the parent for a child controller. The Vite child binds the main port; the host process owns no listener.
-- **Native boundary**: All webview→host application communication uses REST-style `fetch()` under `/api/*`; WebView2 intercepts that namespace, passes `/api/ready` through to Vite, dispatches `/api/data/{provider_id}` to Rust, and rejects every other path. Host→webview notifications are ordered direct calls to named functions under `window.__turboDoc__` through `ExecuteScriptWithResult`; there is no WebView2 message protocol or generic event dispatcher.
+- **Native boundary**: All webview→host application communication uses REST-style `fetch()` under `/api/*`; WebView2 intercepts that namespace, passes `/api/ready` through to Vite, dispatches `/api/data/{provider_id}` to Rust, and rejects every other path. `app.rs` builds host→webview calls to named functions under `window.__turboDoc__`, while the TurboDoc-agnostic WebView2 wrapper executes their source in FIFO order through `ExecuteScriptWithResult`; there is no WebView2 message protocol or generic event dispatcher.
 
 ### Sidebar Layout
 
@@ -567,7 +567,7 @@ ProviderData ($state) ──► provider.render() inside $derived ──► rend
 
 **Directional Native Boundary**
 - Every webview→host application request uses REST-style `fetch()` under `/api/*`. Per-provider data CRUD uses `/api/data/{provider_id}`; WebView2 intercepts the path and routes it to the in-process `api::data` handlers (no network hop, no axum).
-- Host→webview lifecycle reports are ordered direct calls to the typed `window.__turboDoc__` functions through `ExecuteScriptWithResult`. JSON argument serialization prevents code injection, while completion results expose transport and JavaScript failures to native logs.
+- Host→webview lifecycle reports are direct calls built in `app.rs` against the typed `window.__turboDoc__` functions. The generic WebView2 wrapper executes only script strings in FIFO order through `ExecuteScriptWithResult`; JSON argument serialization prevents code injection, while completion results expose transport and JavaScript failures with their full source in native logs.
 - WebView2 messaging (`postMessage` / `WebMessageReceived`) and generic event dispatchers are intentionally absent; adding either would violate the direction contract.
 - UI state uses localStorage (`turbodoc:current-url`, `turbodoc:expanded`) without crossing the native boundary.
 - Documentation and sparse-index caching use the proxy's `http_cache` SQLite (upstream freshness directives, conditional stale-while-revalidate, LRU eviction). The frontend fetches upstream metadata URLs directly and parses their bodies.
@@ -718,9 +718,9 @@ TurboDoc/
 │
 ├── src/                        # Rust host + in-process backend
 │   ├── main.rs                 # Tokio runtime, clap args, Job Object, backend start, app launch
-│   ├── app.rs                  # Concurrent Vite/WebView2 startup, eframe splash/error UI, request interception
+│   ├── app.rs                  # Concurrent startup, native UI, request interception, TurboDoc frontend calls
 │   ├── startup.rs              # Shared elapsed-time probe and frontend-matched startup color
-│   ├── webview.rs              # WebView2 wrapper (environment, colored controller, event handlers)
+│   ├── webview.rs              # TurboDoc-agnostic WebView2 wrapper, including ordered script execution
 │   └── server/                 # In-process backend (no HTTP listener)
 │       ├── mod.rs              # `Server` handle (fetch + dispatch_api), AppState, http client + USER_AGENT
 │       ├── state.rs            # AppState (DB, http_client, revalidating dedup, data_dir)
@@ -797,7 +797,7 @@ TurboDoc/
 
 ## Change History
 
-- **2026-08**: Enforce a directional native boundary: every webview→host application operation remains a REST-style `fetch()` under the intercepted `/api/*` namespace, while host→webview lifecycle notifications become ordered direct calls to the typed `window.__turboDoc__` API through `ExecuteScriptWithResult`. Split `ipc.ts` into `api.ts` and `host.ts`; remove the WebView2 `postMessage` declarations, native `PostWebMessage*` wrappers, mitt event bridge, generic message validation, and standalone-browser lifecycle fallback. Serialize direct-call arguments as JSON, execute them through a shared FIFO, log COM and JavaScript exceptions, and cover argument escaping plus ordering with Rust unit tests.
+- **2026-08**: Enforce a directional native boundary: every webview→host application operation remains a REST-style `fetch()` under the intercepted `/api/*` namespace, while host→webview lifecycle notifications become ordered direct calls to the typed `window.__turboDoc__` API through `ExecuteScriptWithResult`. Split `ipc.ts` into `api.ts` and `host.ts`; remove the WebView2 `postMessage` declarations, native `PostWebMessage*` wrappers, mitt event bridge, generic message validation, and standalone-browser lifecycle fallback. Keep TurboDoc-specific call construction in `app.rs`; serialize arguments as JSON, submit only script strings to the generic WebView2 FIFO, log failures with their full source, and cover argument escaping with Rust unit tests.
 - **2026-08**: Simplify and harden the internal HTTP namespace. Move provider persistence from `/api/v1/data/{provider_id}` to Rust-owned `/api/data/{provider_id}`, move Vite readiness from `/ready` to `/api/ready`, and reject every other `/api` path instead of allowing Vite's frontend fallback. Preserve the launch-token readiness contract, validate provider IDs before mapping them to TOML files, and cover ownership, methods, invalid identifiers, legacy paths, and prefix traps with focused Rust and Bun tests.
 - **2026-08**: Pin the Explorer search beneath the panel header by separating it from the crate/group scroll viewport. Keep search and Import actions accessible at every list position, preserve provider layouts without search, and let navigation reveals calculate their center range from only the unobstructed list region.
 - **2026-08**: Auto-reveal reported iframe navigation in the Explorer. Pass the accepted WebView2 navigation ID separately from persisted `currentUrl` so metadata, storage, and other reactive updates cannot move the sidebar. Expand the containing group and crate, wait for Bits UI clipping animations, then calculate one constrained position from a parameterized center range (default `[1/3, 2/3]`): preserve scroll only when the card intersects the range and the complete page row is inside it; otherwise prefer centering the card while constraining the page row to the range, with physical scroll bounds and a crate-header fallback. Cancel stale reveal work by navigation generation, retain iframe focus, honor reduced motion, and cover default/custom ranges, card centering, page constraints, and bounds with dependency-free unit tests.

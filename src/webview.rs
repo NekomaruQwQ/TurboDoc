@@ -25,68 +25,8 @@ pub struct WebView {
     environment: ICoreWebView2Environment2,
     controller: ICoreWebView2Controller,
     core: ICoreWebView2,
-    /// Shared ordering state for all clones of this WebView2 controller.
-    script_queue: Rc<RefCell<ScriptQueue>>,
-}
-
-/// Named frontend function callable by the native host.
-#[derive(Debug, Clone, Copy)]
-pub enum FrontendFunction {
-    /// Release deferred documentation loading after the shell is visible.
-    FrontendShown,
-    /// Report that an accepted documentation-frame navigation began.
-    DocumentNavigationStarted,
-    /// Report that an accepted documentation-frame navigation completed.
-    DocumentNavigationCompleted,
-}
-
-impl FrontendFunction {
-    /// Return the JavaScript member name installed under `window.__turboDoc__`.
-    fn member_name(self) -> &'static str {
-        match self {
-            Self::FrontendShown => "frontendShown",
-            Self::DocumentNavigationStarted => "documentNavigationStarted",
-            Self::DocumentNavigationCompleted => "documentNavigationCompleted",
-        }
-    }
-}
-
-/// One serialized JavaScript call waiting for WebView2 execution.
-#[derive(Debug)]
-struct ScriptCall {
-    /// Frontend member name used in diagnostics.
-    label: &'static str,
-    /// Complete JavaScript source passed to WebView2.
-    source: String,
-}
-
-/// UI-thread FIFO for asynchronous WebView2 script execution.
-#[derive(Debug, Default)]
-struct ScriptQueue {
-    /// Calls that have not yet been submitted to WebView2.
-    pending: VecDeque<ScriptCall>,
-    /// Whether WebView2 currently owns one submitted call.
-    running: bool,
-}
-
-impl ScriptQueue {
-    /// Append one call without disturbing the currently executing call.
-    fn enqueue(&mut self, call: ScriptCall) {
-        self.pending.push_back(call);
-    }
-
-    /// Mark and return the next call, or `None` while another call is active.
-    fn start_next(&mut self) -> Option<ScriptCall> {
-        if self.running { return None; }
-        let call = self.pending.pop_front()?;
-        self.running = true;
-        Some(call)
-    }
-
-    /// Release the active slot after WebView2 reports completion or rejection.
-    fn complete(&mut self) {
-        self.running = false;
-    }
+    /// Shared FIFO whose front entry remains present while WebView2 executes it.
+    script_queue: Rc<RefCell<VecDeque<String>>>,
 }
 
 /// Outcome and WebView2 correlation ID for one top-level navigation.
@@ -316,84 +256,66 @@ impl WebView {
         api_call!(unsafe { self.core.OpenDevToolsWindow() })
     }
 
-    /// Queue a direct call to one function under `window.__turboDoc__`.
+    /// Queue JavaScript for ordered asynchronous execution in the current page.
     ///
-    /// `argument` is serialized as JSON before it enters JavaScript source.
-    /// Calls execute one at a time in submission order, and WebView2 reports
-    /// transport failures and unhandled JavaScript exceptions to the log.
+    /// The in-flight source remains at the front of the shared FIFO until its
+    /// completion callback runs; an empty queue therefore denotes the idle
+    /// state without separate bookkeeping.
     ///
     /// # Errors
     ///
-    /// Returns an error when JSON serialization fails or WebView2 rejects the
-    /// first queued script synchronously. Later asynchronous failures are
-    /// logged from the completion callback without blocking the UI thread.
-    pub fn call_frontend(
-        &self,
-        function: FrontendFunction,
-        argument: Option<&serde_json::Value>)
-     -> anyhow::Result<()> {
-        let label = function.member_name();
-        let source = Self::frontend_call_source(function, argument)?;
+    /// Returns an error when WebView2 rejects the newly active script
+    /// synchronously. Later asynchronous failures are logged with their full
+    /// source from the completion callback without blocking the UI thread.
+    pub fn execute_script(&self, source: String) -> anyhow::Result<()> {
         let should_start = {
             let mut queue = self.script_queue.borrow_mut();
-            queue.enqueue(ScriptCall { label, source });
-            !queue.running
+            queue.push_back(source);
+            queue.len() == 1
         };
         if should_start {
-            Self::start_next_script(&self.core, &self.script_queue)?;
+            let outcome = Self::start_next_script(&self.core, &self.script_queue);
+            if outcome.is_err() {
+                Self::continue_script_queue(&self.core, &self.script_queue);
+            }
+            outcome?;
         }
         Ok(())
     }
 
-    /// Build an exception-reporting call to the named frontend member.
-    fn frontend_call_source(
-        function: FrontendFunction,
-        argument: Option<&serde_json::Value>)
-     -> anyhow::Result<String> {
-        let member = function.member_name();
-        let argument =
-            argument
-                .map(serde_json::to_string)
-                .transpose()
-                .context("failed to serialize frontend function argument")?
-                .unwrap_or_default();
-        Ok(format!(
-            "(() => {{\n\
-             \x20   const api = window.__turboDoc__;\n\
-             \x20   if (typeof api?.{member} !== \"function\") {{\n\
-             \x20       throw new Error(\"TurboDoc frontend function is unavailable: {member}\");\n\
-             \x20   }}\n\
-             \x20   api.{member}({argument});\n\
-             }})()"))
-    }
-
-    /// Submit the next queued script if no call is currently active.
+    /// Submit the source retained at the front of the queue.
     fn start_next_script(
         core: &ICoreWebView2,
-        queue: &Rc<RefCell<ScriptQueue>>)
+        queue: &Rc<RefCell<VecDeque<String>>>)
      -> anyhow::Result<()> {
-        let Some(call) = queue.borrow_mut().start_next() else { return Ok(()); };
-        let label = call.label;
         let outcome = (|| {
+            let source = {
+                let queue = queue.borrow();
+                let Some(source) = queue.front() else { return Ok(()); };
+                U16CString::from_str(source)
+                    .context("failed to convert JavaScript source to U16CString")?
+            };
             let core_21 =
                 core.cast::<ICoreWebView2_21>()
                     .context("failed to cast to ICoreWebView2_21")?;
-            let source =
-                U16CString::from_str(&call.source)
-                    .context("failed to convert JavaScript source to U16CString")?;
 
             let completion_core = core.clone();
             let completion_queue = Rc::clone(queue);
             let handler =
                 ExecuteScriptWithResultCompletedHandler::create(
                     Box::new(move |operation_status, result| {
-                        Self::inspect_script_result(operation_status, result)
-                            .inspect_err(|err| {
-                                log::error!(
-                                    "frontend function `{label}` failed: {err:#}")
-                            })
-                            .ok();
-                        completion_queue.borrow_mut().complete();
+                        let source = completion_queue.borrow_mut().pop_front();
+                        if let Some(source) = source {
+                            Self::inspect_script_result(operation_status, result)
+                                .inspect_err(|err| {
+                                    log::error!(
+                                        "JavaScript execution failed for {source:?}: {err:#}")
+                                })
+                                .ok();
+                        } else {
+                            log::error!(
+                                "WebView2 completed JavaScript execution without a queued source");
+                        }
                         Self::continue_script_queue(&completion_core, &completion_queue);
                         Ok(())
                     }));
@@ -403,10 +325,16 @@ impl WebView {
             })
         })();
         if let Err(err) = outcome {
-            queue.borrow_mut().complete();
-            return Err(err).with_context(|| {
-                context!("failed to start frontend function `{label}`")
-            });
+            let source = queue.borrow_mut().pop_front();
+            return match source {
+                Some(source) =>
+                    Err(err).with_context(|| {
+                        context!("failed to start JavaScript execution for {source:?}")
+                    }),
+                None =>
+                    Err(err).context(
+                        "failed to start JavaScript execution without a queued source"),
+            };
         }
         Ok(())
     }
@@ -415,12 +343,12 @@ impl WebView {
     /// the queue becomes empty.
     fn continue_script_queue(
         core: &ICoreWebView2,
-        queue: &Rc<RefCell<ScriptQueue>>) {
+        queue: &Rc<RefCell<VecDeque<String>>>) {
         loop {
             match Self::start_next_script(core, queue) {
                 Ok(()) => return,
                 Err(err) =>
-                    log::error!("failed to continue frontend function queue: {err:#}"),
+                    log::error!("failed to continue JavaScript queue: {err:#}"),
             }
         }
     }
@@ -604,72 +532,6 @@ impl WebView {
         Ok(())
     }
 
-}
-
-#[cfg(test)]
-mod tests {
-    use super::FrontendFunction;
-    use super::ScriptCall;
-    use super::ScriptQueue;
-    use super::WebView;
-
-    #[test]
-    fn frontend_call_source_round_trips_untrusted_argument_as_json() {
-        let report = serde_json::json!({
-            "url": "https://docs.rs/\"); globalThis.hacked = true; //\nserde/",
-            "navigationId": "18446744073709551615",
-        });
-        let source =
-            WebView::frontend_call_source(
-                FrontendFunction::DocumentNavigationStarted,
-                Some(&report))
-                .expect("frontend source should build");
-        let argument =
-            source
-                .lines()
-                .find_map(|line| {
-                    line.trim()
-                        .strip_prefix("api.documentNavigationStarted(")
-                        .and_then(|line| line.strip_suffix(");"))
-                })
-                .expect("source should contain direct frontend call");
-
-        assert_eq!(
-            serde_json::from_str::<serde_json::Value>(argument)
-                .expect("argument should remain valid JSON"),
-            report);
-    }
-
-    #[test]
-    fn frontend_call_source_omits_argument_for_frontend_shown() {
-        let source =
-            WebView::frontend_call_source(FrontendFunction::FrontendShown, None)
-                .expect("frontend source should build");
-
-        assert!(source.contains("api.frontendShown();"), "source was: {source}");
-    }
-
-    #[test]
-    fn script_queue_preserves_submission_order() {
-        let mut queue = ScriptQueue::default();
-        queue.enqueue(ScriptCall { label: "first", source: String::new() });
-        queue.enqueue(ScriptCall { label: "second", source: String::new() });
-        let first = queue.start_next().expect("first call should start");
-        queue.complete();
-        let second = queue.start_next().expect("second call should start");
-
-        assert_eq!([first.label, second.label], ["first", "second"]);
-    }
-
-    #[test]
-    fn script_queue_waits_for_active_call_completion() {
-        let mut queue = ScriptQueue::default();
-        queue.enqueue(ScriptCall { label: "first", source: String::new() });
-        queue.enqueue(ScriptCall { label: "second", source: String::new() });
-        queue.start_next().expect("first call should start");
-
-        assert!(queue.start_next().is_none());
-    }
 }
 
 mod convert {
