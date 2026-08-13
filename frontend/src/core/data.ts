@@ -115,9 +115,9 @@ export interface ProviderContext<T = unknown> {
     /** The current URL being viewed in the app. HTTPS protocol assumed. */
     readonly currentUrl: string,
 
-    /** Navigate the viewer iframe to a URL. The WebView2 host fires a
-     *  `navigated` IPC event in response, which persists the URL to
-     *  localStorage and propagates to all `currentUrl.value` consumers. */
+    /** Navigate the viewer iframe to a URL. The WebView2 host calls the
+     *  frontend's `documentNavigationStarted` function in response, which
+     *  persists the URL and propagates to all `currentUrl.value` consumers. */
     navigateTo(url: string): void,
 }
 

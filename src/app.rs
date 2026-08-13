@@ -658,6 +658,7 @@ mod handler {
     use crate::prelude::*;
     use crate::server::Server;
     use crate::startup::StartupProbe;
+    use crate::webview::FrontendFunction;
     use crate::webview::WebView;
     use crate::webview::WebViewNavigationResult;
 
@@ -784,7 +785,7 @@ mod handler {
     /// Reveal the loaded frontend and release its deferred documentation load.
     ///
     /// `is_initial` controls startup telemetry only; successful reloads must
-    /// repeat the same visibility-before-message ordering.
+    /// repeat the same visibility-before-call ordering.
     fn on_frontend_navigation_completed(
         webview: &WebView,
         startup: StartupProbe,
@@ -794,7 +795,7 @@ mod handler {
         match &result.status {
             Ok(()) => {
                 webview.set_visible(true)?;
-                webview.post_message_as_json(r#"{"type":"frontend-shown"}"#)?;
+                webview.call_frontend(FrontendFunction::FrontendShown, None)?;
                 if is_initial {
                     startup.mark(&format!(
                         "WebView2 NavigationCompleted #{}; controller shown; document loading released",
@@ -873,7 +874,7 @@ mod handler {
 
     /// Intercepts iframe navigations.
     ///
-    /// - Known documentation URLs: forward a `navigated` event to the frontend
+    /// - Known documentation URLs: call the frontend navigation-start function
     ///   so it can update the sidebar (version selector, current item highlight).
     /// - Blank iframe bootstrap: allow WebView2's implicit `about:blank` without
     ///   treating it as document content.
@@ -891,14 +892,17 @@ mod handler {
                 log::debug!(" -> blank iframe bootstrap allowed"),
             FrameNavigationKind::Hosted => {
                 hosted_navigation_ids.borrow_mut().insert(navigation_id);
-                // Notify frontend of navigation so it can update the sidebar.
-                let message = serde_json::json!({
-                    "type": "navigated",
+                let report = serde_json::json!({
                     "url": url,
                     "navigationId": navigation_id.to_string(),
-                }).to_string();
-                let _ = webview.post_message_as_json(&message)
-                    .inspect_err(|err| log::error!("failed to send navigated: {err}"));
+                });
+                let _ = webview
+                    .call_frontend(
+                        FrontendFunction::DocumentNavigationStarted,
+                        Some(&report))
+                    .inspect_err(|err| {
+                        log::error!("failed to report document navigation start: {err}")
+                    });
             },
             FrameNavigationKind::External => {
                 log::info!(" -> external link, navigation cancelled");
@@ -922,15 +926,17 @@ mod handler {
         }
 
         let error = result.status.as_ref().err().map(|status| format!("{status:?}"));
-        let message = serde_json::json!({
-            "type": "document-navigation-completed",
+        let report = serde_json::json!({
             "navigationId": result.navigation_id.to_string(),
             "success": result.status.is_ok(),
             "error": error,
-        }).to_string();
-        let _ = webview.post_message_as_json(&message)
+        });
+        let _ = webview
+            .call_frontend(
+                FrontendFunction::DocumentNavigationCompleted,
+                Some(&report))
             .inspect_err(|err| {
-                log::error!("failed to send document-navigation-completed: {err}")
+                log::error!("failed to report document navigation completion: {err}")
             });
         true
     }

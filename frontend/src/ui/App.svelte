@@ -1,11 +1,14 @@
 <script lang="ts">
-    import { onMount } from "svelte";
+    import { onDestroy } from "svelte";
     import * as Resizable from "@shadcn/components/ui/resizable";
     import { Button } from "@shadcn/components/ui/button";
 
     import * as storage from "@/core/localStorage";
     import * as ctx from "@/core/context.svelte";
-    import * as IPC from "@/core/ipc";
+    import type {
+        DocumentNavigationCompleted,
+        DocumentNavigationStarted,
+    } from "@/core/host";
     import {
         type InitialDocumentLoadState,
         reduceInitialDocumentLoad,
@@ -31,10 +34,9 @@
 
     /** Persist an accepted frame navigation and correlate the initial loading
      * placeholder with its WebView2 navigation ID. */
-    function onNavigated(event: {
-        url: string,
-        navigationId: string,
-    }): void {
+    export function documentNavigationStarted(
+        event: DocumentNavigationStarted,
+    ): void {
         // Filter the stray `storage-change-detection` ping fired when
         // localStorage values change in another browsing context.
         if (event.url === "https://docs.rs/-/storage-change-detection.html") return;
@@ -49,11 +51,9 @@
 
     /** Settle the placeholder only when the completion belongs to the latest
      * accepted iframe navigation. */
-    function onDocumentNavigationCompleted(event: {
-        navigationId: string,
-        success: boolean,
-        error: string | null,
-    }): void {
+    export function documentNavigationCompleted(
+        event: DocumentNavigationCompleted,
+    ): void {
         documentLoad = reduceInitialDocumentLoad(documentLoad, {
             type: "completed",
             navigationId: event.navigationId,
@@ -64,7 +64,7 @@
 
     /** Begin documentation loading one paint opportunity after the native
      * controller becomes visible. Duplicate host reports are ignored. */
-    function onFrontendShown(): void {
+    export function frontendShown(): void {
         if (documentLoad.status !== "waiting") return;
         documentLoad = reduceInitialDocumentLoad(documentLoad, { type: "released" });
         releaseFrame = window.requestAnimationFrame(() => {
@@ -81,27 +81,8 @@
         ctx.navigateTo(url);
     }
 
-    /** Browser-only development has no native frame-completion reporter, so
-     * use the cross-origin-safe iframe load event as its success fallback. */
-    function onStandaloneIframeLoad(): void {
-        if (!IPC.isHosted &&
-            ctx.viewerRef.value?.hasAttribute("src") &&
-            documentLoad.status === "loading")
-            documentLoad = { status: "ready" };
-    }
-
-    onMount(() => {
-        IPC.on("frontend-shown", onFrontendShown);
-        IPC.on("navigated", onNavigated);
-        IPC.on("document-navigation-completed", onDocumentNavigationCompleted);
-        if (!IPC.isHosted) onFrontendShown();
-
-        return () => {
-            IPC.off("frontend-shown", onFrontendShown);
-            IPC.off("navigated", onNavigated);
-            IPC.off("document-navigation-completed", onDocumentNavigationCompleted);
-            if (releaseFrame !== undefined) window.cancelAnimationFrame(releaseFrame);
-        };
+    onDestroy(() => {
+        if (releaseFrame !== undefined) window.cancelAnimationFrame(releaseFrame);
     });
 
     // Documentation failure is local to the editor pane; unlike frontend
@@ -138,7 +119,6 @@
                 aria-busy={documentLoad.status !== "ready"}>
                 <iframe
                     bind:this={ctx.viewerRef.value}
-                    onload={onStandaloneIframeLoad}
                     title="Documentation viewer"
                     class="h-full w-full rounded-lg border border-workbench-divider bg-editor">
                 </iframe>

@@ -5,8 +5,8 @@ import { svelte } from "@sveltejs/vite-plugin-svelte";
 // Set by the Rust host when launched via TurboDoc. When present, Vite
 // binds to this port; the WebView2 navigates to it directly, so HMR's
 // WebSocket talks to Vite naturally without any clientPort override.
-// Unset: Vite uses its defaults (port 5173), so running `bun run vite
-// dev` standalone still works for ad-hoc frontend testing.
+// Unset: Vite uses its defaults for tooling that imports this configuration.
+// The application itself requires the native host lifecycle API.
 const VITE_PORT = parseInt(process.env.TURBODOC_VITE_PORT ?? "0", 10);
 const VITE_READY_TOKEN = process.env.TURBODOC_VITE_READY_TOKEN;
 const VITE_READY_TOKEN_HEADER = "X-TurboDoc-Vite-Ready-Token";

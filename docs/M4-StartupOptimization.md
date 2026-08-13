@@ -17,7 +17,7 @@ prevents a stale Vite process on the configured port from satisfying
 readiness. The WebView2 controller remains hidden until top-level navigation
 succeeds, with a 30-second deadline. That navigation contains a blank
 documentation iframe and an editor placeholder. The host then reveals the
-controller and posts `frontend-shown`; one animation frame later, the frontend
+controller and calls `window.__turboDoc__.frontendShown()`; one animation frame later, the frontend
 releases the latest queued documentation URL. The host continues monitoring
 Vite afterward and returns to the native error surface if the child exits.
 

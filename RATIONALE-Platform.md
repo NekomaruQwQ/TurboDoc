@@ -16,7 +16,7 @@ WebView2 (the Chromium-based webview component shipped with Windows) provides bo
 
 - **`AddWebResourceRequestedFilter` + `WebResourceRequested`** — registers a URL pattern filter and fires a callback before matching requests hit the network. The handler can replace the response entirely (status, headers, body) while the page sees the original URL. This is the foundation of the "dumb pipe" proxy architecture: the C# host intercepts doc URL requests and forwards them to the Bun server's `/proxy?url=` endpoint.
 
-- **`FrameNavigationStarting`** — fires specifically for iframe navigations (not just top-level). The host posts a `navigated` event to the frontend via `PostWebMessageAsJson`, which triggers sidebar updates.
+- **`FrameNavigationStarting`** — fires specifically for iframe navigations (not just top-level). The host invokes `window.__turboDoc__.documentNavigationStarted(...)` through `ExecuteScriptWithResult`, which triggers sidebar updates without a handwritten message protocol.
 
 WebView2 is **pre-installed on every Windows 10 (April 2018+) and Windows 11 machine** via Windows Update. The app ships no embedded browser — the runtime overhead is the C# host alone.
 

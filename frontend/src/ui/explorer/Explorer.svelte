@@ -81,7 +81,7 @@
 
     // Record navigation-derived access only after the provider can resolve the
     // active URL to an item currently present in its output. Search clicks do
-    // not write history directly; the accepted IPC navigation remains the
+    // not write history directly; the accepted host navigation remains the
     // source of truth and repeated effects become storage no-ops.
     $effect(() => {
         const activeItemId = output.search?.activeItemId;

@@ -1,4 +1,4 @@
-import * as IPC from "@/core/ipc";
+import * as API from "@/core/api";
 import type { ProviderData } from "@/core/data";
 
 /** Per-provider data + autosave, replacing the old `useProviderDataLoader`
@@ -26,7 +26,7 @@ export class ProviderDataStore {
     async load(): Promise<void> {
         if (this.#loaded) return;
         try {
-            const loaded = (await IPC.loadProviderData(this.#providerId)) as Partial<ProviderData>;
+            const loaded = (await API.loadProviderData(this.#providerId)) as Partial<ProviderData>;
             this.data = {
                 data: loaded.data ?? {},
                 groups: loaded.groups ?? {},
@@ -47,7 +47,7 @@ export class ProviderDataStore {
         if (!this.#loaded) return;
         if (json === this.#lastJson) return;
         this.#lastJson = json;
-        IPC.saveProviderData(this.#providerId, this.data as object)
+        API.saveProviderData(this.#providerId, this.data as object)
             .catch(err => console.error(err));
     }
 }
