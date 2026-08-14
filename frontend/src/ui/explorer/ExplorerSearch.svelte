@@ -60,36 +60,37 @@
         selectedValue = "";
     }
 
-    /** Restore the search affordance after an activation so the selected item
-     *  label never masquerades as a persistent filter. */
-    function resetCombobox(): void {
+    /** Restore the search affordance after Bits UI finishes applying the
+     *  selected item's label, so that label cannot overwrite the cleared input. */
+    async function resetCombobox(): Promise<void> {
+        await tick();
         open = false;
         selectedValue = "";
         inputValue = "";
     }
 
-    /** Dispatch tagged combobox values to provider callbacks. Import waits one
-     *  render tick so focus can leave the closing popup before the dialog opens. */
+    /** Dispatch tagged combobox values to provider callbacks, then clear each
+     *  accepted selection after the primitive completes its internal update. */
     async function handleValueChange(value: string): Promise<void> {
         if (!value) return;
 
         if (value.startsWith(ITEM_VALUE_PREFIX)) {
             const itemId = value.slice(ITEM_VALUE_PREFIX.length);
-            resetCombobox();
             search.selectItem(itemId);
+            await resetCombobox();
             return;
         }
 
         if (value === ADD_ACTION_VALUE) {
             const action = addAction;
-            resetCombobox();
-            action?.invoke();
+            if (!action) return;
+            action.invoke();
+            await resetCombobox();
             return;
         }
 
         if (value === IMPORT_ACTION_VALUE && search.emptyAction) {
-            resetCombobox();
-            await tick();
+            await resetCombobox();
             importDialogOpen = true;
         }
     }
