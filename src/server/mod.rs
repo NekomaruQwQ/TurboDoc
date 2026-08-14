@@ -1,23 +1,18 @@
 //! In-process TurboDoc backend.
 //!
 //! Opens the SQLite cache and returns a [`Server`] handle. The host uses that
-//! handle to spawn Vite concurrently with native-window creation, then its
-//! WebView2 navigates to Vite and routes intercepted requests through the
-//! handle:
+//! handle to route intercepted WebView2 requests:
 //!
 //! - **Docs URLs** (`PROXIED_URL` prefixes) → [`Server::fetch`] → proxy
 //!   pipeline with caching + dark-mode injection.
 //! - **`/api/data/*`** → [`Server::dispatch_api`] → data persistence.
 //! - **Unknown `/api/*`** → [`Server::dispatch_api`] → explicit rejection.
-//! - **`/api/ready`** → passed through to Vite.
-//! - **Everything else** → passed through to Vite (frontend assets, HMR).
+//! - **Everything else** → passed through to the selected frontend source.
 //!
-//! There is no axum, no bound TCP listener of our own — only the Vite
-//! child process is on the network.
+//! There is no axum or bound TCP listener of our own.
 
 mod api;
 mod db;
-mod frontend;
 mod proxy;
 mod state;
 
@@ -33,16 +28,6 @@ use crate::startup::StartupProbe;
 use self::db::Database;
 use self::state::AppState;
 
-/// Lifecycle notifications from the Vite child monitor.
-pub enum FrontendEvent {
-    /// Vite answered the dedicated HTTP readiness endpoint and can receive the
-    /// initial WebView2 navigation.
-    Ready,
-    /// Vite failed before readiness or exited later. Every child exit is
-    /// fatal because the visible application is served by that process.
-    Exited(anyhow::Error),
-}
-
 /// User-Agent for all upstream HTTP requests. Identifies TurboDoc to remote
 /// sites and is bumped alongside the host version.
 pub(crate) const USER_AGENT: &str = "TurboDoc/0.4 (documentation viewer)";
@@ -54,15 +39,6 @@ pub struct Config {
     pub data_dir: PathBuf,
 }
 
-/// Vite child-process configuration. Kept separate from [`Config`] because
-/// frontend startup runs concurrently with eframe and WebView2 initialization.
-pub struct FrontendConfig {
-    /// Port Vite binds to and the WebView2 navigates to.
-    pub port: u16,
-    /// Repo root. Used to locate `frontend/` (Vite's working directory).
-    pub root_dir: PathBuf,
-}
-
 /// Host-side handle for invoking the backend without an HTTP round trip.
 /// Returned by [`start`]; the WebView2 `WebResourceRequested` callback
 /// calls methods on this from the UI thread.
@@ -72,29 +48,6 @@ pub struct Server {
 }
 
 impl Server {
-    /// Schedule Vite startup on the Tokio runtime and report both readiness
-    /// and any later child exit through `on_event`.
-    ///
-    /// Dropping the returned Tokio task handle intentionally detaches the
-    /// monitor. The callback remains owned by that task until Vite exits, so
-    /// the native host can surface post-startup failures as well.
-    pub fn spawn_frontend<F>(
-        &self,
-        config: FrontendConfig,
-        startup: StartupProbe,
-        on_event: F)
-    where
-        F: FnMut(FrontendEvent) + Send + 'static {
-        let _task = self.runtime.spawn(async move {
-            frontend::monitor_vite(
-                &config.root_dir,
-                config.port,
-                startup,
-                on_event)
-                .await;
-        });
-    }
-
     /// Fetch `request` through the proxy pipeline (cache lookup, upstream
     /// fetch on miss, dark-mode injection). Request cache directives are
     /// honored, so callers can explicitly bypass a cached response.
@@ -117,8 +70,7 @@ impl Server {
     }
 }
 
-/// Build the shared backend state and return a [`Server`] handle. Frontend
-/// startup is deliberately separate so the host can overlap it with WebView2.
+/// Build the shared backend state and return a [`Server`] handle.
 pub async fn start(config: Config, startup: StartupProbe) -> anyhow::Result<Server> {
     let phase_started_at = Instant::now();
 

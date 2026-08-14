@@ -3,11 +3,12 @@ set shell := ["nu", "-c"]
 alias r := run
 alias i := install
 
-# Run TurboDoc with existing data in the local repository.
-dev:
-    cargo run --release -- --data data
+# Run TurboDoc with repository-local data.
+dev *args:
+    cargo run --release -- --dev --data data {{args}}
 
-# Run TurboDoc with the specified arguments.
+
+# Run TurboDoc in its default release mode with the specified arguments.
 run *args:
     cargo run --release -- {{args}}
 
@@ -28,3 +29,10 @@ install:
         select \
         separator \
         collapsible
+
+# Build the optimized host and assemble Vite artifacts beside the executable.
+release:
+    cargo build --release
+    cd frontend; bunx --bun vite build
+    rm -rf target/release/public
+    cp -r frontend/dist target/release/public

@@ -1,12 +1,13 @@
 use nkcore::prelude::*;
 
-use crate::server::FrontendConfig;
-use crate::server::FrontendEvent;
+use crate::dev;
 use crate::server::Server;
 use crate::startup::StartupProbe;
 use crate::webview::WebView;
 
 use std::cell::RefCell;
+use std::path::Path;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::OnceLock;
@@ -22,53 +23,159 @@ use winit::window::Window;
 /// native startup surface spinning forever.
 const INITIAL_NAVIGATION_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Reserved virtual host used only for executable-adjacent release assets.
+const RELEASE_FRONTEND_HOST: &str = "turbodoc.example";
+/// Origin of the executable-adjacent release frontend.
+const RELEASE_FRONTEND_ORIGIN: &str = "https://turbodoc.example";
+/// Unmapped release origin whose `/api/*` requests reach `WebResourceRequested`.
+///
+/// WebView2 does not raise that event for URLs claimed by a virtual-host folder
+/// mapping, so release APIs cannot share [`RELEASE_FRONTEND_ORIGIN`].
+const RELEASE_API_ORIGIN: &str = "https://api.turbodoc.example";
+/// Explicit entry document because virtual-host mappings do not add directory
+/// index behavior.
+const RELEASE_FRONTEND_URL: &str = "https://turbodoc.example/index.html";
+
+/// Runtime frontend behavior relevant to shared host startup and routing.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum FrontendKind {
+    /// Load optimized static artifacts through WebView2 folder mapping.
+    Release,
+    /// Wait for a host-owned Vite child and preserve HMR.
+    Dev,
+}
+
+/// Frontend source selected by the CLI before native startup begins.
+pub enum FrontendSource {
+    /// Executable-adjacent Vite build artifacts.
+    Release {
+        /// Directory mapped to [`RELEASE_FRONTEND_HOST`].
+        public_dir: PathBuf,
+    },
+    /// Prepared Vite development frontend and child-process lifetime.
+    Dev(dev::Frontend),
+}
+
+impl FrontendSource {
+    /// Locate release artifacts beside `executable_path` in `public/`.
+    ///
+    /// Artifact existence is checked after the native startup surface exists,
+    /// so missing package contents receive the normal in-window diagnostics.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `executable_path` has no parent directory.
+    pub fn release(executable_path: &Path) -> anyhow::Result<Self> {
+        let executable_dir = executable_path
+            .parent()
+            .context("executable path has no parent directory")?;
+        Ok(Self::Release {
+            public_dir: executable_dir.join("public"),
+        })
+    }
+
+    /// Wrap a prepared Vite development frontend.
+    pub fn dev(frontend: dev::Frontend) -> Self { Self::Dev(frontend) }
+
+    /// Return the selected behavior without exposing source-specific state.
+    fn kind(&self) -> FrontendKind {
+        match self {
+            Self::Release { .. } => FrontendKind::Release,
+            Self::Dev(_) => FrontendKind::Dev,
+        }
+    }
+
+    /// Return the origin used to scope intercepted application API requests.
+    fn api_origin(&self) -> &str {
+        match self {
+            Self::Release { .. } => RELEASE_API_ORIGIN,
+            Self::Dev(frontend) => frontend.origin(),
+        }
+    }
+
+    /// Return the initial top-level WebView2 destination.
+    fn url(&self) -> &str {
+        match self {
+            Self::Release { .. } => RELEASE_FRONTEND_URL,
+            Self::Dev(frontend) => frontend.origin(),
+        }
+    }
+
+    /// Borrow the release artifact directory when folder mapping is required.
+    fn release_public_dir(&self) -> Option<&Path> {
+        match self {
+            Self::Release { public_dir } => Some(public_dir),
+            Self::Dev(_) => None,
+        }
+    }
+}
+
 /// Build the exact WebView2 URL patterns whose requests TurboDoc handles.
 ///
 /// Proxy bases end in `/`, so appending `*` cannot accidentally match a
-/// longer hostname. The frontend API patterns are scoped to the configured
-/// Vite origin instead of intercepting unrelated localhost traffic. Both
+/// longer hostname. The API patterns are scoped to the selected API origin
+/// instead of intercepting unrelated traffic. Both
 /// `/api` and its descendants are covered so unknown API requests cannot fall
-/// through to Vite's frontend fallback.
-fn web_resource_request_filters(frontend_url: &str) -> Vec<String> {
+/// through to frontend asset handling.
+fn web_resource_request_filters(api_origin: &str) -> Vec<String> {
     let proxy_filters =
         crate::PROXIED_URL
             .iter()
             .map(|base_url| format!("{base_url}*"));
-    let frontend_origin = frontend_url.trim_end_matches('/');
-    let frontend_api_filters = [
-        format!("{frontend_origin}/api"),
-        format!("{frontend_origin}/api/*"),
+    let api_origin = api_origin.trim_end_matches('/');
+    let api_filters = [
+        format!("{api_origin}/api"),
+        format!("{api_origin}/api/*"),
     ];
     proxy_filters
-        .chain(frontend_api_filters)
+        .chain(api_filters)
         .collect()
 }
 
-/// Run the eframe host while Vite and WebView2 initialize concurrently.
+/// Run the eframe host while the selected frontend and WebView2 initialize.
 ///
 /// eframe owns the root winit window and wgpu surface. WebView2 is created
 /// asynchronously as a child of that same HWND, so egui can keep rendering
-/// startup progress until both Vite and the controller are ready.
+/// startup progress until the selected frontend and controller are ready.
 pub fn run(
-    url: String,
+    frontend: FrontendSource,
     server: Server,
-    frontend_config: FrontendConfig,
     startup: StartupProbe) {
-    // Start Vite before eframe initializes wgpu so the two slower startup
-    // paths overlap. The monitor requests a repaint for both readiness and a
-    // later child exit; before eframe exists, its queued event is sufficient.
-    let (frontend_tx, frontend_rx) = mpsc::channel();
+    let frontend_kind = frontend.kind();
+    let api_origin = frontend.api_origin().to_owned();
+    let url = frontend.url().to_owned();
+    let release_public_dir = frontend.release_public_dir().map(Path::to_path_buf);
+
+    // Start Vite before eframe initializes wgpu so the two slower dev paths
+    // overlap. Release mode has neither a lifecycle channel nor child process.
     let frontend_repaint = Arc::new(OnceLock::<eframe::egui::Context>::new());
-    let callback_repaint = Arc::clone(&frontend_repaint);
-    server.spawn_frontend(frontend_config, startup, move |event| {
-        if frontend_tx.send(event).is_err() {
-            log::debug!("discarding Vite lifecycle event after eframe shutdown");
-            return;
-        }
-        if let Some(context) = callback_repaint.get() {
-            context.request_repaint();
-        }
-    });
+    let dev_rx = match frontend {
+        FrontendSource::Dev(frontend) => {
+            let (dev_tx, dev_rx) = mpsc::channel();
+            let callback_repaint = Arc::clone(&frontend_repaint);
+            frontend.spawn(startup, move |event| {
+                if dev_tx.send(event).is_err() {
+                    log::debug!("discarding Vite lifecycle event after eframe shutdown");
+                    return;
+                }
+                if let Some(context) = callback_repaint.get() {
+                    context.request_repaint();
+                }
+            });
+            Some(dev_rx)
+        },
+        FrontendSource::Release { .. } => {
+            startup.mark("release frontend artifacts selected");
+            None
+        },
+    };
+    let active_frontend = ActiveFrontend {
+        kind: frontend_kind,
+        api_origin,
+        url,
+        release_public_dir,
+        dev_rx,
+    };
 
     let native_options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
@@ -94,9 +201,8 @@ pub fn run(
                 eframe_started_at);
             Ok(Box::new(TurboDocApp::new(
                 creation_context,
-                url,
+                active_frontend,
                 server,
-                frontend_rx,
                 startup)?))
         }))
     {
@@ -114,7 +220,7 @@ enum StartupStatus {
     Failed,
 }
 
-/// Synchronizes the independent Vite and WebView2 readiness paths.
+/// Synchronizes the selected frontend and WebView2 readiness paths.
 ///
 /// This type intentionally has no platform dependencies so the readiness
 /// ordering and one-shot navigation invariant can be covered by unit tests.
@@ -126,18 +232,16 @@ struct StartupCoordinator {
     status: StartupStatus,
 }
 
-impl Default for StartupCoordinator {
-    fn default() -> Self {
+impl StartupCoordinator {
+    /// Initialize release mode as locally ready while dev mode waits for Vite.
+    fn new(frontend_kind: FrontendKind) -> Self {
         Self {
-            frontend_ready: false,
+            frontend_ready: frontend_kind == FrontendKind::Release,
             webview_ready: false,
             navigation_started_at: None,
             status: StartupStatus::Initializing,
         }
     }
-}
-
-impl StartupCoordinator {
     /// Record Vite readiness. Duplicate notifications are harmless because
     /// navigation is still guarded by `navigation_started_at`.
     fn mark_frontend_ready(&mut self) {
@@ -194,12 +298,25 @@ struct StartupFailure {
     details: String,
 }
 
+/// Selected frontend state retained after any dev process has been spawned.
+struct ActiveFrontend {
+    /// Behavior used by readiness coordination and API ownership.
+    kind: FrontendKind,
+    /// Origin used to scope intercepted `/api/*` requests.
+    api_origin: String,
+    /// Initial top-level WebView2 navigation destination.
+    url: String,
+    /// Release directory requiring virtual-host mapping, if selected.
+    release_public_dir: Option<PathBuf>,
+    /// Dev-only Vite lifecycle receiver; absent in release mode.
+    dev_rx: Option<mpsc::Receiver<dev::Event>>,
+}
+
 /// Native application state shared by the splash UI and WebView2 host.
 struct TurboDocApp {
     window: Arc<Window>,
-    url: String,
+    frontend: ActiveFrontend,
     server: Option<Server>,
-    frontend_rx: mpsc::Receiver<FrontendEvent>,
     webview_result: Rc<RefCell<Option<anyhow::Result<WebView>>>>,
     navigation_result: Rc<RefCell<Option<anyhow::Result<()>>>>,
     webview: Option<WebView>,
@@ -215,9 +332,8 @@ impl TurboDocApp {
     /// advance even when no window input occurs.
     fn new(
         creation_context: &eframe::CreationContext<'_>,
-        url: String,
+        frontend: ActiveFrontend,
         server: Server,
-        frontend_rx: mpsc::Receiver<FrontendEvent>,
         startup: StartupProbe)
      -> anyhow::Result<Self> {
         use nkcore::prelude::RawWindowHandleExt as _;
@@ -262,13 +378,12 @@ impl TurboDocApp {
         let mut app = Self {
             webview_size: window.inner_size(),
             window,
-            url,
             server: Some(server),
-            frontend_rx,
+            coordinator: StartupCoordinator::new(frontend.kind),
+            frontend,
             webview_result,
             navigation_result: Rc::new(RefCell::new(None)),
             webview: None,
-            coordinator: StartupCoordinator::default(),
             failure: None,
             startup,
         };
@@ -285,7 +400,7 @@ impl TurboDocApp {
             return;
         }
 
-        self.poll_frontend();
+        self.poll_dev_frontend();
         if self.coordinator.status == StartupStatus::Failed {
             return;
         }
@@ -330,12 +445,12 @@ impl TurboDocApp {
         }
 
         if self.coordinator.begin_navigation_if_ready(Instant::now()) {
-            self.startup.mark("Vite and WebView2 synchronized");
+            self.startup.mark("frontend and WebView2 synchronized");
             let navigate_result =
                 self.webview
                     .as_ref()
                     .expect("coordinator marked a missing WebView2 ready")
-                    .navigate(&self.url);
+                    .navigate(&self.frontend.url);
             match navigate_result {
                 Ok(()) => {
                     self.startup.mark("initial navigation requested");
@@ -347,18 +462,25 @@ impl TurboDocApp {
         }
     }
 
-    /// Drain Vite lifecycle events so an exit queued immediately after
-    /// readiness wins over beginning or retaining a frontend navigation.
-    fn poll_frontend(&mut self) {
+    /// Drain dev-mode Vite lifecycle events so an exit queued immediately
+    /// after readiness wins over beginning or retaining a navigation.
+    fn poll_dev_frontend(&mut self) {
+        if self.frontend.dev_rx.is_none() {
+            return;
+        }
         loop {
-            match self.frontend_rx.try_recv() {
-                Ok(FrontendEvent::Ready) => {
+            let event = self.frontend.dev_rx
+                .as_ref()
+                .expect("dev receiver disappeared while polling")
+                .try_recv();
+            match event {
+                Ok(dev::Event::Ready) => {
                     if !self.coordinator.frontend_ready {
                         self.coordinator.mark_frontend_ready();
                         self.startup.mark("Vite frontend ready");
                     }
                 },
-                Ok(FrontendEvent::Exited(err)) => {
+                Ok(dev::Event::Exited(err)) => {
                     let summary = if self.coordinator.frontend_ready {
                         "The frontend stopped unexpectedly."
                     } else {
@@ -389,12 +511,20 @@ impl TurboDocApp {
             return;
         }
 
+        if let Some(public_dir) = self.frontend.release_public_dir.as_deref()
+            && let Err(err) = configure_release_frontend(&webview, public_dir)
+        {
+            self.fail("TurboDoc could not load its release frontend.", err);
+            return;
+        }
+
         let result_slot = Rc::clone(&self.navigation_result);
         let repaint_context = context.clone();
         let setup_result = handler::setup(
             &self.window,
             &webview,
-            &self.url,
+            &self.frontend.api_origin,
+            self.frontend.kind,
             self.server.take().expect("WebView2 setup called twice"),
             self.startup,
             move |result| {
@@ -598,6 +728,22 @@ fn webview_bounds(size: PhysicalSize<u32>) -> RECT {
     }
 }
 
+/// Validate and map executable-adjacent release assets before navigation.
+fn configure_release_frontend(webview: &WebView, public_dir: &Path) -> anyhow::Result<()> {
+    let index_path = public_dir.join("index.html");
+    std::fs::File::open(&index_path)
+        .with_context(|| format!(
+            "release frontend entry is missing or unreadable: {}",
+            index_path.display()))?;
+    webview
+        .set_virtual_host_name_to_folder_mapping(
+            RELEASE_FRONTEND_HOST,
+            public_dir)
+        .with_context(|| format!(
+            "failed to map release frontend directory {}",
+            public_dir.display()))
+}
+
 /// Report failures that happen before egui's error surface can exist.
 fn show_native_startup_error(error: &eframe::Error) {
     use native_dialog::*;
@@ -738,7 +884,8 @@ mod handler {
     pub fn setup<F>(
         window: &Arc<Window>,
         webview: &WebView,
-        frontend_url: &str,
+        api_origin: &str,
+        frontend_kind: super::FrontendKind,
         server: Server,
         startup: StartupProbe,
         on_navigation: F)
@@ -746,7 +893,7 @@ mod handler {
     where
         F: FnOnce(anyhow::Result<()>) + 'static,
     {
-        for uri_pattern in super::web_resource_request_filters(frontend_url) {
+        for uri_pattern in super::web_resource_request_filters(api_origin) {
             webview.add_web_resource_requested_filter(&uri_pattern)?;
         }
 
@@ -775,9 +922,10 @@ mod handler {
 
         // TurboDoc has no loopback backend server. This handler supplies the
         // in-process `/api/*` routes and documentation proxy responses for
-        // the exact filters above; returning `None` lets ordinary Vite assets
-        // and HMR traffic continue through WebView2's network stack.
-        webview.on_web_resource_requested(move |request| on_web_resource_requested(&server, request))?;
+        // the exact filters above; returning `None` lets ordinary frontend
+        // resources continue through WebView2's selected source.
+        webview.on_web_resource_requested(move |request|
+            on_web_resource_requested(&server, frontend_kind, request))?;
 
         // The documentation viewer is an iframe, so its navigations do not
         // pass through the top-level completion handler. Observe them here to
@@ -852,14 +1000,18 @@ mod handler {
     ///
     /// - **Docs URLs** (`PROXIED_URL` prefixes, GET): through the proxy
     ///   cache + dark-mode injection pipeline.
-    /// - **`/api/ready`**: passed through to Vite's readiness handler.
+    /// - **Dev `/api/ready`**: passed through to Vite's readiness handler.
+    /// - **Release API preflights**: answered with the narrow policy required
+    ///   by the separate, unmapped API origin.
     /// - **Every other `/api` request**: dispatched to Rust, where the data
-    ///   handler owns `/api/data/{provider_id}` and rejects unknown routes.
+    ///   handler owns `/api/data/{provider_id}` and rejects unknown routes;
+    ///   release responses authorize only the mapped frontend origin.
     /// - **Everything else**: returns `None` so WebView2 falls through to
-    ///   its default path (frontend assets served by Vite, HMR WebSocket,
-    ///   navigations to external sites).
+    ///   its default path (release asset mapping or Vite/HMR in dev mode,
+    ///   plus navigations to external sites).
     fn on_web_resource_requested(
         server: &Server,
+        frontend_kind: super::FrontendKind,
         request: WebRequest)
      -> Option<WebResponse> {
         use http::Method;
@@ -876,9 +1028,20 @@ mod handler {
             };
         }
 
-        match api_request_handler(request.uri().path()) {
-            Some(ApiRequestHandler::Rust) =>
-                return Some(server.dispatch_api(request)),
+        match api_request_handler(
+            frontend_kind,
+            request.method(),
+            request.uri().path()) {
+            Some(ApiRequestHandler::Rust) => {
+                let response = server.dispatch_api(request);
+                return Some(match frontend_kind {
+                    super::FrontendKind::Release =>
+                        with_release_api_cors(response),
+                    super::FrontendKind::Dev => response,
+                });
+            },
+            Some(ApiRequestHandler::ReleasePreflight) =>
+                return Some(release_api_preflight_response()),
             Some(ApiRequestHandler::Vite) => return None,
             None => {},
         }
@@ -891,23 +1054,69 @@ mod handler {
     enum ApiRequestHandler {
         /// The in-process Rust dispatcher handles data routes and rejections.
         Rust,
+        /// The host answers a release-mode cross-origin preflight directly.
+        ReleasePreflight,
         /// Vite handles its launch-token-protected readiness route.
         Vite,
     }
 
     /// Classify frontend API paths without prefix ambiguity.
     ///
-    /// `/api/ready` is the only Vite-owned API path. Rust receives the entire
-    /// remaining namespace so unknown routes get an explicit HTTP response
-    /// instead of falling through to frontend content.
-    fn api_request_handler(path: &str) -> Option<ApiRequestHandler> {
-        if path == "/api/ready" {
+    /// `/api/ready` is Vite-owned only in dev mode. Rust receives the entire
+    /// release namespace and all remaining dev paths so unknown routes get an
+    /// explicit response instead of falling through to frontend content.
+    /// Release `OPTIONS` requests are separated because the API has a distinct
+    /// origin from the mapped static frontend.
+    fn api_request_handler(
+        frontend_kind: super::FrontendKind,
+        method: &http::Method,
+        path: &str)
+     -> Option<ApiRequestHandler> {
+        if frontend_kind == super::FrontendKind::Dev && path == "/api/ready" {
             Some(ApiRequestHandler::Vite)
+        } else if frontend_kind == super::FrontendKind::Release
+            && *method == http::Method::OPTIONS
+            && (path == "/api" || path.starts_with("/api/"))
+        {
+            Some(ApiRequestHandler::ReleasePreflight)
         } else if path == "/api" || path.starts_with("/api/") {
             Some(ApiRequestHandler::Rust)
         } else {
             None
         }
+    }
+
+    /// Authorize one release API response for the mapped frontend only.
+    ///
+    /// The exact origin deliberately prevents hosted documentation frames from
+    /// reading provider data even though their requests share this WebView2.
+    fn with_release_api_cors(mut response: WebResponse) -> WebResponse {
+        response.headers_mut().insert(
+            http::header::ACCESS_CONTROL_ALLOW_ORIGIN,
+            http::HeaderValue::from_static(super::RELEASE_FRONTEND_ORIGIN));
+        response.headers_mut().append(
+            http::header::VARY,
+            http::HeaderValue::from_static("Origin"));
+        response
+    }
+
+    /// Build the fixed preflight response for release-mode provider data.
+    fn release_api_preflight_response() -> WebResponse {
+        let mut response = WebResponse::new(Vec::new());
+        *response.status_mut() = http::StatusCode::NO_CONTENT;
+        response.headers_mut().insert(
+            http::header::ACCESS_CONTROL_ALLOW_METHODS,
+            http::HeaderValue::from_static("GET, PUT, OPTIONS"));
+        response.headers_mut().insert(
+            http::header::ACCESS_CONTROL_ALLOW_HEADERS,
+            http::HeaderValue::from_static("Content-Type"));
+        response.headers_mut().insert(
+            http::header::ACCESS_CONTROL_MAX_AGE,
+            http::HeaderValue::from_static("600"));
+        response.headers_mut().insert(
+            http::header::CONTENT_LENGTH,
+            http::HeaderValue::from_static("0"));
+        with_release_api_cors(response)
     }
 
     /// Intercepts iframe navigations.
@@ -986,6 +1195,9 @@ mod handler {
         use super::classify_frame_navigation;
         use super::frontend_call_source;
         use super::FrameNavigationKind;
+        use super::release_api_preflight_response;
+        use super::with_release_api_cors;
+        use crate::app::FrontendKind;
 
         #[test]
         fn frontend_call_source_round_trips_untrusted_argument_as_json() {
@@ -1052,36 +1264,118 @@ mod handler {
         #[test]
         fn data_api_is_owned_by_rust() {
             assert_eq!(
-                api_request_handler("/api/data/rust"),
+                api_request_handler(
+                    FrontendKind::Dev,
+                    &http::Method::GET,
+                    "/api/data/rust"),
                 Some(ApiRequestHandler::Rust));
         }
 
         #[test]
-        fn ready_api_is_owned_by_vite() {
+        fn ready_api_is_owned_by_vite_in_dev_mode() {
             assert_eq!(
-                api_request_handler("/api/ready"),
+                api_request_handler(
+                    FrontendKind::Dev,
+                    &http::Method::GET,
+                    "/api/ready"),
                 Some(ApiRequestHandler::Vite));
+        }
+
+        #[test]
+        fn ready_api_is_rejected_by_rust_in_release_mode() {
+            assert_eq!(
+                api_request_handler(
+                    FrontendKind::Release,
+                    &http::Method::GET,
+                    "/api/ready"),
+                Some(ApiRequestHandler::Rust));
         }
 
         #[test]
         fn unknown_api_is_rejected_by_rust() {
             assert_eq!(
-                api_request_handler("/api/database"),
+                api_request_handler(
+                    FrontendKind::Dev,
+                    &http::Method::GET,
+                    "/api/database"),
                 Some(ApiRequestHandler::Rust));
         }
 
         #[test]
         fn api_prefix_without_separator_is_not_intercepted() {
-            assert_eq!(api_request_handler("/apiary"), None);
+            assert_eq!(
+                api_request_handler(
+                    FrontendKind::Dev,
+                    &http::Method::GET,
+                    "/apiary"),
+                None);
+        }
+
+        #[test]
+        fn release_options_are_owned_by_the_preflight_policy() {
+            assert_eq!(
+                api_request_handler(
+                    FrontendKind::Release,
+                    &http::Method::OPTIONS,
+                    "/api/data/rust"),
+                Some(ApiRequestHandler::ReleasePreflight));
+        }
+
+        #[test]
+        fn release_preflight_exposes_only_the_application_api_contract() {
+            let response = release_api_preflight_response();
+
+            assert_eq!(
+                (
+                    response.status(),
+                    response.headers()[http::header::ACCESS_CONTROL_ALLOW_ORIGIN]
+                        .to_str().expect("static origin header should be text"),
+                    response.headers()[http::header::ACCESS_CONTROL_ALLOW_METHODS]
+                        .to_str().expect("static method header should be text"),
+                    response.headers()[http::header::ACCESS_CONTROL_ALLOW_HEADERS]
+                        .to_str().expect("static allowed-header value should be text"),
+                    response.headers()[http::header::ACCESS_CONTROL_MAX_AGE]
+                        .to_str().expect("static max-age header should be text")),
+                (
+                    http::StatusCode::NO_CONTENT,
+                    "https://turbodoc.example",
+                    "GET, PUT, OPTIONS",
+                    "Content-Type",
+                    "600"));
+        }
+
+        #[test]
+        fn release_cors_preserves_backend_error_responses() {
+            let response = with_release_api_cors(
+                http::Response::builder()
+                    .status(http::StatusCode::NOT_FOUND)
+                    .body(b"not found".to_vec())
+                    .expect("test response should build"));
+
+            assert_eq!(
+                (
+                    response.status(),
+                    response.body().as_slice(),
+                    response.headers()[http::header::ACCESS_CONTROL_ALLOW_ORIGIN]
+                        .to_str().expect("static origin header should be text")),
+                (
+                    http::StatusCode::NOT_FOUND,
+                    b"not found".as_slice(),
+                    "https://turbodoc.example"));
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
     use std::time::Duration;
     use std::time::Instant;
 
+    use super::FrontendKind;
+    use super::FrontendSource;
+    use super::RELEASE_API_ORIGIN;
+    use super::RELEASE_FRONTEND_ORIGIN;
     use super::StartupCoordinator;
     use super::StartupStatus;
     use super::web_resource_request_filters;
@@ -1089,14 +1383,14 @@ mod tests {
     #[test]
     fn startup_waits_for_both_independent_readiness_paths() {
         let now = Instant::now();
-        let mut frontend_first = StartupCoordinator::default();
+        let mut frontend_first = StartupCoordinator::new(FrontendKind::Dev);
         frontend_first.mark_frontend_ready();
         assert!(!frontend_first.begin_navigation_if_ready(now));
         frontend_first.mark_webview_ready();
         assert!(frontend_first.begin_navigation_if_ready(now));
         assert!(!frontend_first.begin_navigation_if_ready(now));
 
-        let mut webview_first = StartupCoordinator::default();
+        let mut webview_first = StartupCoordinator::new(FrontendKind::Dev);
         webview_first.mark_webview_ready();
         assert!(!webview_first.begin_navigation_if_ready(now));
         webview_first.mark_frontend_ready();
@@ -1107,7 +1401,7 @@ mod tests {
     #[test]
     fn startup_success_and_failure_are_terminal() {
         let now = Instant::now();
-        let mut successful = StartupCoordinator::default();
+        let mut successful = StartupCoordinator::new(FrontendKind::Dev);
         successful.mark_frontend_ready();
         successful.mark_webview_ready();
         assert!(successful.begin_navigation_if_ready(now));
@@ -1115,7 +1409,7 @@ mod tests {
         assert_eq!(successful.status, StartupStatus::Ready);
         assert!(!successful.begin_navigation_if_ready(now));
 
-        let mut failed = StartupCoordinator::default();
+        let mut failed = StartupCoordinator::new(FrontendKind::Dev);
         failed.mark_frontend_ready();
         failed.mark_webview_ready();
         failed.mark_failed();
@@ -1127,7 +1421,7 @@ mod tests {
     fn initial_navigation_timeout_is_bounded_at_the_deadline() {
         let started_at = Instant::now();
         let timeout = Duration::from_secs(30);
-        let mut coordinator = StartupCoordinator::default();
+        let mut coordinator = StartupCoordinator::new(FrontendKind::Dev);
         coordinator.mark_frontend_ready();
         coordinator.mark_webview_ready();
         assert!(coordinator.begin_navigation_if_ready(started_at));
@@ -1151,5 +1445,44 @@ mod tests {
                 "http://localhost:5173/api",
                 "http://localhost:5173/api/*",
             ]);
+    }
+
+    #[test]
+    fn release_api_filters_use_an_unmapped_origin() {
+        let filters = web_resource_request_filters(RELEASE_API_ORIGIN);
+        let expected_api_filters = [
+            "https://api.turbodoc.example/api".to_owned(),
+            "https://api.turbodoc.example/api/*".to_owned(),
+        ];
+
+        assert_eq!(
+            (
+                RELEASE_API_ORIGIN != RELEASE_FRONTEND_ORIGIN,
+                &filters[crate::PROXIED_URL.len()..]),
+            (
+                true,
+                expected_api_filters.as_slice()));
+    }
+
+    #[test]
+    fn release_startup_waits_only_for_webview_readiness() {
+        let now = Instant::now();
+        let mut coordinator = StartupCoordinator::new(FrontendKind::Release);
+
+        assert!(!coordinator.begin_navigation_if_ready(now));
+        coordinator.mark_webview_ready();
+        assert!(coordinator.begin_navigation_if_ready(now));
+    }
+
+    #[test]
+    fn release_assets_are_resolved_beside_the_executable() {
+        let source = FrontendSource::release(Path::new(
+            r"D:\repo\target\debug\turbodoc.exe"))
+            .expect("executable should have a parent directory");
+        let FrontendSource::Release { public_dir } = source else {
+            panic!("release constructor returned dev mode");
+        };
+
+        assert_eq!(public_dir, Path::new(r"D:\repo\target\debug\public"));
     }
 }

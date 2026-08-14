@@ -1,18 +1,17 @@
-//! Vite dev-server child process. Spawned on the Tokio runtime concurrently
-//! with native WebView2 setup; the host navigates only after Vite answers its
-//! dedicated HTTP readiness endpoint.
+//! Development frontend lifecycle.
 //!
-//! Job-Object inheritance (set up in `main.rs`) means the spawned Vite
-//! process dies when the host exits, including abrupt terminations.
+//! Dev mode owns the Vite child process, its launch-token readiness probe,
+//! and the Windows Job Object that prevents orphaned child processes. None of
+//! this module is constructed in release mode.
 
 use std::path::Path;
+use std::path::PathBuf;
 use std::time::Duration;
 use std::time::Instant;
 
 use anyhow::Context as _;
 use tokio::process::Command;
 
-use super::FrontendEvent;
 use crate::startup::StartupProbe;
 
 /// Maximum time allowed for Vite to answer its readiness endpoint.
@@ -28,22 +27,90 @@ const READY_TOKEN_ENV: &str = "TURBODOC_VITE_READY_TOKEN";
 /// Response header that proves `/api/ready` belongs to the child just spawned.
 const READY_TOKEN_HEADER: &str = "x-turbodoc-vite-ready-token";
 
+/// Lifecycle notifications from the host-owned Vite child.
+pub enum Event {
+    /// Vite answered the dedicated HTTP readiness endpoint and can receive the
+    /// initial WebView2 navigation.
+    Ready,
+    /// Vite failed before readiness or exited later. Every child exit is
+    /// fatal because the development frontend depends on that process.
+    Exited(anyhow::Error),
+}
+
+/// Prepared development frontend and the resources that own its lifetime.
+pub struct Frontend {
+    runtime: tokio::runtime::Handle,
+    root_dir: PathBuf,
+    origin: String,
+    port: u16,
+    job_object: win32job::Job,
+}
+
+impl Frontend {
+    /// Resolve the repository frontend and configure child-process cleanup.
+    ///
+    /// `executable_path` must have Cargo's `<repo>/target/<profile>/<exe>`
+    /// layout because Vite runs from the repository's `frontend/` directory.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the executable path has an unexpected layout or
+    /// Windows cannot create and assign the process Job Object.
+    pub fn new(
+        runtime: tokio::runtime::Handle,
+        executable_path: &Path,
+        port: u16)
+     -> anyhow::Result<Self> {
+        let root_dir = repo_root_from_executable(executable_path)
+            .context("development mode requires an executable under <repo>/target/<profile>")?;
+        let job_object = create_job_object()?;
+        log::info!("dev frontend root: {}", root_dir.display());
+        Ok(Self {
+            runtime,
+            root_dir,
+            origin: format!("http://127.0.0.1:{port}"),
+            port,
+            job_object,
+        })
+    }
+
+    /// Return the IPv4 loopback origin shared by Vite and WebView2.
+    pub fn origin(&self) -> &str { &self.origin }
+
+    /// Spawn and monitor Vite on the prepared Tokio runtime.
+    ///
+    /// The detached task owns the Job Object and child handle until Vite exits
+    /// or runtime shutdown cancels the task. `on_event` first receives
+    /// [`Event::Ready`], then receives [`Event::Exited`] for any later exit.
+    pub fn spawn<F>(self, startup: StartupProbe, on_event: F)
+    where
+        F: FnMut(Event) + Send + 'static {
+        let Self {
+            runtime,
+            root_dir,
+            origin: _,
+            port,
+            job_object,
+        } = self;
+        let _task = runtime.spawn(async move {
+            // The current process was assigned before Vite spawned. Retaining
+            // the final handle keeps kill-on-close active for the child.
+            let _job_object = job_object;
+            monitor_vite(&root_dir, port, startup, on_event).await;
+        });
+    }
+}
+
 /// Own and monitor Vite for the lifetime of the child process.
-///
-/// `on_event` first receives [`FrontendEvent::Ready`] after `GET /api/ready`
-/// returns an empty `200` response carrying this launch's token. Any later
-/// child exit is unexpected and is reported through
-/// [`FrontendEvent::Exited`], including an exit status of zero. Token
-/// generation, startup timeout, and child-launch failures use the same path.
-pub async fn monitor_vite<F>(
+async fn monitor_vite<F>(
     root_dir: &Path,
     port: u16,
     startup: StartupProbe,
     mut on_event: F)
 where
-    F: FnMut(FrontendEvent) {
+    F: FnMut(Event) {
     if let Err(err) = run_vite(root_dir, port, startup, &mut on_event).await {
-        on_event(FrontendEvent::Exited(err));
+        on_event(Event::Exited(err));
     }
 }
 
@@ -56,7 +123,7 @@ async fn run_vite<F>(
     on_event: &mut F)
  -> anyhow::Result<()>
 where
-    F: FnMut(FrontendEvent) {
+    F: FnMut(Event) {
     let phase_started_at = Instant::now();
     let frontend_dir = root_dir.join("frontend");
     let ready_token = create_ready_token()?;
@@ -87,7 +154,7 @@ where
     startup.mark_phase(
         &format!("Vite ready on port {port}"),
         phase_started_at);
-    on_event(FrontendEvent::Ready);
+    on_event(Event::Ready);
 
     let status = child
         .wait()
@@ -96,7 +163,7 @@ where
     unexpected_exit(status)
 }
 
-/// Convert every Vite exit into an error because TurboDoc cannot serve its UI
+/// Convert every Vite exit into an error because dev mode cannot serve its UI
 /// without the child, regardless of whether the process reports success.
 fn unexpected_exit(status: std::process::ExitStatus) -> anyhow::Result<()> {
     anyhow::bail!("Vite exited unexpectedly with status {status}")
@@ -166,10 +233,47 @@ fn is_ready_response(
     status == reqwest::StatusCode::OK && body.is_empty() && token_matches
 }
 
+/// Create a kill-on-close Job Object and assign the current host process.
+fn create_job_object() -> anyhow::Result<win32job::Job> {
+    use tap::Pipe as _;
+    use win32job::ExtendedLimitInfo;
+    use win32job::Job;
+
+    let job_object =
+        ExtendedLimitInfo::new()
+            .limit_kill_on_job_close()
+            .pipe(|info| Job::create_with_limit_info(info))
+            .context("failed to create development process Job Object")?;
+    job_object
+        .assign_current_process()
+        .context("failed to assign TurboDoc to the development process Job Object")?;
+    Ok(job_object)
+}
+
+/// Walk from Cargo's executable layout to the repository root.
+fn repo_root_from_executable(executable_path: &Path) -> Option<PathBuf> {
+    executable_path
+        .parent()?
+        .parent()?
+        .parent()
+        .map(Path::to_path_buf)
+}
+
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::create_ready_token;
     use super::is_ready_response;
+    use super::repo_root_from_executable;
+
+    #[test]
+    fn repo_root_is_derived_from_cargo_executable_layout() {
+        assert_eq!(
+            repo_root_from_executable(Path::new(
+                r"D:\repo\target\release\turbodoc.exe")),
+            Some(Path::new(r"D:\repo").to_path_buf()));
+    }
 
     #[test]
     fn readiness_accepts_empty_success_with_matching_token() {

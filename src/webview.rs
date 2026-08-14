@@ -4,6 +4,7 @@ use nkcore::*;
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
+use std::path::Path;
 use std::rc::Rc;
 use std::result::Result;
 use std::time::Instant;
@@ -226,6 +227,38 @@ impl WebView {
 
     pub fn set_bounds(&self, bounds: RECT) -> anyhow::Result<()> {
         api_call!(unsafe { self.controller.SetBounds(bounds) })
+    }
+
+    /// Map one virtual HTTPS host to a local static-resource directory.
+    ///
+    /// Cross-origin access is denied because TurboDoc's release frontend only
+    /// needs same-origin HTML, module, stylesheet, and application API access.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when either argument contains a null code unit, the
+    /// installed WebView2 runtime lacks the required interface, or WebView2
+    /// rejects the mapping (including an overlong folder path).
+    pub fn set_virtual_host_name_to_folder_mapping(
+        &self,
+        host_name: &str,
+        folder_path: &Path)
+     -> anyhow::Result<()> {
+        let host_name =
+            api_call!(U16CString::from_str(host_name))
+                .with_context(|| context!(
+                    "failed to convert argument `host_name` to U16CString"))?;
+        let folder_path =
+            api_call!(U16CString::from_os_str(folder_path.as_os_str()))
+                .with_context(|| context!(
+                    "failed to convert argument `folder_path` to U16CString"))?;
+        let core_3 = api_call!(unsafe { self.core.cast::<ICoreWebView2_3>() })?;
+        api_call!(unsafe {
+            core_3.SetVirtualHostNameToFolderMapping(
+                PCWSTR(host_name.as_ptr()),
+                PCWSTR(folder_path.as_ptr()),
+                COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY)
+        })
     }
 
     /// Close the controller and release its registered event handlers.

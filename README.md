@@ -46,29 +46,36 @@ TurboDoc currently targets Windows 10/11 and uses the Microsoft Edge WebView2 Ru
 # Install the frontend dependencies and vendored shadcn-svelte components.
 just install
 
-# Build an optimized Rust host and run with repository-local data.
-just run --data data --port 5173
+# Build the optimized host and copy Vite artifacts beside the executable.
+just release
+
+# Run the built frontend with repository-local data.
+just run --data data
+
+# Or develop the frontend through Vite with HMR.
+just dev
 ```
 
-The directory passed to `--data` stores the workspace files and HTTP cache. `--port` is used by the Vite frontend process; both options also accept the `TURBODOC_DATA` and `TURBODOC_PORT` environment variables.
+The directory passed to `--data` stores the workspace files and HTTP cache. Release mode is the default and loads `public/` beside the executable without opening a local port. `--dev` starts Vite; its required `--port` also accepts the `TURBODOC_PORT` environment variable. `--data` accepts `TURBODOC_DATA` in both modes. Runtime mode is independent of Cargo's build profile.
 
 ## Architecture
 
-The desktop shell and backend live in one Rust process. During development, that process owns a Vite child process for frontend assets and hot-module replacement. There is no loopback HTTP server for documentation or application data: WebView2 requests are intercepted and dispatched directly to the in-process backend.
+The desktop shell and backend live in one Rust process. By default, WebView2 maps the built frontend from `public/` beside the executable to a private HTTPS origin. Development mode instead owns a Vite child process for hot-module replacement. There is no loopback HTTP server for documentation or application data: WebView2 requests are intercepted and dispatched directly to the in-process backend.
 
 ```text
 WebView2
 ├─ docs.rs / Rust standard library / windows-docs-rs
 │  └─ WebResourceRequested → Server::fetch
 │       └─ SQLite cache ↔ upstream documentation
-├─ /api/v1/*
+├─ /api/* (release: https://api.turbodoc.example; dev: Vite origin)
 │  └─ WebResourceRequested → Server::dispatch_api
 │       └─ TOML workspace data
-└─ Frontend assets and HMR
-   └─ Vite child process
+└─ Frontend assets
+   ├─ release → WebView2 virtual host → executable-adjacent public/
+   └─ --dev  → Vite child process + HMR
 ```
 
-The proxy cache applies upstream cache directives, conditional revalidation, stale-while-revalidate, and LRU eviction before returning responses directly to WebView2. The Svelte frontend remains unaware of that routing and uses ordinary navigation and `fetch` calls.
+The proxy cache applies upstream cache directives, conditional revalidation, stale-while-revalidate, and LRU eviction before returning responses directly to WebView2. The Svelte frontend uses ordinary navigation and `fetch` calls; release API calls use a separate reserved origin because WebView2 does not raise request-interception events for URLs claimed by a virtual-host folder mapping.
 
 | Layer | Technologies |
 |---|---|
@@ -82,4 +89,3 @@ See [the architecture and implementation notes](docs/README.md) for the provider
 ## License
 
 [GPL-3.0](LICENSE)
-
