@@ -24,6 +24,7 @@ import type {
 import { parseUrl, buildUrl, getBaseUrlForCrate } from "./url";
 import { setupRustEffects } from "./effects.svelte";
 import { addCrate, ensureCrate, navigateToCrateRoot } from "./crate-add";
+import { deleteCrate } from "./crate-delete";
 import {
     type CrateCache,
     getCrateCache,
@@ -264,7 +265,7 @@ function getCrateActions(
         name: "Delete Crate",
         icon: { type: "lucide", icon: Trash2 },
         destructive: true,
-        invoke: () => { delete ctx.data.crates[crateName]; },
+        invoke: () => deleteCrate(ctx, crateName),
     });
 
     return actions;

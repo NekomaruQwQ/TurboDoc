@@ -1,3 +1,5 @@
+import { untrack } from "svelte";
+
 import type { ProviderContext } from "@/core/data";
 
 import type { RustProviderData } from "./index";
@@ -29,9 +31,14 @@ export function setupRustEffects(ctx: ProviderContext<RustProviderData>) {
         }
     });
 
-    // (2) Current-URL sync.
+    // (2) Current-URL sync. Track the URL and provider-data container, but
+    // not nested mutations: deleting the viewed crate must not look like a
+    // fresh navigation and immediately auto-import it again. Tracking the
+    // container still reconciles persisted data after the async load.
     $effect(() => {
-        handleCurrentUrl(ctx);
+        const data = ctx.data;
+        const currentUrl = ctx.currentUrl;
+        untrack(() => handleCurrentUrl(ctx, data, currentUrl));
     });
 }
 
@@ -42,25 +49,28 @@ export function setupRustEffects(ctx: ProviderContext<RustProviderData>) {
  *  - Update the matching crate's `currentVersion` if the URL pins a
  *    different one.
  *  - Auto-import unknown crates so cross-crate navigation feels seamless. */
-function handleCurrentUrl(ctx: ProviderContext<RustProviderData>) {
-    const currentUrl = parseUrl(ctx.currentUrl);
+function handleCurrentUrl(
+    ctx: ProviderContext<RustProviderData>,
+    data: RustProviderData,
+    currentUrlText: string) {
+    const currentUrl = parseUrl(currentUrlText);
     if (!currentUrl) return;
 
-    if (ctx.currentUrl !== buildUrl(currentUrl)) {
+    if (currentUrlText !== buildUrl(currentUrl)) {
         // Canonical-form re-navigation always hits the proxy cache.
         ctx.navigateTo(buildUrl(currentUrl));
         return;
     }
 
     const crateName = currentUrl.name;
-    ctx.data.crates ??= {};
-    const crate = reconcileCrateName(ctx.data.crates, crateName);
+    data.crates ??= {};
+    const crate = reconcileCrateName(data.crates, crateName);
     if (crate) {
         if (currentUrl.version !== crate.currentVersion) {
             crate.currentVersion = currentUrl.version;
         }
     } else {
-        ctx.data.crates[crateName] = {
+        data.crates[crateName] = {
             currentVersion: currentUrl.version ?? "latest",
             pinnedPages: [],
         };

@@ -14,6 +14,12 @@ function crateNameComparisonKey(name: string): string {
     return name.toLowerCase().replaceAll("-", "_");
 }
 
+/** Whether two crate names identify the same crates.io package despite the
+ * case and separator aliases accepted by registry lookup and docs.rs. */
+export function crateNamesEquivalent(left: string, right: string): boolean {
+    return crateNameComparisonKey(left) === crateNameComparisonKey(right);
+}
+
 /** Re-key every separator/case alias to the authoritative name reported by
  * docs.rs. Existing canonical data wins for scalar fields, while pinned pages
  * are merged so repairing an older workspace cannot discard user state.
@@ -22,9 +28,8 @@ function crateNameComparisonKey(name: string): string {
 export function reconcileCrateName<T extends ReconcilableCrateData>(
     crates: Record<string, T>,
     canonicalName: string): T | undefined {
-    const comparisonKey = crateNameComparisonKey(canonicalName);
     const equivalents = Object.entries(crates)
-        .filter(([name]) => crateNameComparisonKey(name) === comparisonKey);
+        .filter(([name]) => crateNamesEquivalent(name, canonicalName));
     const canonical = crates[canonicalName] ?? equivalents.at(0)?.[1];
     if (!canonical) return undefined;
 

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { reconcileCrateName } from "./crate-name";
+import { crateNamesEquivalent, reconcileCrateName } from "./crate-name";
 
 /** Build a minimal persisted crate record for reconciliation tests. */
 function crate(currentVersion: string, pinnedPages: string[] = []) {
@@ -9,6 +9,16 @@ function crate(currentVersion: string, pinnedPages: string[] = []) {
 
 /** Mutable name-keyed fixture matching the provider's persisted shape. */
 type TestCrates = Record<string, ReturnType<typeof crate>>;
+
+describe("crateNamesEquivalent", () => {
+    test("accepts case and separator aliases", () => {
+        expect(crateNamesEquivalent("Const-Format", "const_format")).toBeTrue();
+    });
+
+    test("rejects different crate names", () => {
+        expect(crateNamesEquivalent("serde", "serde_json")).toBeFalse();
+    });
+});
 
 describe("reconcileCrateName", () => {
     test("uses the canonical underscore spelling reported by docs.rs", () => {
