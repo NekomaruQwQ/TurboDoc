@@ -40,9 +40,16 @@
     open={expanded.value}
     onOpenChange={value => expanded.value = value}>
     <ExplorerGroupHeader {groupName} {itemIds} expanded={expanded.value} />
-    <Collapsible.Content class="flex flex-col">
+    <Collapsible.Content class="explorer-group-content">
         {#each groupItems as [itemId, item] (itemId)}
             <ExplorerItem {item} itemGroupName={groupName} />
         {/each}
     </Collapsible.Content>
 </Collapsible.Root>
+
+<style>
+    :global(.explorer-group-content) {
+        display: flex;
+        flex-direction: column;
+    }
+</style>

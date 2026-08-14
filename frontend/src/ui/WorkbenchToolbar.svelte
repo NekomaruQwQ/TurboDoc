@@ -10,19 +10,77 @@
 </script>
 
 <header
-    class="grid h-10 shrink-0 grid-cols-[minmax(7rem,1fr)_minmax(16rem,44rem)_minmax(7rem,1fr)] items-center gap-3 border-b border-workbench-divider bg-background px-3">
-    <div class="flex min-w-0 items-center gap-2 text-[13px] font-semibold">
-        <BookOpenText class="size-4 text-primary" />
-        <span class="truncate">TurboDoc</span>
+    class="toolbar">
+    <div class="brand">
+        <BookOpenText />
+        <span class="brand-name">TurboDoc</span>
     </div>
 
     <div
-        class="flex h-7 min-w-0 items-center justify-center gap-2 rounded-md border border-workbench-divider bg-workbench px-3 text-xs text-muted-foreground shadow-sm"
+        class="location"
         title={location}>
-        <Globe2 class="size-3.5 shrink-0" />
-        <span class="truncate">{location}</span>
+        <Globe2 />
+        <span class="location-text">{location}</span>
     </div>
 
     <!-- Symmetric outer columns keep the location centered as the window grows. -->
     <div aria-hidden="true"></div>
 </header>
+
+<style>
+    .toolbar {
+        display: grid;
+        height: 2.5rem;
+        flex-shrink: 0;
+        grid-template-columns: minmax(7rem, 1fr) minmax(16rem, 44rem) minmax(7rem, 1fr);
+        align-items: center;
+        gap: 0.75rem;
+        border-bottom: 1px solid var(--color-workbench-divider);
+        background-color: var(--color-background);
+        padding-inline: 0.75rem;
+    }
+
+    .brand {
+        display: flex;
+        min-width: 0;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 13px;
+        font-weight: 600;
+    }
+
+    .brand :global(svg) {
+        width: 1rem;
+        height: 1rem;
+        color: var(--color-primary);
+    }
+
+    .brand-name,
+    .location-text {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .location {
+        display: flex;
+        min-width: 0;
+        height: 1.75rem;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        border: 1px solid var(--color-workbench-divider);
+        border-radius: var(--radius-md);
+        background-color: var(--color-workbench);
+        padding-inline: 0.75rem;
+        color: var(--color-muted-foreground);
+        font-size: 0.75rem;
+        box-shadow: 0 1px 2px 0 rgb(0 0 0 / 5%);
+    }
+
+    .location :global(svg) {
+        width: 0.875rem;
+        height: 0.875rem;
+        flex-shrink: 0;
+    }
+</style>

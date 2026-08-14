@@ -13,6 +13,12 @@
     --color-red:    #E06C75;
 }
 
+#app {
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+}
+
 button {
     /* Buttons are always actions, including unstyled tree rows. */
     cursor: pointer;

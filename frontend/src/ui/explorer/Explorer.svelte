@@ -240,11 +240,11 @@
     });
 </script>
 
-<div class="flex min-h-0 flex-1 flex-col">
+<div class="explorer">
     {#if output.search}
         <!-- Search owns a fixed row so crate navigation and manual scrolling
              use only the unobstructed list viewport below it. -->
-        <div class="shrink-0 px-1.5 pt-1.5">
+        <div class="search-region">
             <ExplorerSearch
                 items={output.items}
                 search={output.search}
@@ -254,10 +254,8 @@
 
     <div
         bind:this={scrollViewport}
-        class={[
-            "flex min-h-0 flex-1 flex-col overflow-y-auto px-1.5 pb-1.5",
-            output.search ? "pt-0" : "pt-1.5",
-        ]}>
+        class="explorer-viewport"
+        data-has-search={Boolean(output.search)}>
         <!-- Provider-level actions (e.g. "Import"). Only the "input" variant
              renders a dialog; "menu" is reserved for future inline menu items. -->
         {#each output.actions ?? [] as action, i (i)}
@@ -273,7 +271,7 @@
             {#each store.data.groupOrder.filter(g => g in store.data.groups) as groupName (groupName)}
                 <ExplorerGroup {groupName} providerOutput={output} />
             {/each}
-            <div class="h-1 shrink-0"></div>
+            <div class="group-spacer"></div>
             <ExplorerCreateGroupComponent />
         {:else}
             {#each Object.entries(output.items) as [itemId, item] (itemId)}
@@ -282,3 +280,35 @@
         {/if}
     </div>
 </div>
+
+<style>
+    .explorer {
+        display: flex;
+        min-height: 0;
+        flex: 1 1 0%;
+        flex-direction: column;
+    }
+
+    .search-region {
+        flex-shrink: 0;
+        padding: 0.375rem 0.375rem 0;
+    }
+
+    .explorer-viewport {
+        display: flex;
+        min-height: 0;
+        flex: 1 1 0%;
+        flex-direction: column;
+        overflow-y: auto;
+        padding: 0.375rem;
+    }
+
+    .explorer-viewport[data-has-search="true"] {
+        padding-top: 0;
+    }
+
+    .group-spacer {
+        height: 0.25rem;
+        flex-shrink: 0;
+    }
+</style>

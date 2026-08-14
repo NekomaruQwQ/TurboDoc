@@ -39,7 +39,7 @@
 {#if showTrigger}
     <Button
         variant="outline"
-        class="mb-1 h-7 w-full justify-start rounded-sm border-workbench-divider bg-transparent px-2 text-xs font-normal"
+        class="explorer-input-action-trigger"
         onclick={() => open = true}>
         <Icon icon={action.icon} size="sm" />
         <span>{action.name}</span>
@@ -57,7 +57,7 @@
                 bind:this={textareaEl}
                 placeholder={action.placeholder ?? ""}
                 rows={8}
-                class="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                class="action-input"
             ></textarea>
         {:else}
             <Input bind:ref={inputEl} placeholder={action.placeholder ?? ""} />
@@ -68,3 +68,36 @@
         </Dialog.Footer>
     </Dialog.Content>
 </Dialog.Root>
+
+<style>
+    :global([data-slot="button"].explorer-input-action-trigger) {
+        width: 100%;
+        height: 1.75rem;
+        justify-content: flex-start;
+        margin-bottom: 0.25rem;
+        border-color: var(--color-workbench-divider);
+        border-radius: var(--radius-sm);
+        background-color: transparent;
+        padding-inline: 0.5rem;
+        font-size: 0.75rem;
+        font-weight: 400;
+    }
+
+    .action-input {
+        width: 100%;
+        border: 1px solid var(--color-input);
+        border-radius: var(--radius-md);
+        background-color: transparent;
+        padding: 0.5rem 0.75rem;
+        font-size: 0.875rem;
+    }
+
+    .action-input::placeholder {
+        color: var(--color-muted-foreground);
+    }
+
+    .action-input:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 2px var(--color-ring);
+    }
+</style>

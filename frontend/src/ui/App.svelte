@@ -121,46 +121,46 @@
     }
 </script>
 
-<div class="flex h-full w-full flex-col bg-workbench">
+<div class="workbench">
     <WorkbenchToolbar />
-    <Resizable.PaneGroup direction="horizontal" class="min-h-0 flex-1 gap-0.5 p-2">
-        <Resizable.Pane defaultSize={20} class="flex min-w-0 flex-col">
+    <Resizable.PaneGroup direction="horizontal" class="workbench-pane-group">
+        <Resizable.Pane defaultSize={20} class="workbench-sidebar-pane">
             <aside
-                class="flex min-h-0 flex-1 overflow-hidden rounded-lg border border-workbench-divider bg-sidebar"
+                class="sidebar"
                 aria-label="Documentation sidebar">
                 <NavBar
                     {providers}
                     activeProviderId={provider.id}
                     onProviderSelect={selectProvider} />
                 <section
-                    class="flex min-w-0 flex-1 flex-col"
+                    class="explorer-pane"
                     aria-label="Documentation explorer">
                     <Explorer {provider} {reportedNavigationId} />
                 </section>
             </aside>
         </Resizable.Pane>
         <Resizable.Handle
-            class="w-1 bg-transparent transition-colors after:w-2 hover:bg-ring/35 focus-visible:bg-ring/45" />
-        <Resizable.Pane defaultSize={80} class="flex min-w-0 flex-col">
+            class="workbench-resize-handle" />
+        <Resizable.Pane defaultSize={80} class="workbench-editor-pane">
             <div
-                class="relative min-h-0 flex-1"
+                class="editor-pane"
                 aria-busy={documentLoad.status !== "ready"}>
                 <iframe
                     bind:this={ctx.viewerRef.value}
                     title="Documentation viewer"
-                    class="h-full w-full rounded-lg border border-workbench-divider bg-editor">
+                    class="document-viewer">
                 </iframe>
                 {#if documentLoad.status !== "ready"}
                     <div
                         role={documentLoad.status === "error" ? "alert" : "status"}
                         aria-live="polite"
-                        class="absolute inset-0 flex items-center justify-center rounded-lg border border-workbench-divider bg-editor">
+                        class="document-placeholder">
                         {#if documentLoad.status === "error"}
-                            <div class="flex max-w-sm flex-col items-center px-8 text-center">
-                                <p class="text-sm font-medium text-foreground">
+                            <div class="document-error">
+                                <p class="document-error-title">
                                     Documentation didn’t load
                                 </p>
-                                <p class="mt-1.5 text-xs leading-5 text-muted-foreground">
+                                <p class="document-error-message">
                                     {documentLoad.reason === "timeout"
                                         ? "The page is taking too long to respond."
                                         : "The page could not be loaded. Check the connection and try again."}
@@ -168,18 +168,18 @@
                                 <Button
                                     variant="outline"
                                     size="sm"
-                                    class="mt-4"
+                                    class="workbench-retry-action"
                                     onclick={retryDocumentNavigation}>
                                     Retry
                                 </Button>
                             </div>
                         {:else}
-                            <div class="flex flex-col items-center text-muted-foreground">
+                            <div class="document-loading">
                                 <span
                                     aria-hidden="true"
-                                    class="size-5 animate-spin rounded-full border-2 border-current/20 border-t-primary motion-reduce:animate-none">
+                                    class="document-spinner">
                                 </span>
-                                <p class="mt-3 text-xs">Loading documentation…</p>
+                                <p class="document-loading-label">Loading documentation…</p>
                             </div>
                         {/if}
                     </div>
@@ -188,3 +188,143 @@
         </Resizable.Pane>
     </Resizable.PaneGroup>
 </div>
+
+<style>
+    .workbench {
+        display: flex;
+        width: 100%;
+        height: 100%;
+        flex-direction: column;
+        background-color: var(--color-workbench);
+    }
+
+    :global(.workbench-pane-group) {
+        min-height: 0;
+        flex: 1 1 0%;
+        gap: 0.125rem;
+        padding: 0.5rem;
+    }
+
+    :global(.workbench-sidebar-pane),
+    :global(.workbench-editor-pane) {
+        display: flex;
+        min-width: 0;
+        flex-direction: column;
+    }
+
+    .sidebar {
+        display: flex;
+        min-height: 0;
+        flex: 1 1 0%;
+        overflow: hidden;
+        border: 1px solid var(--color-workbench-divider);
+        border-radius: var(--radius-lg);
+        background-color: var(--color-sidebar);
+    }
+
+    .explorer-pane {
+        display: flex;
+        min-width: 0;
+        flex: 1 1 0%;
+        flex-direction: column;
+    }
+
+    :global(.workbench-resize-handle) {
+        width: 0.25rem;
+        background-color: transparent;
+        transition: background-color 150ms;
+    }
+
+    :global(.workbench-resize-handle::after) {
+        width: 0.5rem;
+    }
+
+    :global(.workbench-resize-handle:hover) {
+        background-color: color-mix(in oklab, var(--color-ring) 35%, transparent);
+    }
+
+    :global(.workbench-resize-handle:focus-visible) {
+        background-color: color-mix(in oklab, var(--color-ring) 45%, transparent);
+    }
+
+    .editor-pane {
+        position: relative;
+        min-height: 0;
+        flex: 1 1 0%;
+    }
+
+    .document-viewer,
+    .document-placeholder {
+        border: 1px solid var(--color-workbench-divider);
+        border-radius: var(--radius-lg);
+        background-color: var(--color-editor);
+    }
+
+    .document-viewer {
+        width: 100%;
+        height: 100%;
+    }
+
+    .document-placeholder {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .document-error {
+        display: flex;
+        max-width: 24rem;
+        flex-direction: column;
+        align-items: center;
+        padding-inline: 2rem;
+        text-align: center;
+    }
+
+    .document-error-title {
+        color: var(--color-foreground);
+        font-size: 0.875rem;
+        font-weight: 500;
+    }
+
+    .document-error-message {
+        margin-top: 0.375rem;
+        color: var(--color-muted-foreground);
+        font-size: 0.75rem;
+        line-height: 1.25rem;
+    }
+
+    :global([data-slot="button"].workbench-retry-action) {
+        margin-top: 1rem;
+    }
+
+    .document-loading {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        color: var(--color-muted-foreground);
+    }
+
+    .document-spinner {
+        width: 1.25rem;
+        height: 1.25rem;
+        border: 2px solid color-mix(in oklab, currentcolor 20%, transparent);
+        border-top-color: var(--color-primary);
+        border-radius: 9999px;
+        animation: document-spinner 1s linear infinite;
+    }
+
+    .document-loading-label {
+        margin-top: 0.75rem;
+        font-size: 0.75rem;
+    }
+
+    @keyframes document-spinner {
+        to { transform: rotate(360deg); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .document-spinner { animation: none; }
+    }
+</style>

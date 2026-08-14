@@ -19,7 +19,7 @@
 </script>
 
 <Collapsible.Root
-    class="flex flex-col truncate"
+    class="explorer-item"
     data-explorer-item-id={item.id}
     open={expanded.value}
     onOpenChange={v => expanded.value = v}
@@ -27,19 +27,79 @@
     aria-label={`${item.name} crate`}>
     <div
         data-explorer-item-header
-        class="group/item flex h-7 min-w-0 items-center rounded-sm px-0.5 hover:bg-workbench-hover focus-within:bg-workbench-hover">
+        class="item-header">
         <Collapsible.Trigger
-            class="flex h-7 min-w-0 flex-1 items-center gap-1 pl-1.5 text-left font-mono text-[13px]">
+            class="explorer-item-toggle">
             {#if expanded.value}
-                <ChevronDown class="size-3.5 shrink-0 text-muted-foreground" />
+                <ChevronDown />
             {:else}
-                <ChevronRight class="size-3.5 shrink-0 text-muted-foreground" />
+                <ChevronRight />
             {/if}
-            <span class="truncate">{item.name}</span>
+            <span class="item-name">{item.name}</span>
         </Collapsible.Trigger>
         <ExplorerItemMenu {item} {itemGroupName} />
     </div>
-    <Collapsible.Content class="flex flex-col pl-5">
+    <Collapsible.Content class="explorer-item-pages">
         <ExplorerPageList pages={item.pages} />
     </Collapsible.Content>
 </Collapsible.Root>
+
+<style>
+    :global(.explorer-item) {
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .item-header {
+        display: flex;
+        min-width: 0;
+        height: 1.75rem;
+        align-items: center;
+        border-radius: var(--radius-sm);
+        padding-inline: 0.125rem;
+    }
+
+    .item-header:hover,
+    .item-header:focus-within {
+        background-color: var(--color-workbench-hover);
+    }
+
+    :global(.explorer-item-toggle) {
+        display: flex;
+        min-width: 0;
+        height: 1.75rem;
+        flex: 1 1 0%;
+        align-items: center;
+        gap: 0.25rem;
+        border: 0;
+        background-color: transparent;
+        padding-left: 0.375rem;
+        color: inherit;
+        font-family: var(--font-mono);
+        font-size: 13px;
+        text-align: left;
+    }
+
+    :global(.explorer-item-toggle svg) {
+        width: 0.875rem;
+        height: 0.875rem;
+        flex-shrink: 0;
+        color: var(--color-muted-foreground);
+    }
+
+    .item-name {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    :global(.explorer-item-pages) {
+        display: flex;
+        flex-direction: column;
+        padding-left: 1.25rem;
+    }
+</style>

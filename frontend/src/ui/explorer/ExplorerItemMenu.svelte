@@ -1,7 +1,4 @@
 <script lang="ts">
-    import { cn } from "@shadcn/utils";
-    import { buttonVariants } from "@shadcn/components/ui/button";
-
     import EllipsisVertical from "@lucide/svelte/icons/ellipsis-vertical";
     import Ellipsis from "@lucide/svelte/icons/ellipsis";
     import ExternalLink from "@lucide/svelte/icons/external-link";
@@ -93,23 +90,18 @@
 
 <DropdownMenu.Root onOpenChange={handleMenuOpenChange}>
     <DropdownMenu.Trigger
-        class={cn(
-            buttonVariants({ variant: "ghost" }),
-            "size-6 rounded-sm opacity-0 group-hover/item:opacity-100 " +
-            "group-focus-within/item:opacity-100 aria-expanded:opacity-100 " +
-            "[@media(hover:none)]:opacity-100")}
+        class="explorer-item-menu-trigger"
         aria-label={`Actions for ${item.name}`}>
         <EllipsisVertical />
     </DropdownMenu.Trigger>
-    <DropdownMenu.Content class="min-w-42">
+    <DropdownMenu.Content class="explorer-item-menu">
         <DropdownMenu.Sub>
-            <DropdownMenu.SubTrigger class="text-xs">
-                <LogIn class="size-3" />
+            <DropdownMenu.SubTrigger>
+                <LogIn class="explorer-item-menu-icon" />
                 <span>Move to group</span>
             </DropdownMenu.SubTrigger>
-            <DropdownMenu.SubContent>
+            <DropdownMenu.SubContent class="explorer-item-submenu">
                 <DropdownMenu.Item
-                    class="text-xs"
                     disabled={moveToUngroupedAction.disabled}
                     onSelect={() => moveToUngroupedAction.invoke()}>
                     {moveToUngroupedAction.name}
@@ -117,7 +109,6 @@
                 <DropdownMenu.Separator />
                 {#each moveActions as action (action.name)}
                     <DropdownMenu.Item
-                        class="text-xs"
                         disabled={action.disabled}
                         onSelect={() => action.invoke()}>
                         {action.name}
@@ -130,8 +121,8 @@
             <DropdownMenu.Separator />
             <DropdownMenu.Label>Links</DropdownMenu.Label>
             {#each item.links as link (link.name)}
-                <DropdownMenu.Item class="text-xs" onSelect={() => navigate(link.url)}>
-                    <Icon class="size-3" icon={link.icon ?? defaultLinkIcon} />
+                <DropdownMenu.Item onSelect={() => navigate(link.url)}>
+                    <Icon size="xs" icon={link.icon ?? defaultLinkIcon} />
                     <span>{link.name}</span>
                 </DropdownMenu.Item>
             {/each}
@@ -146,11 +137,10 @@
             <DropdownMenu.Separator />
             {#each item.actions as action (action.name)}
                 <DropdownMenu.Item
-                    class="text-xs"
                     variant={action.destructive ? "destructive" : undefined}
                     disabled={action.disabled}
                     onSelect={() => action.invoke()}>
-                    {#if action.icon}<Icon class="size-3" icon={action.icon} />{/if}
+                    {#if action.icon}<Icon size="xs" icon={action.icon} />{/if}
                     <span>{action.name}</span>
                 </DropdownMenu.Item>
             {/each}
@@ -170,8 +160,7 @@
             aria-label={`Version for ${item.name}`}>
             {#each choices.direct as version (version)}
                 <DropdownMenu.RadioItem
-                    value={version}
-                    class="text-xs">
+                    value={version}>
                     {version}
                 </DropdownMenu.RadioItem>
             {/each}
@@ -179,12 +168,12 @@
 
         {#if choices.overflowGroups.length > 0}
             <DropdownMenu.Sub>
-                <DropdownMenu.SubTrigger class="h-7 text-xs">
+                <DropdownMenu.SubTrigger class="explorer-version-overflow-trigger">
                     <Ellipsis />
                     <span>More versions</span>
                 </DropdownMenu.SubTrigger>
                 <DropdownMenu.SubContent
-                    class="max-h-80 min-w-32 overflow-y-auto">
+                    class="explorer-version-menu">
                     {#each choices.overflowGroups as group, groupIndex}
                         {#if groupIndex > 0}
                             <DropdownMenu.Separator />
@@ -195,8 +184,7 @@
                             aria-label={`More versions for ${item.name}`}>
                             {#each group as version (version)}
                                 <DropdownMenu.RadioItem
-                                    value={version}
-                                    class="h-7 font-mono text-xs">
+                                    value={version}>
                                     {version}
                                 </DropdownMenu.RadioItem>
                             {/each}
@@ -212,7 +200,7 @@
             <DropdownMenu.RadioItem
                 value={versions.current}
                 closeOnSelect={false}
-                class="h-7 font-mono text-xs"
+                class="explorer-current-version"
                 aria-busy={versions.status === "loading"}
                 aria-label={versions.status === "error"
                     ? `Retry loading versions for ${item.name}; current version ${versions.current}`
@@ -220,12 +208,121 @@
                 title={versions.error}
                 onSelect={() => versions.ensureLoaded?.()}>
                 {#if versions.status === "loading"}
-                    <LoaderCircle class="size-3 animate-spin" />
+                    <LoaderCircle class="explorer-version-spinner" />
                 {:else if versions.status === "error"}
-                    <TriangleAlert class="size-3 text-destructive" />
+                    <TriangleAlert class="explorer-version-error" />
                 {/if}
                 <span>{versions.current}</span>
             </DropdownMenu.RadioItem>
         </DropdownMenu.RadioGroup>
     {/if}
 {/snippet}
+
+<style>
+    :global(.explorer-item-menu-trigger) {
+        display: inline-flex;
+        width: 1.5rem;
+        height: 1.5rem;
+        flex-shrink: 0;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid transparent;
+        border-radius: var(--radius-sm);
+        background-color: transparent;
+        color: inherit;
+        opacity: 0;
+        outline: none;
+        transition: color 150ms, background-color 150ms, border-color 150ms,
+            box-shadow 150ms, opacity 150ms;
+        user-select: none;
+    }
+
+    :global([data-explorer-item-header]:hover .explorer-item-menu-trigger),
+    :global([data-explorer-item-header]:focus-within .explorer-item-menu-trigger),
+    :global(.explorer-item-menu-trigger[aria-expanded="true"]) {
+        opacity: 1;
+    }
+
+    :global(.explorer-item-menu-trigger:hover) {
+        background-color: color-mix(in oklab, var(--color-muted) 50%, transparent);
+        color: var(--color-foreground);
+    }
+
+    :global(.explorer-item-menu-trigger[aria-expanded="true"]) {
+        background-color: var(--color-muted);
+        color: var(--color-foreground);
+    }
+
+    :global(.explorer-item-menu-trigger:focus-visible) {
+        border-color: var(--color-ring);
+        box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-ring) 50%, transparent);
+    }
+
+    :global(.explorer-item-menu-trigger svg) {
+        pointer-events: none;
+        width: 1rem;
+        height: 1rem;
+        flex-shrink: 0;
+    }
+
+    :global([data-slot="dropdown-menu-content"].explorer-item-menu) {
+        min-width: 10.5rem;
+    }
+
+    :global(.explorer-item-menu [data-slot="dropdown-menu-item"]),
+    :global(.explorer-item-menu [data-slot="dropdown-menu-sub-trigger"]),
+    :global(.explorer-item-menu [data-slot="dropdown-menu-radio-item"]),
+    :global(.explorer-item-submenu [data-slot="dropdown-menu-item"]),
+    :global(.explorer-version-menu [data-slot="dropdown-menu-radio-item"]) {
+        font-size: 0.75rem;
+    }
+
+    :global(.explorer-item-menu-icon) {
+        width: 0.75rem;
+        height: 0.75rem;
+    }
+
+    :global([data-slot="dropdown-menu-sub-trigger"].explorer-version-overflow-trigger),
+    :global([data-slot="dropdown-menu-radio-item"].explorer-current-version),
+    :global(.explorer-version-menu [data-slot="dropdown-menu-radio-item"]) {
+        height: 1.75rem;
+        font-size: 0.75rem;
+    }
+
+    :global([data-slot="dropdown-menu-radio-item"].explorer-current-version),
+    :global(.explorer-version-menu [data-slot="dropdown-menu-radio-item"]) {
+        font-family: var(--font-mono);
+    }
+
+    :global([data-slot="dropdown-menu-sub-content"].explorer-version-menu) {
+        min-width: 8rem;
+        max-height: 20rem;
+        overflow-y: auto;
+    }
+
+    :global(.explorer-version-spinner),
+    :global(.explorer-version-error) {
+        width: 0.75rem;
+        height: 0.75rem;
+    }
+
+    :global(.explorer-version-spinner) {
+        animation: version-spinner 1s linear infinite;
+    }
+
+    :global(.explorer-version-error) {
+        color: var(--color-destructive);
+    }
+
+    @keyframes version-spinner {
+        to { transform: rotate(360deg); }
+    }
+
+    @media (hover: none) {
+        :global(.explorer-item-menu-trigger) { opacity: 1; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        :global(.explorer-version-spinner) { animation: none; }
+    }
+</style>

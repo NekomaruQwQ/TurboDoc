@@ -128,10 +128,10 @@
     inputValue={inputValue}
     onValueChange={handleValueChange}
     allowDeselect={false}>
-    <div class="relative mb-1 shrink-0">
+    <div class="search-field">
         <Search
             aria-hidden="true"
-            class="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            class="explorer-search-icon" />
         <Combobox.Input
             aria-label={search.placeholder}
             aria-invalid={addError !== null}
@@ -140,7 +140,7 @@
             spellcheck={false}
             disabled={pendingSearchText !== null}
             placeholder={search.placeholder}
-            class="h-7 w-full rounded-sm border border-workbench-divider bg-transparent pr-2 pl-7 font-mono text-xs text-foreground outline-none transition-colors placeholder:font-sans placeholder:text-muted-foreground hover:bg-input/20 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-wait disabled:opacity-70"
+            class="explorer-search-input"
             onfocus={() => open = true}
             onclick={() => open = true}
             oninput={handleInput} />
@@ -150,10 +150,10 @@
         <Combobox.Content
             sideOffset={4}
             align="start"
-            class="z-50 w-(--bits-combobox-anchor-width) overflow-hidden rounded-md border border-workbench-divider bg-popover text-popover-foreground shadow-md data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 motion-reduce:animate-none">
-            <Combobox.Viewport class="max-h-64 p-1">
+            class="explorer-search-popup">
+            <Combobox.Viewport class="explorer-search-options">
                 {#if !normalizedSearchText && visibleItems.length > 0}
-                    <div class="px-2 py-1 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+                    <div class="recent-label">
                         Recent
                     </div>
                 {/if}
@@ -162,8 +162,8 @@
                     <Combobox.Item
                         value={itemValue(entry.id)}
                         label={entry.item.name}
-                        class="flex h-7 w-full cursor-default items-center rounded-sm px-2 font-mono text-xs outline-none select-none data-highlighted:bg-workbench-selection data-highlighted:text-foreground">
-                        <span class="truncate">{entry.item.name}</span>
+                        class="explorer-search-item">
+                        <span class="option-name">{entry.item.name}</span>
                     </Combobox.Item>
                 {/each}
 
@@ -171,43 +171,44 @@
                     <p
                         id={SEARCH_ERROR_ID}
                         role="alert"
-                        class="px-2 py-2 text-xs leading-4 text-destructive">
+                        class="search-feedback"
+                        data-tone="error">
                         {addError}
                     </p>
                 {:else if normalizedSearchText && visibleItems.length === 0 && !addAction}
-                    <p role="status" class="px-2 py-2 text-xs leading-4 text-muted-foreground">
+                    <p role="status" class="search-feedback" data-tone="muted">
                         {search.invalidText}
                     </p>
                 {/if}
 
                 {#if pendingSearchText || addAction || (!normalizedSearchText && search.emptyAction)}
                     {#if visibleItems.length > 0}
-                        <Combobox.Separator class="my-1 h-px bg-workbench-divider" />
+                        <Combobox.Separator class="explorer-search-separator" />
                     {/if}
                     {#if pendingSearchText}
                         <div
                             role="status"
-                            class="flex h-7 w-full items-center gap-2 rounded-sm px-2 text-xs text-muted-foreground">
+                            class="search-pending">
                             <LoaderCircle
                                 aria-hidden="true"
-                                class="size-3.5 shrink-0 animate-spin motion-reduce:animate-none" />
-                            <span class="min-w-0 truncate">
-                                Checking crate <code class="font-mono text-foreground">{pendingSearchText}</code>…
+                                class="explorer-search-spinner" />
+                            <span class="pending-message">
+                                Checking crate <code class="pending-term">{pendingSearchText}</code>…
                             </span>
                         </div>
                     {:else if addAction}
                         <Combobox.Item
                             value={ADD_ACTION_VALUE}
                             label={addAction.name}
-                            class="flex h-7 w-full cursor-default items-center gap-2 rounded-sm px-2 text-xs outline-none select-none data-highlighted:bg-workbench-selection data-highlighted:text-foreground">
+                            class="explorer-search-action">
                             <Icon icon={addAction.icon} size="sm" />
-                            <span class="min-w-0 truncate">{addAction.name}</span>
+                            <span class="option-name">{addAction.name}</span>
                         </Combobox.Item>
                     {:else if search.emptyAction}
                         <Combobox.Item
                             value={IMPORT_ACTION_VALUE}
                             label={`${search.emptyAction.name}…`}
-                            class="flex h-7 w-full cursor-default items-center gap-2 rounded-sm px-2 text-xs outline-none select-none data-highlighted:bg-workbench-selection data-highlighted:text-foreground">
+                            class="explorer-search-action">
                             <Icon icon={search.emptyAction.icon} size="sm" />
                             <span>{search.emptyAction.name}…</span>
                         </Combobox.Item>
@@ -224,3 +225,186 @@
         bind:open={importDialogOpen}
         showTrigger={false} />
 {/if}
+
+<style>
+    .search-field {
+        position: relative;
+        margin-bottom: 0.25rem;
+        flex-shrink: 0;
+    }
+
+    :global(.explorer-search-icon) {
+        pointer-events: none;
+        position: absolute;
+        top: 50%;
+        left: 0.5rem;
+        z-index: 1;
+        width: 0.875rem;
+        height: 0.875rem;
+        translate: 0 -50%;
+        color: var(--color-muted-foreground);
+    }
+
+    :global(.explorer-search-input) {
+        width: 100%;
+        height: 1.75rem;
+        border: 1px solid var(--color-workbench-divider);
+        border-radius: var(--radius-sm);
+        background-color: transparent;
+        padding: 0 0.5rem 0 1.75rem;
+        color: var(--color-foreground);
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+        outline: none;
+        transition: color 150ms, border-color 150ms, background-color 150ms,
+            box-shadow 150ms;
+    }
+
+    :global(.explorer-search-input::placeholder) {
+        color: var(--color-muted-foreground);
+        font-family: var(--font-sans);
+    }
+
+    :global(.explorer-search-input:hover) {
+        background-color: color-mix(in oklab, var(--color-input) 20%, transparent);
+    }
+
+    :global(.explorer-search-input:focus-visible) {
+        border-color: var(--color-ring);
+        box-shadow: 0 0 0 2px color-mix(in oklab, var(--color-ring) 40%, transparent);
+    }
+
+    :global(.explorer-search-input:disabled) {
+        cursor: wait;
+        opacity: 0.7;
+    }
+
+    :global(.explorer-search-popup) {
+        z-index: 50;
+        width: var(--bits-combobox-anchor-width);
+        overflow: hidden;
+        border: 1px solid var(--color-workbench-divider);
+        border-radius: var(--radius-md);
+        background-color: var(--color-popover);
+        color: var(--color-popover-foreground);
+        box-shadow: 0 4px 6px -1px rgb(0 0 0 / 10%), 0 2px 4px -2px rgb(0 0 0 / 10%);
+    }
+
+    :global(.explorer-search-popup[data-state="open"]) {
+        animation: search-popup-in 150ms ease-out;
+    }
+
+    :global(.explorer-search-popup[data-state="closed"]) {
+        animation: search-popup-out 150ms ease-in;
+    }
+
+    :global(.explorer-search-options) {
+        max-height: 16rem;
+        padding: 0.25rem;
+    }
+
+    .recent-label {
+        padding: 0.25rem 0.5rem;
+        color: var(--color-muted-foreground);
+        font-size: 10px;
+        font-weight: 500;
+        letter-spacing: 0.025em;
+        text-transform: uppercase;
+    }
+
+    :global(.explorer-search-item),
+    :global(.explorer-search-action) {
+        display: flex;
+        width: 100%;
+        height: 1.75rem;
+        cursor: default;
+        align-items: center;
+        border-radius: var(--radius-sm);
+        padding-inline: 0.5rem;
+        font-size: 0.75rem;
+        outline: none;
+        user-select: none;
+    }
+
+    :global(.explorer-search-item) {
+        font-family: var(--font-mono);
+    }
+
+    :global(.explorer-search-action) {
+        gap: 0.5rem;
+    }
+
+    :global(.explorer-search-item[data-highlighted]),
+    :global(.explorer-search-action[data-highlighted]) {
+        background-color: var(--color-workbench-selection);
+        color: var(--color-foreground);
+    }
+
+    .option-name,
+    .pending-message {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .search-feedback {
+        padding: 0.5rem;
+        font-size: 0.75rem;
+        line-height: 1rem;
+    }
+
+    .search-feedback[data-tone="error"] { color: var(--color-destructive); }
+    .search-feedback[data-tone="muted"] { color: var(--color-muted-foreground); }
+
+    :global(.explorer-search-separator) {
+        height: 1px;
+        margin-block: 0.25rem;
+        background-color: var(--color-workbench-divider);
+    }
+
+    .search-pending {
+        display: flex;
+        width: 100%;
+        height: 1.75rem;
+        align-items: center;
+        gap: 0.5rem;
+        border-radius: var(--radius-sm);
+        padding-inline: 0.5rem;
+        color: var(--color-muted-foreground);
+        font-size: 0.75rem;
+    }
+
+    :global(.explorer-search-spinner) {
+        width: 0.875rem;
+        height: 0.875rem;
+        flex-shrink: 0;
+        animation: search-spinner 1s linear infinite;
+    }
+
+    .pending-term {
+        color: var(--color-foreground);
+        font-family: var(--font-mono);
+    }
+
+    @keyframes search-popup-in {
+        from { opacity: 0; transform: scale(0.95); }
+        to { opacity: 1; transform: scale(1); }
+    }
+
+    @keyframes search-popup-out {
+        from { opacity: 1; transform: scale(1); }
+        to { opacity: 0; transform: scale(0.95); }
+    }
+
+    @keyframes search-spinner {
+        to { transform: rotate(360deg); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        :global(.explorer-search-popup),
+        :global(.explorer-search-spinner) {
+            animation: none;
+        }
+    }
+</style>

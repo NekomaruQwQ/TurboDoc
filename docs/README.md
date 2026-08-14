@@ -187,7 +187,8 @@ Rust file server or reverse proxy is involved.
 - **State Management**: Svelte 5 `$state` proxies (deep reactive); direct mutation, no Immer
 - **Type Utilities**: type-fest (used by `ReadonlyDeep` markers in a few places)
 - **UI Components**: shadcn-svelte — vendored Bits UI primitives in `frontend/3rdparty/shadcn/`; paneforge (via the Resizable wrapper) for split panes
-- **Styling**: Tailwind CSS v4 with OKLCH color space; `class={[...]}` for conditional classes (no `cn()` in app code)
+- **Styling**: component-owned semantic CSS for application UI; Tailwind CSS v4
+  provides OKLCH design tokens and styles the vendored shadcn-svelte primitives
 - **Icons**: `@lucide/svelte` (imported individually for tree-shaking) plus
   provider-owned monochrome SVG marks rendered as current-color masks
 - **Utilities**: remeda (functional), semver, zod
@@ -415,6 +416,10 @@ A Windows Job Object (set up only by `src/dev.rs`) ensures the spawned Vite chil
 - Theme tokens live in `frontend/global.tailwind.css`; global behavior such as
   typography, scrollbars, selection, and collapse animation lives in
   `frontend/global.css`.
+- Application presentation is colocated in scoped `<style>` blocks. Markup
+  uses role-based classes, while ARIA and `data-*` attributes expose visual
+  state. Namespaced global selectors are reserved for forwarded and portalled
+  Bits UI elements.
 - The OKLCH dark palette follows the current VS Code workbench model: a dark
   outer chrome, subtly separated explorer/editor surfaces, low-contrast panel
   borders, and distinct hover and selection rows.
@@ -433,13 +438,13 @@ A Windows Job Object (set up only by `src/dev.rs`) ensures the spawned Vite chil
 - Default: namespace (module), unknown
 
 ### Typography
-- Monospace font for item names and page links (`font-mono`)
+- Monospace font for item names and page links (`--font-mono`)
 - Compact hierarchy: uppercase panel label, semibold group rows, monospace item
   rows, and smaller monospace page rows.
 - Italic for preview pages (emphasis without weight)
 - Base font size: 14px (set in `:root` in `frontend/global.css`)
-- Font families: Segoe UI Variable/system UI for chrome and Cascadia
-  Mono/Consolas for documentation identifiers; no downloaded font assets.
+- Font families: Ubuntu Light/system UI for chrome and Ubuntu Mono for
+  documentation identifiers; no downloaded font assets.
 
 ### Spacing
 - 4px workbench gutters separate the rounded explorer and editor panels.
@@ -655,9 +660,10 @@ ProviderData ($state) ──► provider.render() inside $derived ──► rend
 - Module path in default color, symbol name colored by type
 
 **Hover States**
-- Page pin icon uses Tailwind `group/page` + `invisible group-hover/page:visible` pattern
-- Group rename button uses `group/header` + `invisible group-hover/header:visible`
-- CSS-only hover is more performant than `useState`
+- Page pin and row-action visibility are derived from semantic parent
+  hover/focus selectors plus `aria-pressed` or `aria-expanded` state.
+- Hoverless media queries keep required menu triggers persistently available.
+- CSS-only interaction state avoids reactive pointer bookkeeping.
 
 **Auto-Import on Navigation**
 - When iframe navigates to an unknown crate, the provider auto-creates an entry
@@ -698,7 +704,8 @@ TurboDoc/
 │   ├── components.json         # shadcn-svelte CLI config (baseColor: zinc, framework: svelte)
 │   ├── index.html              # Entry HTML
 │   ├── index.ts                # Svelte entry point (`mount(App, ...)`); lives at the frontend root, not under src/
-│   ├── global.css              # Tailwind imports, shadcn Zinc OKLCH palette (`:root` + `.dark`), `@theme inline` token mapping, One Dark symbol palette, Bits UI Collapsible animation
+│   ├── global.tailwind.css     # Tailwind imports, shadcn Zinc OKLCH palette (`:root` + `.dark`), and `@theme inline` token mapping
+│   ├── global.css              # Fonts, root viewport, One Dark symbols, scrollbars, selection, and Bits UI Collapsible animation
 │   │
 │   ├── 3rdparty/
 │   │   └── shadcn/             # Vendored shadcn-svelte primitives (Bits UI / paneforge)
@@ -839,6 +846,16 @@ TurboDoc/
 
 ## Change History
 
+- **2026-08**: Separate application presentation from Svelte structure and
+  logic. Replace inline Tailwind utility clusters in `frontend/src/ui/` with
+  semantic, component-owned native CSS; express active, preview, pinned,
+  identifier, loading, and primitive interaction states through ARIA and
+  `data-*` attributes; use namespaced global selectors only for forwarded or
+  portalled shadcn/Bits UI roots. Remove app-level `cn`, `buttonVariants`,
+  conditional class arrays, group style constants, and the TypeScript symbol
+  color map. Keep Tailwind as the token and vendored-primitive layer, leave
+  generated shadcn sources untouched, and retain the provider SVG mask URL as
+  the sole data-driven inline style.
 - **2026-08**: Move crate version selection from the fixed-width crate header control into the item actions menu, after external links and before Refresh Metadata. Show five recommended choices directly as menu radio items and place the remaining non-yanked, semver-grouped history in a bounded More versions submenu. Make menu opening the lazy metadata intent, preserve the current selection through loading and failure, keep exceptional yanked or non-semver current values selectable, and expose the ellipsis trigger on hoverless devices.
 - **2026-08**: Add a VS Code-style NavBar to the left side of the Explorer and remove the textual `EXPLORER / Rust` header. Render every registered provider as an accessible icon destination with a primary active-edge marker; providers now declare both a NavBar `icon` and the canonical `homeUrl` opened on explicit selection. Persist the selected provider synchronously in validated localStorage, repair missing or unknown IDs to the registry default, retain the last document during startup restoration, and treat reselecting the active provider as a no-op. Add the official Rust Foundation SVG beside the Rust provider, display it as a theme-aware current-color mask, and record its CC BY attribution and trademark policy.
 - **2026-08**: Restore distinct release and development frontend modes without reintroducing an HTTP server. The CLI now defaults to release mode and uses `--dev` to opt into Vite; `--port` is required only for dev and remains independent of Cargo's profile. `just release` builds the optimized Rust host, runs `vite build`, and refreshes `target/release/public` beside the executable. Release startup validates `public/index.html` and maps the directory to the reserved `https://turbodoc.example` origin through WebView2 with cross-origin access denied. Because mapped URLs do not raise `WebResourceRequested`, release provider-data calls use the separate unmapped `https://api.turbodoc.example` origin with exact-origin CORS and bounded preflight caching before direct Rust dispatch. Move all Vite-only repo discovery, Job Object ownership, readiness-token polling, child monitoring, and tests from `src/server/frontend.rs` plus `main.rs` into `src/dev.rs`; release mode creates none of those resources. Keep the shared hidden-controller, frontend-visible-before-document, proxy/cache, and native failure-surface behavior in `app.rs`.

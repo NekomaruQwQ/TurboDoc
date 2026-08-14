@@ -1,11 +1,3 @@
-<script lang="ts" module>
-    export const OUTER_STYLE =
-        "group/header flex h-7 items-center gap-0.5 mt-1 text-sidebar-foreground";
-    export const INNER_STYLE =
-        "flex h-7 min-w-0 flex-1 items-center gap-1 rounded-sm px-1 " +
-        "text-left text-sm font-semibold truncate hover:bg-workbench-hover";
-</script>
-
 <script lang="ts">
     import ChevronsDown from "@lucide/svelte/icons/chevrons-down";
     import ChevronsUp from "@lucide/svelte/icons/chevrons-up";
@@ -20,8 +12,7 @@
     import LogIn from "@lucide/svelte/icons/log-in";
     import Trash2 from "@lucide/svelte/icons/trash-2";
 
-    import { cn } from "@shadcn/utils";
-    import { Button, buttonVariants } from "@shadcn/components/ui/button";
+    import { Button } from "@shadcn/components/ui/button";
     import { Input } from "@shadcn/components/ui/input";
     import * as Dialog from "@shadcn/components/ui/dialog";
     import * as DropdownMenu from "@shadcn/components/ui/dropdown-menu";
@@ -127,11 +118,11 @@
 </script>
 
 {#if renaming}
-    <div class={OUTER_STYLE}>
+    <div class="group-header">
         <!-- Inline rename input. Confirms on Enter, cancels on Escape or blur. -->
         <Input
             bind:value={renameValue}
-            class="h-7 flex-1 rounded-sm text-xs font-semibold"
+            class="explorer-group-rename-input"
             onkeydown={e => {
                 if (e.key === "Enter") confirmRename(groupName);
                 else if (e.key === "Escape") renaming = false;
@@ -139,20 +130,21 @@
             onblur={() => confirmRename(groupName)} />
         <Button
             variant="ghost"
-            class="size-7 rounded-sm"
+            class="explorer-group-confirm"
+            aria-label="Confirm group name"
             onclick={() => confirmRename(groupName)}>
             <Check />
         </Button>
     </div>
 {:else}
-    <div class={OUTER_STYLE}>
-        <Collapsible.Trigger class={INNER_STYLE}>
+    <div class="group-header">
+        <Collapsible.Trigger class="explorer-group-toggle">
             {#if expanded}
-                <ChevronDown class="size-4" />
+                <ChevronDown />
             {:else}
-                <ChevronRight class="size-4" />
+                <ChevronRight />
             {/if}
-            <span class="flex-1 truncate">{displayName}</span>
+            <span class="group-name">{displayName}</span>
         </Collapsible.Trigger>
 
         {#if !isUngrouped}
@@ -160,10 +152,10 @@
                  ungrouped group has no persisted name to mutate. -->
             <Button
                 variant="ghost"
-                class="size-7 rounded-sm opacity-0 group-hover/header:opacity-100 group-focus-within/header:opacity-100"
+                class="explorer-group-rename"
                 aria-label="Rename group"
                 onclick={() => startRename(groupName)}>
-                <Pencil class="size-3.5" />
+                <Pencil />
             </Button>
         {/if}
 
@@ -185,12 +177,9 @@
     <!-- Group dropdown menu: expand/collapse all, move ops, delete. -->
     <DropdownMenu.Root>
         <DropdownMenu.Trigger
-            class={cn(
-                buttonVariants({ variant: "ghost" }),
-                "size-7 rounded-sm opacity-0 group-hover/header:opacity-100 " +
-                "group-focus-within/header:opacity-100 aria-expanded:opacity-100")}
+            class="explorer-group-menu-trigger"
             aria-label="Group actions">
-            <EllipsisVertical class="size-4" />
+            <EllipsisVertical />
         </DropdownMenu.Trigger>
         <DropdownMenu.Content align="end">
             <DropdownMenu.Item onSelect={expandAll}>
@@ -239,6 +228,127 @@
         </DropdownMenu.Content>
     </DropdownMenu.Root>
 {/snippet}
+
+<style>
+    .group-header {
+        display: flex;
+        height: 1.75rem;
+        align-items: center;
+        gap: 0.125rem;
+        margin-top: 0.25rem;
+        color: var(--color-sidebar-foreground);
+    }
+
+    :global(.explorer-group-toggle) {
+        display: flex;
+        min-width: 0;
+        height: 1.75rem;
+        flex: 1 1 0%;
+        align-items: center;
+        gap: 0.25rem;
+        overflow: hidden;
+        border: 0;
+        border-radius: var(--radius-sm);
+        background-color: transparent;
+        padding-inline: 0.25rem;
+        color: inherit;
+        font-size: 0.875rem;
+        font-weight: 600;
+        text-align: left;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    :global(.explorer-group-toggle:hover) {
+        background-color: var(--color-workbench-hover);
+    }
+
+    :global(.explorer-group-toggle svg) {
+        width: 1rem;
+        height: 1rem;
+        flex-shrink: 0;
+    }
+
+    .group-name {
+        min-width: 0;
+        flex: 1 1 0%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    :global([data-slot="input"].explorer-group-rename-input) {
+        width: auto;
+        min-width: 0;
+        height: 1.75rem;
+        flex: 1 1 0%;
+        border-radius: var(--radius-sm);
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    :global([data-slot="button"].explorer-group-confirm),
+    :global([data-slot="button"].explorer-group-rename),
+    :global(.explorer-group-menu-trigger) {
+        width: 1.75rem;
+        height: 1.75rem;
+        flex-shrink: 0;
+        border-radius: var(--radius-sm);
+    }
+
+    :global([data-slot="button"].explorer-group-rename),
+    :global(.explorer-group-menu-trigger) {
+        opacity: 0;
+    }
+
+    .group-header:hover :global([data-slot="button"].explorer-group-rename),
+    .group-header:focus-within :global([data-slot="button"].explorer-group-rename),
+    .group-header:hover :global(.explorer-group-menu-trigger),
+    .group-header:focus-within :global(.explorer-group-menu-trigger),
+    :global(.explorer-group-menu-trigger[aria-expanded="true"]) {
+        opacity: 1;
+    }
+
+    :global([data-slot="button"].explorer-group-rename svg) {
+        width: 0.875rem;
+        height: 0.875rem;
+    }
+
+    :global(.explorer-group-menu-trigger) {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid transparent;
+        background-color: transparent;
+        color: inherit;
+        outline: none;
+        transition: color 150ms, background-color 150ms, box-shadow 150ms,
+            opacity 150ms;
+        user-select: none;
+    }
+
+    :global(.explorer-group-menu-trigger:hover) {
+        background-color: color-mix(in oklab, var(--color-muted) 50%, transparent);
+        color: var(--color-foreground);
+    }
+
+    :global(.explorer-group-menu-trigger[aria-expanded="true"]) {
+        background-color: var(--color-muted);
+        color: var(--color-foreground);
+    }
+
+    :global(.explorer-group-menu-trigger:focus-visible) {
+        border-color: var(--color-ring);
+        box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-ring) 50%, transparent);
+    }
+
+    :global(.explorer-group-menu-trigger svg) {
+        pointer-events: none;
+        width: 1rem;
+        height: 1rem;
+        flex-shrink: 0;
+    }
+</style>
 
 {#snippet GroupConfirmDeleteDialog(groupName: string)}
     <Dialog.Root bind:open={deleteOpen}>
