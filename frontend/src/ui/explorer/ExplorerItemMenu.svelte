@@ -99,16 +99,17 @@
             "group-focus-within/item:opacity-100 aria-expanded:opacity-100 " +
             "[@media(hover:none)]:opacity-100")}
         aria-label={`Actions for ${item.name}`}>
-        <EllipsisVertical class="size-3.5" />
+        <EllipsisVertical />
     </DropdownMenu.Trigger>
     <DropdownMenu.Content class="min-w-42">
         <DropdownMenu.Sub>
-            <DropdownMenu.SubTrigger>
-                <LogIn class="size-3.5" />
+            <DropdownMenu.SubTrigger class="text-xs">
+                <LogIn class="size-3" />
                 <span>Move to group</span>
             </DropdownMenu.SubTrigger>
             <DropdownMenu.SubContent>
                 <DropdownMenu.Item
+                    class="text-xs"
                     disabled={moveToUngroupedAction.disabled}
                     onSelect={() => moveToUngroupedAction.invoke()}>
                     {moveToUngroupedAction.name}
@@ -116,6 +117,7 @@
                 <DropdownMenu.Separator />
                 {#each moveActions as action (action.name)}
                     <DropdownMenu.Item
+                        class="text-xs"
                         disabled={action.disabled}
                         onSelect={() => action.invoke()}>
                         {action.name}
@@ -126,9 +128,10 @@
 
         {#if item.links && item.links.length > 0}
             <DropdownMenu.Separator />
+            <DropdownMenu.Label>Links</DropdownMenu.Label>
             {#each item.links as link (link.name)}
-                <DropdownMenu.Item onSelect={() => navigate(link.url)}>
-                    <Icon icon={link.icon ?? defaultLinkIcon} size="sm" />
+                <DropdownMenu.Item class="text-xs" onSelect={() => navigate(link.url)}>
+                    <Icon class="size-3" icon={link.icon ?? defaultLinkIcon} />
                     <span>{link.name}</span>
                 </DropdownMenu.Item>
             {/each}
@@ -143,10 +146,11 @@
             <DropdownMenu.Separator />
             {#each item.actions as action (action.name)}
                 <DropdownMenu.Item
+                    class="text-xs"
                     variant={action.destructive ? "destructive" : undefined}
                     disabled={action.disabled}
                     onSelect={() => action.invoke()}>
-                    {#if action.icon}<Icon icon={action.icon} size="sm" />{/if}
+                    {#if action.icon}<Icon class="size-3" icon={action.icon} />{/if}
                     <span>{action.name}</span>
                 </DropdownMenu.Item>
             {/each}
@@ -167,7 +171,7 @@
             {#each choices.direct as version (version)}
                 <DropdownMenu.RadioItem
                     value={version}
-                    class="h-7 font-mono text-xs">
+                    class="text-xs">
                     {version}
                 </DropdownMenu.RadioItem>
             {/each}
@@ -176,7 +180,7 @@
         {#if choices.overflowGroups.length > 0}
             <DropdownMenu.Sub>
                 <DropdownMenu.SubTrigger class="h-7 text-xs">
-                    <Ellipsis class="size-3.5" />
+                    <Ellipsis />
                     <span>More versions</span>
                 </DropdownMenu.SubTrigger>
                 <DropdownMenu.SubContent
