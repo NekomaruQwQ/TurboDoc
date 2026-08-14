@@ -32,7 +32,7 @@ export function getCratesIndexUrl(name: string): string {
     return `https://index.crates.io/${path}`;
 }
 
-/** Build the real-time crates.io API URL used only by explicit refreshes.
+/** Build the real-time crates.io API URL used by validation and refreshes.
  *
  * @throws {Error} When `name` cannot be a crates.io package name. */
 export function getCratesApiUrl(name: string): string {

@@ -32,6 +32,10 @@ export interface RustProviderCache {
 export type FetchCrateMetadata =
     (name: string, refresh: boolean) => Promise<CrateMetadata>;
 
+/** Resolve one user-entered crate identifier through crates.io. */
+export type ResolveCrateMetadata =
+    (requestedName: string) => Promise<CrateMetadata>;
+
 /** Coordinate lazy per-crate requests without coupling the request lifecycle
  * to Svelte. The caller supplies a reactive state object in production and a
  * plain object in tests.
@@ -86,6 +90,21 @@ export class CrateCacheLoader {
         return this.#start(name, true);
     }
 
+    /** Store an authoritative crates.io response under its canonical name.
+     * Priming advances the generation so an older sparse-index request cannot
+     * overwrite the canonical record after registry resolution completes. */
+    prime(metadata: CrateMetadata): CrateCache {
+        const name = metadata.name;
+        this.#generations.set(name, (this.#generations.get(name) ?? 0) + 1);
+        const data = crateMetadataToCache(metadata);
+        this.#state.crates[name] = {
+            data,
+            status: "ready",
+            error: null,
+        };
+        return data;
+    }
+
     /** Start a request and commit its result only if it is still the newest
      * generation for this crate. */
     #start(name: string, refresh: boolean): Promise<void> {
@@ -123,6 +142,38 @@ export class CrateCacheLoader {
                     this.#inFlight.delete(name);
             });
         this.#inFlight.set(name, { refresh, promise });
+        return promise;
+    }
+}
+
+/** Deduplicate registry lookups for user-entered identifiers and prime the
+ * shared cache under crates.io's canonical name. Unlike lazy selector loads,
+ * resolution failures reject so callers can keep invalid crates unpersisted. */
+export class CrateCacheResolver {
+    readonly #cacheLoader: CrateCacheLoader;
+    readonly #resolveMetadata: ResolveCrateMetadata;
+    readonly #inFlight = new Map<string, Promise<CrateCache>>();
+
+    constructor(
+        cacheLoader: CrateCacheLoader,
+        resolveMetadata: ResolveCrateMetadata) {
+        this.#cacheLoader = cacheLoader;
+        this.#resolveMetadata = resolveMetadata;
+    }
+
+    /** Resolve an identifier once while a matching request is active. Failed
+     * requests are removed so a later explicit activation can retry. */
+    resolve(requestedName: string): Promise<CrateCache> {
+        const active = this.#inFlight.get(requestedName);
+        if (active) return active;
+
+        const promise = this.#resolveMetadata(requestedName)
+            .then(metadata => this.#cacheLoader.prime(metadata))
+            .finally(() => {
+                if (this.#inFlight.get(requestedName) === promise)
+                    this.#inFlight.delete(requestedName);
+            });
+        this.#inFlight.set(requestedName, promise);
         return promise;
     }
 }

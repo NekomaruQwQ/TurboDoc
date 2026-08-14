@@ -1,3 +1,4 @@
+import { tick } from "svelte";
 import type { ReadonlyDeep } from "type-fest";
 import * as semver from "semver";
 
@@ -22,12 +23,14 @@ import type {
 
 import { parseUrl, buildUrl, getBaseUrlForCrate } from "./url";
 import { setupRustEffects } from "./effects.svelte";
+import { addCrate, ensureCrate, navigateToCrateRoot } from "./crate-add";
 import {
     type CrateCache,
     getCrateCache,
     getCrateCacheEntry,
     ensureCrateCache,
     refreshCrateCache,
+    resolveCrateCache,
 } from "./cache.svelte";
 
 // Re-export for downstream consumers (effects, cache modules need the type).
@@ -85,9 +88,8 @@ function render(ctx: RustProviderContext): ProviderOutput {
                 return {
                     name: `Add crate "${searchText}"`,
                     icon: { type: "lucide", icon: Plus },
-                    invoke() {
-                        ensureCrate(ctx, crateName);
-                        navigateToCrateRoot(ctx, crateName);
+                    async invoke() {
+                        await addCrate(ctx, crateName, resolveCrateCache, tick);
                     },
                 };
             },
@@ -95,33 +97,6 @@ function render(ctx: RustProviderContext): ProviderOutput {
             emptyAction: getImportCratesAction(ctx),
         },
     };
-}
-
-/** Return the existing crate or add its minimal lazy-metadata record. Standard
- *  library crates start on stable; every other source retains the established
- *  latest alias and performs no metadata request. */
-function ensureCrate(ctx: RustProviderContext, crateName: string): CrateData {
-    ctx.data.crates ??= {};
-    return ctx.data.crates[crateName] ??= {
-        currentVersion:
-            getBaseUrlForCrate(crateName) === "https://doc.rust-lang.org/"
-                ? "stable"
-                : "latest",
-        pinnedPages: [],
-    };
-}
-
-/** Navigate to a crate's root module using its persisted version. A stale
- *  combobox result can outlive deletion, so a missing record is a safe no-op. */
-function navigateToCrateRoot(ctx: RustProviderContext, crateName: string): void {
-    const crate = ctx.data.crates?.[crateName];
-    if (!crate) return;
-    ctx.navigateTo(buildUrl({
-        baseUrl: getBaseUrlForCrate(crateName),
-        name: crateName,
-        version: crate.currentVersion,
-        pathSegments: [crateName.replaceAll("-", "_")],
-    }));
 }
 
 function renderItem(

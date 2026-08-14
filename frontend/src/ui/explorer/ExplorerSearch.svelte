@@ -1,6 +1,7 @@
 <script lang="ts">
     import { tick } from "svelte";
     import { Combobox } from "bits-ui";
+    import LoaderCircle from "@lucide/svelte/icons/loader-circle";
     import Search from "@lucide/svelte/icons/search";
 
     import type { Item, ProviderSearch } from "@/core/data";
@@ -18,6 +19,7 @@
     const ADD_ACTION_VALUE = "action:add";
     const IMPORT_ACTION_VALUE = "action:import";
     const ITEM_VALUE_PREFIX = "item:";
+    const SEARCH_ERROR_ID = "explorer-search-error";
 
     let {
         items,
@@ -36,6 +38,8 @@
     let selectedValue = $state("");
     let inputValue = $state("");
     let importDialogOpen = $state(false);
+    let pendingSearchText = $state<string | null>(null);
+    let addError = $state<string | null>(null);
 
     const index = $derived(buildItemSearchIndex(items));
     const normalizedSearchText = $derived(normalizeItemSearchText(inputValue));
@@ -48,29 +52,37 @@
         : null);
 
     /** Namespace item IDs away from fixed action values without restricting
-     *  the provider's identifier alphabet. */
+     * the provider's identifier alphabet. */
     function itemValue(itemId: string): string {
         return `${ITEM_VALUE_PREFIX}${itemId}`;
     }
 
-    /** Keep the editable text as the source of truth and clear any previous
-     *  selection when the user resumes typing. */
+    /** Keep the editable text as the source of truth, clear stale feedback,
+     * and clear any previous selection when the user resumes typing. */
     function handleInput(event: Event): void {
         inputValue = (event.currentTarget as HTMLInputElement).value;
         selectedValue = "";
+        addError = null;
     }
 
     /** Restore the search affordance after Bits UI finishes applying the
-     *  selected item's label, so that label cannot overwrite the cleared input. */
+     * selected item's label, so that label cannot overwrite the cleared input. */
     async function resetCombobox(): Promise<void> {
         await tick();
         open = false;
         selectedValue = "";
         inputValue = "";
+        addError = null;
     }
 
-    /** Dispatch tagged combobox values to provider callbacks, then clear each
-     *  accepted selection after the primitive completes its internal update. */
+    /** Convert arbitrary provider rejections into concise inline feedback. */
+    function getActionErrorMessage(error: unknown): string {
+        return error instanceof Error ? error.message : "Could not add this item.";
+    }
+
+    /** Dispatch tagged combobox values to provider callbacks. Async add
+     * actions retain the submitted text, reject duplicate activation, and
+     * only reset after the provider confirms success. */
     async function handleValueChange(value: string): Promise<void> {
         if (!value) return;
 
@@ -83,9 +95,22 @@
 
         if (value === ADD_ACTION_VALUE) {
             const action = addAction;
-            if (!action) return;
-            action.invoke();
-            await resetCombobox();
+            if (!action || pendingSearchText) return;
+            const submittedText = inputValue.trim();
+            pendingSearchText = submittedText;
+            addError = null;
+            try {
+                await action.invoke();
+                await resetCombobox();
+            } catch (error) {
+                selectedValue = "";
+                await tick();
+                inputValue = submittedText;
+                open = true;
+                addError = getActionErrorMessage(error);
+            } finally {
+                pendingSearchText = null;
+            }
             return;
         }
 
@@ -109,10 +134,13 @@
             class="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
         <Combobox.Input
             aria-label={search.placeholder}
+            aria-invalid={addError !== null}
+            aria-describedby={addError ? SEARCH_ERROR_ID : undefined}
             autocomplete="off"
             spellcheck={false}
+            disabled={pendingSearchText !== null}
             placeholder={search.placeholder}
-            class="h-7 w-full rounded-sm border border-workbench-divider bg-transparent pr-2 pl-7 font-mono text-xs text-foreground outline-none transition-colors placeholder:font-sans placeholder:text-muted-foreground hover:bg-input/20 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
+            class="h-7 w-full rounded-sm border border-workbench-divider bg-transparent pr-2 pl-7 font-mono text-xs text-foreground outline-none transition-colors placeholder:font-sans placeholder:text-muted-foreground hover:bg-input/20 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-wait disabled:opacity-70"
             onfocus={() => open = true}
             onclick={() => open = true}
             oninput={handleInput} />
@@ -139,17 +167,35 @@
                     </Combobox.Item>
                 {/each}
 
-                {#if normalizedSearchText && visibleItems.length === 0 && !addAction}
+                {#if addError}
+                    <p
+                        id={SEARCH_ERROR_ID}
+                        role="alert"
+                        class="px-2 py-2 text-xs leading-4 text-destructive">
+                        {addError}
+                    </p>
+                {:else if normalizedSearchText && visibleItems.length === 0 && !addAction}
                     <p role="status" class="px-2 py-2 text-xs leading-4 text-muted-foreground">
                         {search.invalidText}
                     </p>
                 {/if}
 
-                {#if addAction || (!normalizedSearchText && search.emptyAction)}
+                {#if pendingSearchText || addAction || (!normalizedSearchText && search.emptyAction)}
                     {#if visibleItems.length > 0}
                         <Combobox.Separator class="my-1 h-px bg-workbench-divider" />
                     {/if}
-                    {#if addAction}
+                    {#if pendingSearchText}
+                        <div
+                            role="status"
+                            class="flex h-7 w-full items-center gap-2 rounded-sm px-2 text-xs text-muted-foreground">
+                            <LoaderCircle
+                                aria-hidden="true"
+                                class="size-3.5 shrink-0 animate-spin motion-reduce:animate-none" />
+                            <span class="min-w-0 truncate">
+                                Checking crate <code class="font-mono text-foreground">{pendingSearchText}</code>…
+                            </span>
+                        </div>
+                    {:else if addAction}
                         <Combobox.Item
                             value={ADD_ACTION_VALUE}
                             label={addAction.name}

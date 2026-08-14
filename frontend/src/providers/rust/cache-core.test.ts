@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type { CrateMetadata } from "./metadata";
 import {
     CrateCacheLoader,
+    CrateCacheResolver,
     type RustProviderCache,
 } from "./cache-core";
 
@@ -18,9 +19,9 @@ function deferred<T>() {
 }
 
 /** Build the smallest valid normalized metadata response. */
-function metadata(version: string): CrateMetadata {
+function metadata(version: string, name = "tokio"): CrateMetadata {
     return {
-        name: "tokio",
+        name,
         versions: [{ num: version, yanked: false }],
         homepage: null,
         repository: null,
@@ -127,5 +128,67 @@ describe("CrateCacheLoader", () => {
 
         expect(state.crates.tokio?.status).toBe("ready");
         expect(state.crates.tokio?.data?.versions[0]?.num).toBe("2.0.0");
+    });
+
+    test("prevents an older normal response from overwriting primed data", async () => {
+        const normalRequest = deferred<CrateMetadata>();
+        const { state, loader } = createLoader(() => normalRequest.promise);
+
+        const normal = loader.ensure("async-std");
+        loader.prime(metadata("2.0.0", "async-std"));
+        normalRequest.resolve(metadata("1.0.0", "async-std"));
+        await normal;
+
+        expect(state.crates["async-std"]?.status).toBe("ready");
+        expect(state.crates["async-std"]?.data?.versions[0]?.num).toBe("2.0.0");
+    });
+});
+
+describe("CrateCacheResolver", () => {
+    test("deduplicates aliases in flight and primes the canonical cache key", async () => {
+        const request = deferred<CrateMetadata>();
+        let calls = 0;
+        const { state, loader } = createLoader(async () => {
+            throw new Error("lazy loader should not run");
+        });
+        const resolver = new CrateCacheResolver(loader, requestedName => {
+            expect(requestedName).toBe("async_std");
+            calls += 1;
+            return request.promise;
+        });
+
+        const first = resolver.resolve("async_std");
+        const second = resolver.resolve("async_std");
+        expect(first).toBe(second);
+        expect(calls).toBe(1);
+
+        request.resolve(metadata("1.13.2", "async-std"));
+        const resolved = await first;
+
+        expect(resolved.name).toBe("async-std");
+        expect(state.crates.async_std).toBeUndefined();
+        expect(state.crates["async-std"]).toMatchObject({
+            status: "ready",
+            error: null,
+        });
+    });
+
+    test("removes failed requests so a later activation can retry", async () => {
+        let calls = 0;
+        const { state, loader } = createLoader(async () => {
+            throw new Error("lazy loader should not run");
+        });
+        const resolver = new CrateCacheResolver(loader, async () => {
+            calls += 1;
+            if (calls === 1) throw new Error("offline");
+            return metadata("1.13.2", "async-std");
+        });
+
+        await expect(resolver.resolve("async_std")).rejects.toThrow("offline");
+        expect(state.crates).toEqual({});
+
+        await resolver.resolve("async_std");
+        expect(calls).toBe(2);
+        expect(state.crates["async-std"]?.status).toBe("ready");
     });
 });
