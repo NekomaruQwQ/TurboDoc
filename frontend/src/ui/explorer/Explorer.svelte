@@ -15,7 +15,6 @@
     import ExplorerItem from "@/ui/explorer/ExplorerItem.svelte";
     import ExplorerGroup from "@/ui/explorer/ExplorerGroup.svelte";
     import ExplorerCreateGroupComponent from "@/ui/explorer/ExplorerCreateGroupComponent.svelte";
-    import ExplorerHeader from "@/ui/explorer/ExplorerHeader.svelte";
     import ExplorerSearch from "@/ui/explorer/ExplorerSearch.svelte";
     import InputActionDialog from "@/ui/explorer/InputActionDialog.svelte";
     import {
@@ -242,11 +241,10 @@
 </script>
 
 <div class="flex min-h-0 flex-1 flex-col">
-    <ExplorerHeader {provider} />
     {#if output.search}
         <!-- Search owns a fixed row so crate navigation and manual scrolling
              use only the unobstructed list viewport below it. -->
-        <div class="shrink-0 px-1.5">
+        <div class="shrink-0 px-1.5 pt-1.5">
             <ExplorerSearch
                 items={output.items}
                 search={output.search}

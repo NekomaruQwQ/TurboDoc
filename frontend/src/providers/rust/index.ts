@@ -60,6 +60,11 @@ export interface CrateData {
 const RustProvider: Provider<RustProviderData> = {
     id: "rust",
     name: "Rust",
+    icon: {
+        type: "monochrome-svg",
+        src: new URL("./rust.svg", import.meta.url).href,
+    },
+    homeUrl: "https://docs.rs/",
     enableItemGrouping: true,
     renderItemNameAsCode: true,
     render,
@@ -193,7 +198,7 @@ function getCrateVersionsFromCache(
     const recommended =
         versions
             .slice(0, 5)
-            .map(group => group.versions[0]?.num)
+            .map(group => group.versions.find(version => !version.yanked)?.num)
             .filter((version): version is string => Boolean(version));
     if (crateData.currentVersion !== "latest" &&
         !recommended.includes(crateData.currentVersion)) {

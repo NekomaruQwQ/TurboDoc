@@ -6,6 +6,11 @@ import z from "zod";
 // ============================================================================
 
 const STORAGE = {
+    activeProviderId: {
+        key: "turbodoc:active-provider-id",
+        type: "value" as const,
+        schema: z.string().default(""),
+    },
     currentUrl: {
         key: "turbodoc:current-url",
         type: "value" as const,
@@ -39,6 +44,7 @@ type StorageTypeOf<K extends StorageKey> =
 // ============================================================================
 
 type StorageEvents = {
+    activeProviderId: { value: string },
     currentUrl: { value: string },
     expanded: { element: string, present: boolean },
     recentItems: { value: Record<string, string[]> },

@@ -3,12 +3,19 @@
     import { buttonVariants } from "@shadcn/components/ui/button";
 
     import EllipsisVertical from "@lucide/svelte/icons/ellipsis-vertical";
+    import Ellipsis from "@lucide/svelte/icons/ellipsis";
     import ExternalLink from "@lucide/svelte/icons/external-link";
+    import LoaderCircle from "@lucide/svelte/icons/loader-circle";
     import LogIn from "@lucide/svelte/icons/log-in";
+    import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
 
-    import type { Item, ItemAction, ProviderData } from "@/core/data";
+    import type { Item, ItemAction, ItemVersions, ProviderData } from "@/core/data";
     import * as DropdownMenu from "@shadcn/components/ui/dropdown-menu";
     import Icon from "@/ui/common/Icon.svelte";
+    import {
+        buildVersionMenuChoices,
+        type VersionMenuChoices,
+    } from "@/ui/explorer/version-menu";
 
     import * as ctx from "@/core/context.svelte";
 
@@ -16,6 +23,16 @@
 
     const navigate = ctx.navigateTo;
     const store = ctx.getProviderData();
+    const versionChoices = $derived(
+        item.versions?.status === "ready"
+            ? buildVersionMenuChoices(item.versions)
+            : null);
+
+    /** Opening the menu is the first point where its version choices become
+     * visible, so it is also the provider-neutral lazy-loading intent. */
+    function handleMenuOpenChange(open: boolean) {
+        if (open) item.versions?.ensureLoaded?.();
+    }
 
     /** Build a ItemAction that moves this item from its current group to
      *  the given target group. Used both for the top-level "Ungrouped"
@@ -74,13 +91,14 @@
     const defaultLinkIcon = { type: "lucide" as const, icon: ExternalLink };
 </script>
 
-<DropdownMenu.Root>
+<DropdownMenu.Root onOpenChange={handleMenuOpenChange}>
     <DropdownMenu.Trigger
         class={cn(
             buttonVariants({ variant: "ghost" }),
             "size-6 rounded-sm opacity-0 group-hover/item:opacity-100 " +
-            "group-focus-within/item:opacity-100 aria-expanded:opacity-100")}
-        aria-label="Item actions">
+            "group-focus-within/item:opacity-100 aria-expanded:opacity-100 " +
+            "[@media(hover:none)]:opacity-100")}
+        aria-label={`Actions for ${item.name}`}>
         <EllipsisVertical class="size-3.5" />
     </DropdownMenu.Trigger>
     <DropdownMenu.Content class="min-w-42">
@@ -116,6 +134,11 @@
             {/each}
         {/if}
 
+        {#if item.versions}
+            <DropdownMenu.Separator />
+            {@render ExplorerItemVersions(item.versions, versionChoices)}
+        {/if}
+
         {#if item.actions && item.actions.length > 0}
             <DropdownMenu.Separator />
             {#each item.actions as action (action.name)}
@@ -130,3 +153,75 @@
         {/if}
     </DropdownMenu.Content>
 </DropdownMenu.Root>
+
+{#snippet ExplorerItemVersions(
+    versions: ItemVersions,
+    choices: VersionMenuChoices | null,
+)}
+    <DropdownMenu.Label>Version</DropdownMenu.Label>
+    {#if versions.status === "ready" && choices}
+        <DropdownMenu.RadioGroup
+            value={versions.current}
+            onValueChange={versions.setCurrentVersion}
+            aria-label={`Version for ${item.name}`}>
+            {#each choices.direct as version (version)}
+                <DropdownMenu.RadioItem
+                    value={version}
+                    class="h-7 font-mono text-xs">
+                    {version}
+                </DropdownMenu.RadioItem>
+            {/each}
+        </DropdownMenu.RadioGroup>
+
+        {#if choices.overflowGroups.length > 0}
+            <DropdownMenu.Sub>
+                <DropdownMenu.SubTrigger class="h-7 text-xs">
+                    <Ellipsis class="size-3.5" />
+                    <span>More versions</span>
+                </DropdownMenu.SubTrigger>
+                <DropdownMenu.SubContent
+                    class="max-h-80 min-w-32 overflow-y-auto">
+                    {#each choices.overflowGroups as group, groupIndex}
+                        {#if groupIndex > 0}
+                            <DropdownMenu.Separator />
+                        {/if}
+                        <DropdownMenu.RadioGroup
+                            value={versions.current}
+                            onValueChange={versions.setCurrentVersion}
+                            aria-label={`More versions for ${item.name}`}>
+                            {#each group as version (version)}
+                                <DropdownMenu.RadioItem
+                                    value={version}
+                                    class="h-7 font-mono text-xs">
+                                    {version}
+                                </DropdownMenu.RadioItem>
+                            {/each}
+                        </DropdownMenu.RadioGroup>
+                    {/each}
+                </DropdownMenu.SubContent>
+            </DropdownMenu.Sub>
+        {/if}
+    {:else}
+        <DropdownMenu.RadioGroup
+            value={versions.current}
+            aria-label={`Current version for ${item.name}`}>
+            <DropdownMenu.RadioItem
+                value={versions.current}
+                closeOnSelect={false}
+                class="h-7 font-mono text-xs"
+                aria-busy={versions.status === "loading"}
+                aria-label={versions.status === "error"
+                    ? `Retry loading versions for ${item.name}; current version ${versions.current}`
+                    : `Loading versions for ${item.name}; current version ${versions.current}`}
+                title={versions.error}
+                onSelect={() => versions.ensureLoaded?.()}>
+                {#if versions.status === "loading"}
+                    <LoaderCircle class="size-3 animate-spin" />
+                {:else if versions.status === "error"}
+                    <TriangleAlert class="size-3 text-destructive" />
+                {/if}
+                <span>{versions.current}</span>
+            </DropdownMenu.RadioItem>
+        </DropdownMenu.RadioGroup>
+    {/if}
+{/snippet}

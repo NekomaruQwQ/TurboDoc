@@ -14,12 +14,12 @@ interface VersionOrYanked {
  * the latest version from each group along with all versions in that group.
  *
  * @param versions - Array of version objects with num and yanked properties (sorted newest first)
- * @param maxGroups - Maximum number of version groups to return (default: 5)
+ * @param maxGroups - Optional maximum number of version groups to return
  * @returns Array of version groups, each containing the latest version and all versions in that group
  */
 export function computeVersionGroups(
 	versions: VersionOrYanked[],
-	maxGroups: number = 5
+	maxGroups?: number
 ): { versions: VersionOrYanked[] }[] {
 	const parsed = versions
 		.map(v => ({
@@ -50,7 +50,7 @@ export function computeVersionGroups(
 	const groups: { versions: VersionOrYanked[] }[] = [];
 
 	for (const [_, versions] of Array.from(groupMap.entries())) {
-		if (groups.length >= maxGroups) break;
+		if (maxGroups !== undefined && groups.length >= maxGroups) break;
 		if (versions.length === 0) continue;
 
 		// Latest version is the first one (already sorted newest first)

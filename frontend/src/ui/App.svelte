@@ -13,9 +13,11 @@
         type InitialDocumentLoadState,
         reduceInitialDocumentLoad,
     } from "@/core/documentLifecycle";
+    import type { Provider } from "@/core/data";
     import providers from "@/providers";
 
     import WorkbenchToolbar from "./WorkbenchToolbar.svelte";
+    import NavBar from "./NavBar.svelte";
     import Explorer from "./explorer/Explorer.svelte";
 
     /** Captured once at mount and released only after the native host exposes
@@ -97,19 +99,45 @@
         return () => window.clearTimeout(timeout);
     });
 
-    let providerId = $state(providers[0].id);
+    /** Restore only registered providers. Removed or corrupt IDs fall back to
+     * the registry default and are repaired immediately for the next launch. */
+    const storedProviderId = storage.load("activeProviderId");
+    const initialProviderId = providers.some(provider => provider.id === storedProviderId)
+        ? storedProviderId
+        : providers[0].id;
+    if (storedProviderId !== initialProviderId)
+        storage.save("activeProviderId", initialProviderId);
+
+    let providerId = $state(initialProviderId);
     let provider = $derived(providers.find(p => p.id === providerId) ?? providers[0]);
+
+    /** Persist an explicit provider switch and open its canonical landing
+     * page. Reselecting the active provider intentionally does not reload it. */
+    function selectProvider(nextProvider: Provider): void {
+        if (nextProvider.id === providerId) return;
+        providerId = nextProvider.id;
+        storage.save("activeProviderId", nextProvider.id);
+        ctx.navigateTo(nextProvider.homeUrl);
+    }
 </script>
 
 <div class="flex h-full w-full flex-col bg-workbench">
     <WorkbenchToolbar />
     <Resizable.PaneGroup direction="horizontal" class="min-h-0 flex-1 gap-0.5 p-2">
         <Resizable.Pane defaultSize={20} class="flex min-w-0 flex-col">
-            <section
-                class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-workbench-divider bg-sidebar"
-                aria-label="Documentation explorer">
-                <Explorer {provider} {reportedNavigationId} />
-            </section>
+            <aside
+                class="flex min-h-0 flex-1 overflow-hidden rounded-lg border border-workbench-divider bg-sidebar"
+                aria-label="Documentation sidebar">
+                <NavBar
+                    {providers}
+                    activeProviderId={provider.id}
+                    onProviderSelect={selectProvider} />
+                <section
+                    class="flex min-w-0 flex-1 flex-col"
+                    aria-label="Documentation explorer">
+                    <Explorer {provider} {reportedNavigationId} />
+                </section>
+            </aside>
         </Resizable.Pane>
         <Resizable.Handle
             class="w-1 bg-transparent transition-colors after:w-2 hover:bg-ring/35 focus-visible:bg-ring/45" />

@@ -1,11 +1,11 @@
 import type { Component } from "svelte";
 import type { LucideProps } from "@lucide/svelte";
 
-/** A renderable icon. Currently the only implementation is an `@lucide/svelte`
- *  icon component; the discriminated union leaves room to add other icon
- *  sources later (e.g., raw SVG paths) without changing call sites. */
+/** A renderable icon. Monochrome SVGs are treated as masks so provider-owned
+ *  brand assets can follow the workbench's current foreground color. */
 export type IconProp =
-    | { type: "lucide"; icon: Component<LucideProps> };
+    | { type: "lucide"; icon: Component<LucideProps> }
+    | { type: "monochrome-svg"; src: string };
 
 import * as z from "zod";
 
@@ -97,6 +97,12 @@ export interface ProviderInfo {
 
     /** Display name of the provider. */
     readonly name: string,
+
+    /** Icon shown for this provider in the workbench navigation bar. */
+    readonly icon: IconProp,
+
+    /** Landing page opened when the user explicitly switches to this provider. */
+    readonly homeUrl: string,
 
     /** Whether to enable item grouping for this provider. */
     readonly enableItemGrouping: boolean,
@@ -208,8 +214,8 @@ export interface Item {
     /** List of custom actions for this item. */
     actions?: ItemAction[],
 
-    /** For items that represents a package (or crate, module, etc.), this field
-     *  contains the view model of the version selector. **/
+    /** For items that represent a package (or crate, module, etc.), this field
+     *  contains the view model of the version menu. **/
     versions?: ItemVersions,
 }
 
@@ -245,9 +251,9 @@ export interface ItemAction {
     invoke(): void,
 }
 
-/** The view model of the version selector for a package item. */
+/** The view model of the version choices for a package item. */
 export interface ItemVersions {
-    /** Availability of the selector's remotely discovered choices.
+    /** Availability of the menu's remotely discovered choices.
      *
      * `current` remains usable in every state so an offline metadata request
      * never invalidates the persisted workspace selection. */
@@ -270,10 +276,10 @@ export interface ItemVersions {
     /** Currently selected version string. */
     current: string,
 
-    /** List of versions that are listed in the version selector combobox. */
+    /** Preferred versions listed at the menu's first level before overflow. */
     recommended: string[],
 
-    /** Idempotently request lazy choices after the UI observes user intent.
+    /** Idempotently request lazy choices after the menu observes user intent.
      * Eager/static providers may omit this callback. */
     ensureLoaded?(): void,
 

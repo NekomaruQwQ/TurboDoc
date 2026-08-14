@@ -21,4 +21,10 @@
 {#if icon.type === "lucide"}
     {@const Component = icon.icon}
     <Component size={SIZE_PX[size]} class={className} />
+{:else}
+    <span
+        aria-hidden="true"
+        class={`inline-block shrink-0 bg-current ${className}`}
+        style={`width: ${SIZE_PX[size]}px; height: ${SIZE_PX[size]}px; mask: url("${icon.src}") center / contain no-repeat; -webkit-mask: url("${icon.src}") center / contain no-repeat;`}>
+    </span>
 {/if}

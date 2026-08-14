@@ -8,18 +8,19 @@ are already persisted independently. Fetching metadata for every crate during
 startup therefore spent network, proxy, parsing, semver-grouping, and reactive
 rendering work on controls the user might never open.
 
-M4 moves automatic crates.io sparse-index requests to the first meaningful
-interaction with a crate's version selector. The selector is progressively
-disclosed while hovering or focusing anywhere in the crate item—including
-its expanded page rows—or on touch-capable layouts. Explicit **Refresh
+M4 moves automatic crates.io sparse-index requests to the first time a crate's
+item menu opens. Version choices live in that menu after external links and
+before item actions: five recommended choices are direct radio items, with the
+remaining grouped history in a More versions submenu. Explicit **Refresh
 Metadata** remains an intentional request to the richer crates.io API.
 
 ## Goals
 
 - Restore large workspaces without issuing crate metadata requests.
 - Keep crate navigation and persisted current versions usable while offline.
-- Reveal secondary version controls without shifting each card's layout.
-- Treat mouse, keyboard, and touch interaction as equivalent user intent.
+- Reclaim the crate-row width previously reserved for version controls.
+- Treat pointer, keyboard, and touch menu opening as equivalent user intent.
+- Keep long version histories navigable without making the primary menu tall.
 - Deduplicate repeated intent and make request races deterministic.
 - Keep HTTP freshness and persistence in the existing host proxy.
 
@@ -29,60 +30,54 @@ Metadata** remains an intentional request to the richer crates.io API.
 - Replacing the host's RFC-aware SQLite HTTP cache.
 - Fetching metadata when a group expands or an item enters the viewport.
 - Adding a general-purpose asynchronous resource framework.
-- Implementing the future full-version-list popup.
+- Adding search or virtualization to the version-history submenu.
 
 ## Interaction design
 
-### Progressive disclosure
+### Menu placement
 
-The version selector retains its existing fixed-width footprint but is
-transparent and non-pointer-interactive until its crate item is:
+The crate header contains only its full-width name and ellipsis trigger.
+Version choices appear inside the existing Bits UI item menu after external
+links and before Refresh Metadata or other item actions. Five unique
+recommended choices are shown directly. More versions opens a height-bounded,
+scrollable submenu containing the remaining non-yanked history in semver
+compatibility groups.
 
-- hovered with a hover-capable pointer, including over an expanded page row;
-- focused within by keyboard navigation, including a page or pin control;
-- rendered on a device that cannot express hover; or
-- keeping its portaled version menu open.
-
-Reserving the footprint avoids making long crate names jump or re-truncate
-when the selector appears. The dropdown-open condition is important because
-Bits UI portals the menu outside the crate item, which otherwise ends its
-hover and focus-within state.
-
-The pointer and focus boundary lives on the outer collapsible crate item
-rather than its header. Moving between the header and page rows therefore
-does not hide the selector, cancel a pending intent timer, or cause visual
-flicker.
+Both levels use menu radio items, so the checked version and keyboard behavior
+come from the menu primitive rather than custom checkbox markup. The current
+value remains represented even when it is yanked, missing from metadata, or a
+non-semver alias.
 
 ### Intent timing
 
-Mouse hover waits 125 ms before requesting metadata. This small hover-intent
-window filters incidental cursor travel across a long sidebar. Keyboard focus
-and non-mouse pointer interaction request immediately because they are
-stronger signals.
+Opening the item menu calls `ItemVersions.ensureLoaded()` immediately. This is
+the first moment its direct version choices become visible, and the already
+open menu can react from loading to ready without requiring a second click.
+Repeated openings remain cheap because the provider loader deduplicates active
+requests and returns immediately when it has usable data.
 
-Leaving the entire crate item cancels only a timer that has not fired. An
-in-flight request continues so repeated entry cannot create abort/retry churn
-and so a useful cache result is not discarded.
+Opening the menu for a link or non-version action can also request metadata.
+That bounded trade-off keeps the five first-level choices truthful without
+restoring broad crate-row hover prefetching.
 
-### Selector states
+### Menu states
 
 The persisted `current` version is always available:
 
 | State | Presentation | Interaction |
 |---|---|---|
-| `idle` | Current version | Hover schedules loading; activation loads now |
-| `loading` | Current version and spinner | Repeated activation is deduplicated |
-| `ready` | Normal recommended-version selector | Version changes behave as before |
-| `error` | Current version and warning | Re-entry or activation retries |
+| `idle` | Current version | Menu opening starts loading |
+| `loading` | Checked current version and spinner | Repeated activation is deduplicated |
+| `ready` | Five direct radio items plus optional More versions submenu | Selection closes the menu and navigates as before |
+| `error` | Checked current version and warning | Reopening or selecting the row retries |
 
-Explicit activation is completed as one logical interaction: after a
-successful load, the real selector opens automatically instead of requiring a
-second click or tap.
+The menu stays open while the reactive view model changes state, completing
+loading as one logical interaction.
 
 Static standard-library choices (`stable` and `nightly`) begin in `ready`.
-The unversioned `windows` documentation item has no selector and performs no
-automatic metadata request. Its explicit refresh action can still request
-crates.io metadata.
+The unversioned `windows` documentation item has no version section and
+performs no automatic metadata request. Its explicit refresh action can still
+request crates.io metadata.
 
 ## Data contract
 
@@ -93,11 +88,11 @@ crates.io metadata.
 - `ensureLoaded()` idempotently requests the choices; and
 - `current` remains valid in every state.
 
-The callback is named for its guarantee rather than for a UI event. The
-explorer can invoke it from hover, focus, touch, or future interaction models
-without teaching provider code about DOM events. A broader item-level
-`prepareMetadata()` abstraction was rejected because the current interaction
-and latency concern is specifically the version selector.
+The callback is named for its guarantee rather than for a UI event. The item
+menu can invoke it from any opening mechanism without teaching provider code
+about DOM events. A broader item-level `prepareMetadata()` abstraction was
+rejected because the current interaction and latency concern is specifically
+the version choices.
 
 ## Request and cache design
 
@@ -135,7 +130,7 @@ Workspace restore
   -> render crate card with persisted current version
   -> no metadata request
 
-Hover/focus/touch intent
+Item menu opens
   -> ItemVersions.ensureLoaded()
   -> CrateCacheLoader.ensure(crate)
      -> usable frontend data: return
@@ -152,11 +147,18 @@ does not duplicate those policies.
 
 ## Alternatives considered
 
-### Fetch when the selector is clicked
+### Retain crate-row hover prefetching
 
-This minimizes requests further but makes the control feel unresponsive on
-first activation and can require a second click to open. Hover intent gives
-the common mouse workflow a head start while focus and touch remain explicit.
+Hover prefetching can make the menu ready before it opens, but the crate row no
+longer displays a version control. Treating incidental traversal as version
+intent would spend network and parsing work without visible feedback. The open
+menu can instead update in place after one activation.
+
+### Put every version in a submenu
+
+A version-only submenu keeps the item menu short, but makes common switching
+take an unnecessary extra traversal. Five direct recommendations retain the
+fast path while bounding the primary menu's height.
 
 ### Fetch when a group expands
 
@@ -182,37 +184,31 @@ valuable for the rest of the session.
 
 ## Failure modes and mitigations
 
-- **Incidental pointer sweeps:** the 125 ms delay filters most accidental
-  visits; the loader still deduplicates requests that begin.
-- **The window opens under the pointer:** one card may receive legitimate
-  hover intent immediately. Startup still avoids the all-crate burst.
+- **Menu opened for another action:** one crate can receive metadata even when
+  the user selects a link or move action. Startup and crate-row traversal still
+  issue no requests.
 - **Offline, 404, malformed, or rate-limited metadata:** the persisted current
-  version and documentation navigation remain usable; the selector reports an
+  version and documentation navigation remain usable; the menu reports an
   error and permits retry.
-- **Synchronous intercepted-request latency:** the intent delay lets the
-  selector reveal before `fetch` begins. One request can still expose host/UI
-  thread latency, but no longer multiplies it by the workspace size.
+- **Synchronous intercepted-request latency:** the menu represents the request
+  with a checked loading row. One request can still expose host/UI thread
+  latency, but no longer multiplies it by the workspace size.
 - **Very large version histories:** parsing and semver grouping happen once
-  per successful frontend load. This can still create an interaction-time
-  hitch and should be measured before introducing workers or incremental
-  parsing.
-- **Rapid focus and pointer transitions:** timers are cleared on leave and
-  component destruction; active requests are promise-deduplicated.
-- **Portaled dropdown interaction:** explicit open state keeps the selector
-  visible while hover/focus temporarily leaves the card.
+  per successful frontend load; the overflow DOM mounts only when its bounded,
+  scrollable submenu opens. This should be measured before adding search or
+  virtualization.
 - **Refresh racing a normal load:** generations prevent stale overwrites.
 - **Refresh failure:** old usable data is retained.
 - **Crate deletion during a request:** a late result may remain as an orphaned
   in-memory entry but cannot recreate persisted crate data. Re-importing the
   crate can reuse it for the session.
 - **Missing, yanked, prerelease, or non-semver current versions:** the current
-  value remains visible and is not silently replaced. Non-semver aliases are
+  value remains checked and is not silently replaced. Non-semver aliases are
   kept outside `semver.rcompare`.
-- **Collapsed groups:** their unmounted cards cannot emit intent and therefore
+- **Collapsed groups:** their unmounted cards cannot open a menu and therefore
   cannot fetch.
-- **Keyboard traversal:** focus intentionally counts as user intent. Tabbing
-  through many cards can fetch several crates, which is preferable to making
-  the selector inaccessible.
+- **Hoverless input:** the ellipsis trigger is persistently visible, avoiding
+  an invisible version entry point on touch devices.
 
 ## Verification
 
@@ -228,8 +224,10 @@ Automated coverage verifies:
 Manual verification should confirm:
 
 - startup and bulk import issue no sparse-index requests;
-- hover reveal occurs immediately but loading waits for hover intent;
-- keyboard focus and touch-capable layouts expose the selector;
-- the selector remains visible while its dropdown is open;
+- crate-row hover and focus do not request metadata;
+- pointer, keyboard, and touch menu opening starts one lazy request;
+- the open menu progresses from loading to radio choices without closing;
+- five choices appear directly and the remaining grouped history scrolls in
+  More versions;
 - offline errors can be retried; and
 - large workspaces remain responsive during restore.

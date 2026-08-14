@@ -62,6 +62,20 @@ describe("computeVersionGroups", () => {
 		expect(result[2]!.versions[0]!.num).toBe("3.0.0");
 	});
 
+	test("returns every group when maxGroups is omitted", () => {
+		const versions = [
+			{ num: "6.0.0", yanked: false },
+			{ num: "5.0.0", yanked: false },
+			{ num: "4.0.0", yanked: false },
+			{ num: "3.0.0", yanked: false },
+			{ num: "2.0.0", yanked: false },
+			{ num: "1.0.0", yanked: false },
+		];
+		const result = computeVersionGroups(versions);
+
+		expect(result).toHaveLength(6);
+	});
+
 	test("handles pre-release versions", () => {
 		const versions = [
 			{ num: "1.0.0-rc.1", yanked: false },

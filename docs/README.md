@@ -46,16 +46,18 @@ The frontend uses a **multi-provider architecture** where each documentation sou
 - Move groups up/down/under via dropdown menu
 
 **Version Management:**
-- Version selector appears while hovering/focusing a crate header or one of
-  its expanded pages and lazily loads recommended versions
-  (latest + semver-grouped)
+- Version choices live in the crate menu after external links and before item
+  actions; opening the menu lazily loads their metadata
+- Five recommended choices appear directly, while the remaining grouped
+  history is available from a scrollable More versions submenu
 - Changing version reloads iframe with new version URL
 - Current version persisted per-item in workspace
-- Auto-sync: version selector updates when iframe navigates to different version
+- Auto-sync: the checked menu version updates when iframe navigation changes it
 
 ### Feature Requirements
 
 #### Implemented
+- Provider NavBar with persisted active selection and provider-home navigation
 - Prefix-search, open, and add Explorer crates through a non-exhaustive combobox
 - Display crate metadata (versions and links)
 - Version selection with intelligent grouping
@@ -131,7 +133,7 @@ WebView2 iframe navigates
 **Crate metadata:**
 ```
 Rust provider needs metadata for a crate
-  ├─ First version-selector intent:
+  ├─ First item-menu opening:
   │    GET https://index.crates.io/{Cargo index path}
   │    └─ proxy follows upstream Cache-Control/ETag/Last-Modified normally
   └─ "Refresh Metadata": GET https://crates.io/api/v1/crates/{name}
@@ -186,7 +188,8 @@ Rust file server or reverse proxy is involved.
 - **Type Utilities**: type-fest (used by `ReadonlyDeep` markers in a few places)
 - **UI Components**: shadcn-svelte — vendored Bits UI primitives in `frontend/3rdparty/shadcn/`; paneforge (via the Resizable wrapper) for split panes
 - **Styling**: Tailwind CSS v4 with OKLCH color space; `class={[...]}` for conditional classes (no `cn()` in app code)
-- **Icons**: `@lucide/svelte` (icons imported individually for tree-shaking)
+- **Icons**: `@lucide/svelte` (imported individually for tree-shaking) plus
+  provider-owned monochrome SVG marks rendered as current-color masks
 - **Utilities**: remeda (functional), semver, zod
 - **Backend**: Rust (rusqlite + reqwest + `http-cache-semantics`) — in-process, no HTTP listener. `server::start` opens the SQLite cache and returns a `Server` handle the host calls from the WebView2 callback via `runtime.block_on(...)`.
 - **Host**: Rust (eframe/egui + wgpu/DX12 + WebView2) — native startup/error UI, window management, release-folder mapping, WebView2 request interception, backend lifecycle, and optional Vite-child lifecycle. eframe owns the root winit window and WebView2 uses its HWND as the parent for a child controller. The host process owns no listener; only `--dev` binds a Vite port.
@@ -195,40 +198,42 @@ Rust file server or reverse proxy is involved.
 ### Sidebar Layout
 
 ```
-┌─────────────────────────────────┐
-│ [⌕ Search crates…             ] │  ← Pinned prefix search / recent crates
-│   serde                         │  ← Up to five suggestions
-│   ────────────────────────────  │
-│   + Add crate "ser"             │  ← Free-form action (non-exact input)
-├─────────────────────────────────┤
-│   ▶ Ungrouped                   │  ← Scrollable crate/group region
-│   ▼ My Project                  │  ← Group (expanded)
-│       tokio                     │
-│       async-std                 │
-│   ▶ Utilities                   │  ← Group (collapsed)
-│   [+ Add Group]                 │  ← Create group button
-└─────────────────────────────────┘
+┌─────┬───────────────────────────────┐
+│ [R] │ [⌕ Search crates…           ] │  ← Fixed NavBar + pinned search
+│     │   serde                       │  ← Up to five suggestions
+│     │   ──────────────────────────  │
+│     │   + Add crate "ser"           │  ← Free-form action (non-exact input)
+│     ├───────────────────────────────┤
+│     │   ▶ Ungrouped                 │  ← Scrollable crate/group region
+│     │   ▼ My Project                │  ← Group (expanded)
+│     │       tokio                   │
+│     │       async-std               │
+│     │   ▶ Utilities                 │  ← Group (collapsed)
+│     │   [+ Add Group]               │  ← Create group button
+└─────┴───────────────────────────────┘
 ```
 
 ### Component Hierarchy
 
 ```
 frontend/index.ts (entry point: mount(App, ...))
-└── App.svelte (owns active `providerId` $state, native lifecycle functions,
-                initial-document loading state, and resizable workbench layout)
+└── App.svelte (owns persisted active `providerId`, native lifecycle functions,
+                provider-home navigation, initial-document loading state,
+                and the resizable workbench layout)
     ├── WorkbenchToolbar.svelte (product identity + read-only current URL)
-    ├── Explorer.svelte (left panel; receives the active provider as a prop,
-    │                    owns ProviderDataStore, derives view model via
-    │                    provider.render(ctx), wires up effects)
-    │   ├── ExplorerHeader.svelte (panel label + active provider)
-    │   ├── ExplorerSearch.svelte (prefix matches, five-item MRU, Add/Import actions)
-    │   │   └── InputActionDialog.svelte (existing Import dialog, externally triggered)
-    │   ├── ExplorerGroup (groupName="", derived ungrouped membership)
-    │   ├── ExplorerGroup[] (per persisted name in groupOrder)
-    │   │   ├── ExplorerGroupHeader (shared collapse + bulk actions;
-    │   │   │                      persisted groups also support rename/move/delete)
-    │   │   └── ExplorerItem[] (sorted by sortKey, shown when group expanded)
-    │   └── ExplorerCreateGroupComponent
+    ├── documentation sidebar
+    │   ├── NavBar.svelte (registered provider buttons + active marker)
+    │   └── Explorer.svelte (receives the active provider, owns its
+    │       │                ProviderDataStore, derives its view model,
+    │       │                and wires up provider effects)
+    │       ├── ExplorerSearch.svelte (prefix matches, five-item MRU, Add/Import actions)
+    │       │   └── InputActionDialog.svelte (existing Import dialog, externally triggered)
+    │       ├── ExplorerGroup (groupName="", derived ungrouped membership)
+    │       ├── ExplorerGroup[] (per persisted name in groupOrder)
+    │       │   ├── ExplorerGroupHeader (shared collapse + bulk actions;
+    │       │   │                      persisted groups also support rename/move/delete)
+    │       │   └── ExplorerItem[] (sorted by sortKey, shown when group expanded)
+    │       └── ExplorerCreateGroupComponent
     └── editor pane (deferred iframe + loading/error placeholder)
 ```
 
@@ -236,8 +241,8 @@ frontend/index.ts (entry point: mount(App, ...))
 ```
 ExplorerItem (shadcn-svelte Collapsible.Root, backed by Bits UI)
 ├── Item name (Collapsible.Trigger, clickable, toggles collapse)
-├── Version selector (shadcn-svelte Select.Root, if item.versions exists)
-├── ExplorerItemMenu (shadcn-svelte DropdownMenu.Root: move to group, links, actions)
+├── ExplorerItemMenu (shadcn-svelte DropdownMenu.Root: move to group, links,
+│                     radio-style versions, actions)
 └── Collapsible.Content
     └── ExplorerPageList
         └── ExplorerPage[] (sorted by sortKey)
@@ -247,13 +252,14 @@ ExplorerItem (shadcn-svelte Collapsible.Root, backed by Bits UI)
 
 ### Component Responsibilities
 
-- **Explorer** (`frontend/src/ui/explorer/Explorer.svelte`): Receives the active provider, latest reported navigation ID, and optional fractional center range as props; owns per-provider data via `ProviderDataStore` (Svelte 5 `$state` class), constructs `ProviderContext`, calls `provider.render()` inside a `$derived`, and wires up the optional `provider.setupEffects(ctx)` hook inside a `$effect` so any inner `$effect`s the provider creates are bound to this component's lifecycle. The search occupies a fixed row beneath the panel header while the crate/group region owns the only scroll viewport. A recognized reported navigation expands the containing group and item, waits for their clipping animations, then calculates one scroll position: card centering is the preference, while placing the complete selected page row inside the center range is the constraint. Recreated implicitly when `provider.id` changes (the `$derived` `ProviderDataStore` reinitializes with the new ID).
+- **NavBar** (`frontend/src/ui/NavBar.svelte`): Fixed 44px workbench rail that renders every provider in registry order. Provider buttons expose accessible names, use a current-color provider-owned mark, and identify the active provider with the primary edge marker. Selection intent returns to `App.svelte`; the NavBar neither owns persistence nor performs navigation.
+- **Explorer** (`frontend/src/ui/explorer/Explorer.svelte`): Receives the active provider, latest reported navigation ID, and optional fractional center range as props; owns per-provider data via `ProviderDataStore` (Svelte 5 `$state` class), constructs `ProviderContext`, calls `provider.render()` inside a `$derived`, and wires up the optional `provider.setupEffects(ctx)` hook inside a `$effect` so any inner `$effect`s the provider creates are bound to this component's lifecycle. The search occupies the fixed top row while the crate/group region owns the only scroll viewport. A recognized reported navigation expands the containing group and item, waits for their clipping animations, then calculates one scroll position: card centering is the preference, while placing the complete selected page row inside the center range is the constraint. Recreated implicitly when `provider.id` changes (the `$derived` `ProviderDataStore` reinitializes with the new ID).
 - **ExplorerSearch** (`ExplorerSearch.svelte`): Accessible Bits UI combobox pinned above the scrolling crate/group region; shows at most five case-insensitive prefix matches, or the five most recently accessed items for empty input; dispatches provider-owned select/add actions and opens the existing Import dialog
 - **ExplorerGroup** (`ExplorerGroup.svelte`): Owns the shared collapsible state and renders filtered/sorted items; the empty group name identifies derived ungrouped membership
 - **ExplorerGroupHeader** (`ExplorerGroupHeader.svelte`): Shared chevron trigger and expand/collapse-all menu; persisted named groups additionally support rename, move, and deletion
 - **ExplorerCreateGroupComponent** (`ExplorerCreateGroupComponent.svelte`): Button that transforms to inline input for creating new groups
-- **ExplorerItem** (`ExplorerItem.svelte`): Collapsible card with name, version selector, menu; expansion state via `itemExpanded(providerId, itemId)` accessor
-- **ExplorerItemMenu** (`ExplorerItemMenu.svelte`): Move to group submenu, external links, custom actions
+- **ExplorerItem** (`ExplorerItem.svelte`): Collapsible card with a full-width name and item menu; expansion state via `itemExpanded(providerId, itemId)` accessor
+- **ExplorerItemMenu** (`ExplorerItemMenu.svelte`): Move to group submenu, external links, five direct radio-style version choices plus grouped overflow, and custom actions; opening it is the lazy metadata intent
 - **ExplorerPageList** (`ExplorerPageList.svelte`): Sorted page list with symbol color coding and pinning buttons
 - **InputActionDialog** (`InputActionDialog.svelte`): Generic dialog for `ProviderAction` of type `"input"` — provider supplies labels and an `invoke(value)` callback; the dialog owns the textarea/input UI and supports either its legacy button or an externally controlled trigger
 
@@ -274,7 +280,7 @@ ExplorerItem (shadcn-svelte Collapsible.Root, backed by Bits UI)
 
 ### Provider System
 
-Providers register in `frontend/src/providers/index.ts` as a plain `Provider[]` array (default export) and implement the `Provider<T>` interface from `frontend/src/core/data.ts`. Only one provider is rendered at a time — see "Active Provider Selection" below. Each provider's `render()` returns a `ProviderOutput` containing:
+Providers register in `frontend/src/providers/index.ts` as a plain `Provider[]` array (default export) and implement the `Provider<T>` interface from `frontend/src/core/data.ts`. Every provider supplies its NavBar icon and canonical `homeUrl`; only one provider is rendered at a time — see "Active Provider Selection" below. Each provider's `render()` returns a `ProviderOutput` containing:
 - `items: Record<string, Item>` — uniform view models with pages, links, actions, versions
 - `search?: ProviderSearch` — provider wording and callbacks for generic item matching, activation, creation, and the empty-input action
 - `actions?: ProviderAction[]` — provider-level UI (e.g., import dialog)
@@ -287,6 +293,7 @@ View models contain callbacks (e.g., `setPinned`, `setCurrentVersion`, `invoke`)
 ```
 [Disk/Storage]                         [Deserialization]         [Runtime]
 <providerId>.toml ──────────► ProviderDataStore.load() ────► ProviderOutput (View Model)
+localStorage (turbodoc:active-provider-id) ────────────────► active provider
 localStorage (turbodoc:current-url) ──► currentUrl.value ──────► current URL (createSubscriber)
 localStorage (turbodoc:expanded) ────► groupExpanded/itemExpanded ► expansion state
 localStorage (turbodoc:recent-items) ─► ExplorerSearch ─────────► five-item provider MRU
@@ -330,9 +337,15 @@ Supported domains:
 
 **Cross-crate navigation:** When the iframe navigates to a URL handled by a different crate (e.g., a docs.rs page links to `doc.rust-lang.org/std/vec/struct.Vec.html`), the provider's `parseUrl()` recognizes both URL patterns and auto-imports the crate if not present.
 
+The Rust NavBar mark is the Rust Foundation's unmodified vector geometry from
+`https://www.rust-lang.org/static/images/rust-logo-blk.svg`, displayed through
+a current-color CSS mask. The mark is © Rust Foundation and licensed under
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); its use also follows
+the [Rust trademark policy](https://rustfoundation.org/policy/rust-trademark-policy/).
+
 #### Active Provider Selection
 
-The app shows exactly one provider at a time. `App.svelte` holds the active provider ID as ephemeral `$state` (no persistence yet — defaults to the first registered provider on every launch). A provider switcher UI is planned (placeholder `<!-- Provider Switch Here -->` in `App.svelte`); persistence of the selection will land alongside the planned rename of `/data/:providerId` to a generic key-value endpoint.
+The app shows exactly one provider at a time. `App.svelte` restores the active provider ID synchronously from the validated `turbodoc:active-provider-id` localStorage slot, falling back to the first registered provider and repairing the slot when the saved ID is missing or no longer registered. The NavBar renders all registered providers. Explicitly selecting a different provider persists its ID and navigates the document viewer to that provider's `homeUrl`; reselecting the active provider is a no-op. Startup restoration retains the last document URL rather than treating launch as an explicit switch.
 
 Switching providers does not delete other providers' data — `<providerId>.toml` files are independent and reappear unchanged when re-selected.
 
@@ -430,14 +443,16 @@ A Windows Job Object (set up only by `src/dev.rs`) ensures the spawned Vite chil
 
 ### Spacing
 - 4px workbench gutters separate the rounded explorer and editor panels.
+- The NavBar is a fixed 44px rail; each provider receives a 44px square target.
 - Tree rows use 24–28px heights, shallow indentation, and compact controls.
 - Depth comes from panel borders and surface contrast rather than per-item cards
   or heavy shadows.
 
-### Icons (Lucide)
+### Icons
 
 | Component | Icon | Usage |
 |-----------|------|-------|
+| Provider | Provider-owned monochrome SVG | NavBar destination; rendered as a current-color mask |
 | External Link | `ExternalLink` | Item external links |
 | Pin | `Pin` | Pin/unpin button for pages |
 | Menu | `EllipsisVertical` | Item/group actions menu |
@@ -452,7 +467,7 @@ A Windows Job Object (set up only by `src/dev.rs`) ensures the spawned Vite chil
 | Add | `Plus` | Add group button |
 | Confirm | `Check` | Confirm rename/add |
 | Delete | `Trash2` | Delete group/item |
-| More Versions | `Ellipsis` | Version selector placeholder |
+| More Versions | `Ellipsis` | Version-history submenu |
 | Chevron | `ChevronDown` / `ChevronRight` | Group/item expand-collapse |
 
 ---
@@ -509,7 +524,8 @@ Design decisions that shaped the current architecture. Organized by area.
 
 **Provider API Surface**
 - No `serialize`/`deserialize` methods — view model callbacks mutate `$state`-proxied data directly
-- No provider collapsing in sidebar — exactly one provider is active at a time, chosen by the (forthcoming) switcher
+- No provider collapsing in the sidebar — exactly one provider is active at a time, chosen from the NavBar
+- Every provider declares an `icon` for the NavBar and a `homeUrl` opened on explicit selection
 
 **Thin-Callback Pattern**
 - All proxy and caching logic lives in the in-process backend (`src/server/`). WebView2 registers exact origin/path filters for `PROXIED_URL`, `/api`, and `/api/*` on the selected API origin, so unrelated assets, HMR, and external traffic never enters the callback. The callback routes `PROXIED_URL` GETs to `server.fetch`, answers release preflights, passes `/api/ready` through only in dev mode, dispatches the remaining `/api` namespace to Rust, and otherwise passes through.
@@ -535,9 +551,9 @@ Design decisions that shaped the current architecture. Organized by area.
 - Workspace persisted as **TOML** files under `$TURBODOC_DATA/` (parsed/serialized via the `toml` crate in `src/server/api/data.rs`); the HTTP wire format remains JSON, so the frontend sees no difference:
   - `<providerId>.toml` — per-provider user data (groups, provider-specific data). Loaded lazily per-provider by `ProviderDataStore.load()` inside `Explorer.svelte`.
 - Transient UI state stored in **localStorage** as individual slots, not on the server. Two storage shapes managed by `frontend/src/core/localStorage.ts`:
-  - **Primitive** (`turbodoc:current-url`, `turbodoc:recent-items`): current URL plus provider-keyed five-item MRU lists, simple get/set
+  - **Primitive** (`turbodoc:active-provider-id`, `turbodoc:current-url`, `turbodoc:recent-items`): active provider, current URL, and provider-keyed five-item MRU lists, simple get/set
   - **Array** (`turbodoc:expanded`): flat string array of expanded item/group keys. Key format: `<providerId>:<itemId>` for items, `<providerId>:group:<groupId>` for groups. Membership-check hooks (`useGroupExpanded`, `useItemExpanded`) with selective re-rendering via mitt events — only hooks whose specific key changed re-render.
-  - Each slot validated with Zod on load; invalid/missing data falls back to empty defaults (default URL `https://docs.rs/`, nothing expanded). See `frontend/src/core/localStorage.ts` and `frontend/src/core/uiState.svelte.ts`.
+  - Each slot is validated with Zod on load; invalid/missing data falls back to empty defaults (first registered provider, default URL `https://docs.rs/`, nothing expanded). See `frontend/src/core/localStorage.ts` and `frontend/src/core/uiState.svelte.ts`.
 - Sparse-index responses use the same RFC-aware `http_cache` SQLite table as documentation pages. Parsed crate metadata is provider-owned, within-session state in the Rust provider's module-level `$state` singleton.
 - Server-persisted via HTTP API (`/api/data/{providerId}` — one route per provider data file, plain JSON over `fetch`).
 - Provider-data save failures are non-fatal (log + return `{}`). Auto-save on every state change (no debouncing — files are small).
@@ -559,7 +575,7 @@ Design decisions that shaped the current architecture. Organized by area.
 - Prevents stale references from accumulating across data mutations
 
 **"latest" as Literal String**
-- Version selector stores the literal string `"latest"`, not a resolved version number
+- Version selection stores the literal string `"latest"`, not a resolved version number
 - Preserves user intent: automatically picks up new releases without manual update
 - Resolved to actual version only when building URLs
 
@@ -580,7 +596,7 @@ ProviderData ($state) ──► provider.render() inside $derived ──► rend
 - `ProviderContext` is constructed once in `Explorer.svelte` with reactive getters over the `ProviderDataStore` (`@/core/providerData.svelte`).
 
 **Independent State Atoms**
-- `App.svelte` owns the active `providerId` ($state, ephemeral) and the directly invoked `documentNavigationStarted` function (writes `currentUrl` to localStorage). No server-persisted app-level state.
+- `App.svelte` owns the active `providerId` ($state, restored synchronously from localStorage) and the directly invoked `documentNavigationStarted` function (writes `currentUrl` to localStorage). No server-persisted app-level state.
 - `currentUrl` consumed via the `currentUrl.value` reactive accessor (`@/core/uiState.svelte`) in components that need it (`ExplorerPageList`, etc.) — not routed through any global state container.
 - Expansion state managed per-component via the `groupExpanded`/`itemExpanded` factories — each accessor reads/writes its own key in the `turbodoc:expanded` localStorage slot. mitt events filter by element so only the matching subscribers re-render.
 - Provider data is lazily loaded per-provider inside `Explorer.svelte` via `ProviderDataStore.load()`.
@@ -590,12 +606,12 @@ ProviderData ($state) ──► provider.render() inside $derived ──► rend
 - Every webview→host application request uses REST-style `fetch()` under `/api/*`. Per-provider data CRUD uses `/api/data/{provider_id}`; WebView2 intercepts the path and routes it to the in-process `api::data` handlers (no network hop, no axum).
 - Host→webview lifecycle reports are direct calls built in `app.rs` against the typed `window.__turboDoc__` functions. The generic WebView2 wrapper executes only script strings in FIFO order through `ExecuteScriptWithResult`; JSON argument serialization prevents code injection, while completion results expose transport and JavaScript failures with their full source in native logs.
 - WebView2 messaging (`postMessage` / `WebMessageReceived`) and generic event dispatchers are intentionally absent; adding either would violate the direction contract.
-- UI state uses localStorage (`turbodoc:current-url`, `turbodoc:expanded`) without crossing the native boundary.
+- UI state uses localStorage (`turbodoc:active-provider-id`, `turbodoc:current-url`, `turbodoc:expanded`, and `turbodoc:recent-items`) without crossing the native boundary.
 - Documentation and sparse-index caching use the proxy's `http_cache` SQLite (upstream freshness directives, conditional stale-while-revalidate, LRU eviction). The frontend fetches upstream metadata URLs directly and parses their bodies.
 - Persistence failures remain non-fatal and are logged rather than crashing the workbench.
 
 **Decomposed Root State (no AppContext class)**
-- `App.svelte` owns the active `providerId` ($state) and passes the derived `provider` object as a prop to `Explorer.svelte`. There is no server-persisted `appData` — first paint does not wait on any network round-trip.
+- `App.svelte` owns the active `providerId` ($state), restores and persists it through localStorage, and passes the derived `provider` object as a prop to `Explorer.svelte`. Explicit NavBar switches navigate to the selected provider's home page. There is no server-persisted `appData` — first paint does not wait on any network round-trip.
 - `navigateTo(url)` is a plain function exported from `@/core/context.svelte`. Before the host calls `frontendShown()` it retains only the latest requested URL; after release it imperatively writes `viewerRef.value.src`. Any module can call it without provider/consumer pairing, while startup effects cannot accidentally begin documentation loading under the hidden shell.
 - `viewerRef` (`{ value: HTMLIFrameElement | undefined }` with a `$state` field) lives in `@/core/context.svelte`. `App.svelte` writes to it via `bind:this={ctx.viewerRef.value}`; `navigateTo` in the same module reads it. No context entry needed because module-level `$state` is already a singleton.
 - `currentUrl` read via the `currentUrl.value` accessor — not part of root state.
@@ -604,7 +620,7 @@ ProviderData ($state) ──► provider.render() inside $derived ──► rend
 **Graceful Degradation**
 - Stale proxy cache preferred over no data: if upstream refetch fails, the proxy serves the cached response
 - App fully functional without API metadata (loads with an empty in-memory cache and fetches sparse-index data on demand through the proxy)
-- Fetch errors are logged but non-fatal — items render without version selectors or metadata links
+- Fetch errors are logged but non-fatal — the item menu retains the persisted current version and retry affordance even without metadata links or discovered choices
 
 ### UI Patterns
 
@@ -660,9 +676,9 @@ ProviderData ($state) ──► provider.render() inside $derived ──► rend
 - Preserves keyboard focus and honors reduced-motion preference for programmatic scrolling
 
 **Version Auto-Sync**
-- When iframe navigates to a URL with a different version, the version selector auto-updates
+- When iframe navigation reports a different version, the checked menu item auto-updates
 - Handles both `"latest"` and specific version strings
-- Ensures the selector always reflects what the user is actually viewing
+- Ensures the menu always reflects what the user is actually viewing
 
 ---
 
@@ -707,6 +723,7 @@ TurboDoc/
 │       │   ├── index.ts            # Provider registry (default-exported `Provider[]`)
 │       │   └── rust/               # Unified Rust provider
 │       │       ├── index.ts            # Provider implementation (render, URL handling, page parsing, getImportCratesAction inlined)
+│       │       ├── rust.svg            # CC BY Rust Foundation mark used by the NavBar
 │       │       ├── effects.svelte.ts   # Per-provider $effect setup (URL sync, seed crates)
 │       │       ├── cache.svelte.ts     # `$state` singleton + lazy sparse-index/API fetching
 │       │       ├── cache-core.ts       # Rune-independent deduplication and latest-wins request coordinator
@@ -717,16 +734,19 @@ TurboDoc/
 │       │       └── url.test.ts
 │       │
 │       ├── ui/
-│       │   ├── App.svelte          # Root: active `providerId` $state, native lifecycle function exports, Resizable layout; iframe binds via `bind:this={ctx.viewerRef.value}`
+│       │   ├── App.svelte          # Root: persisted active provider, home navigation, native lifecycle exports, Resizable layout
+│       │   ├── NavBar.svelte       # Fixed workbench navigation rail; currently renders provider destinations
 │       │   ├── common/
-│       │   │   └── Icon.svelte     # Icon wrapper (lucide-svelte)
+│       │   │   └── Icon.svelte     # Lucide and current-color monochrome SVG renderer
 │       │   └── explorer/
 │       │       ├── Explorer.svelte                  # Active provider host: owns ProviderDataStore, derives view model, sets up effects
 │       │       ├── ExplorerGroup.svelte             # Group renderer (default + ungrouped variants)
 │       │       ├── ExplorerGroupHeader.svelte       # Group header (collapse, rename, dropdown menu)
 │       │       ├── ExplorerCreateGroupComponent.svelte # Add group button/input
-│       │       ├── ExplorerItem.svelte              # Collapsible item card with version selector
-│       │       ├── ExplorerItemMenu.svelte          # Item menu (move to group, links, actions)
+│       │       ├── ExplorerItem.svelte              # Collapsible item card with full-width name
+│       │       ├── ExplorerItemMenu.svelte          # Item menu (move, links, versions, actions)
+│       │       ├── version-menu.ts                  # Direct/overflow version partitioning
+│       │       ├── version-menu.test.ts             # Version ordering and fallback tests
 │       │       ├── ExplorerPageList.svelte          # Page list with symbol colors + pinning
 │       │       ├── reveal.ts                        # Parameterized center-range reveal geometry
 │       │       ├── reveal.test.ts                   # Card centering, page constraints, and bounds tests
@@ -794,6 +814,7 @@ TurboDoc/
 
 ### Completed
 - [x] Multi-provider architecture with view model derivation
+- [x] Provider NavBar with persisted selection and provider-home navigation
 - [x] Data/cache persistence via HTTP API
 - [x] Unified Rust provider (docs.rs + doc.rust-lang.org + windows-docs-rs)
 - [x] Pin/unpin documentation pages with preview page system
@@ -810,7 +831,6 @@ TurboDoc/
 - [x] Release frontend from executable-adjacent Vite artifacts, with opt-in Vite dev mode
 
 ### Remaining
-- [ ] Provider switcher UI (and persistence of the active provider selection)
 - [ ] Shared frontend loading/error states
 - [ ] Keyboard shortcuts
 - [ ] Cross-provider navigation (partially done via unified rust provider)
@@ -819,6 +839,8 @@ TurboDoc/
 
 ## Change History
 
+- **2026-08**: Move crate version selection from the fixed-width crate header control into the item actions menu, after external links and before Refresh Metadata. Show five recommended choices directly as menu radio items and place the remaining non-yanked, semver-grouped history in a bounded More versions submenu. Make menu opening the lazy metadata intent, preserve the current selection through loading and failure, keep exceptional yanked or non-semver current values selectable, and expose the ellipsis trigger on hoverless devices.
+- **2026-08**: Add a VS Code-style NavBar to the left side of the Explorer and remove the textual `EXPLORER / Rust` header. Render every registered provider as an accessible icon destination with a primary active-edge marker; providers now declare both a NavBar `icon` and the canonical `homeUrl` opened on explicit selection. Persist the selected provider synchronously in validated localStorage, repair missing or unknown IDs to the registry default, retain the last document during startup restoration, and treat reselecting the active provider as a no-op. Add the official Rust Foundation SVG beside the Rust provider, display it as a theme-aware current-color mask, and record its CC BY attribution and trademark policy.
 - **2026-08**: Restore distinct release and development frontend modes without reintroducing an HTTP server. The CLI now defaults to release mode and uses `--dev` to opt into Vite; `--port` is required only for dev and remains independent of Cargo's profile. `just release` builds the optimized Rust host, runs `vite build`, and refreshes `target/release/public` beside the executable. Release startup validates `public/index.html` and maps the directory to the reserved `https://turbodoc.example` origin through WebView2 with cross-origin access denied. Because mapped URLs do not raise `WebResourceRequested`, release provider-data calls use the separate unmapped `https://api.turbodoc.example` origin with exact-origin CORS and bounded preflight caching before direct Rust dispatch. Move all Vite-only repo discovery, Job Object ownership, readiness-token polling, child monitoring, and tests from `src/server/frontend.rs` plus `main.rs` into `src/dev.rs`; release mode creates none of those resources. Keep the shared hidden-controller, frontend-visible-before-document, proxy/cache, and native failure-surface behavior in `app.rs`.
 - **2026-08**: Enforce a directional native boundary: every webview→host application operation remains a REST-style `fetch()` under the intercepted `/api/*` namespace, while host→webview lifecycle notifications become ordered direct calls to the typed `window.__turboDoc__` API through `ExecuteScriptWithResult`. Split `ipc.ts` into `api.ts` and `host.ts`; remove the WebView2 `postMessage` declarations, native `PostWebMessage*` wrappers, mitt event bridge, generic message validation, and standalone-browser lifecycle fallback. Keep TurboDoc-specific call construction in `app.rs`; serialize arguments as JSON, submit only script strings to the generic WebView2 FIFO, log failures with their full source, and cover argument escaping with Rust unit tests.
 - **2026-08**: Simplify and harden the internal HTTP namespace. Move provider persistence from `/api/v1/data/{provider_id}` to Rust-owned `/api/data/{provider_id}`, move Vite readiness from `/ready` to `/api/ready`, and reject every other `/api` path instead of allowing Vite's frontend fallback. Preserve the launch-token readiness contract, validate provider IDs before mapping them to TOML files, and cover ownership, methods, invalid identifiers, legacy paths, and prefix traps with focused Rust and Bun tests.
