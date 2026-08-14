@@ -1,6 +1,7 @@
 import type { ProviderContext } from "@/core/data";
 
 import type { RustProviderData } from "./index";
+import { reconcileCrateName } from "./crate-name";
 import { parseUrl, buildUrl } from "./url";
 
 /** Wire up the Rust provider's per-host effects. Called once during the
@@ -36,6 +37,8 @@ export function setupRustEffects(ctx: ProviderContext<RustProviderData>) {
 
 /** Reconcile the current iframe URL with provider data:
  *  - Normalize the URL (re-navigate to the canonical form).
+ *  - Adopt the canonical crate spelling from docs.rs redirects, merging any
+ *    case or hyphen/underscore aliases already persisted in the workspace.
  *  - Update the matching crate's `currentVersion` if the URL pins a
  *    different one.
  *  - Auto-import unknown crates so cross-crate navigation feels seamless. */
@@ -50,13 +53,13 @@ function handleCurrentUrl(ctx: ProviderContext<RustProviderData>) {
     }
 
     const crateName = currentUrl.name;
-    const crate = ctx.data.crates?.[crateName];
+    ctx.data.crates ??= {};
+    const crate = reconcileCrateName(ctx.data.crates, crateName);
     if (crate) {
         if (currentUrl.version !== crate.currentVersion) {
             crate.currentVersion = currentUrl.version;
         }
     } else {
-        ctx.data.crates ??= {};
         ctx.data.crates[crateName] = {
             currentVersion: currentUrl.version ?? "latest",
             pinnedPages: [],
