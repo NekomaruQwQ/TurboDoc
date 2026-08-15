@@ -1,14 +1,16 @@
+# @human-maintained
+
 set shell := ["nu", "-c"]
 
 alias r := run
 alias i := install
 
-# Run TurboDoc with repository-local data.
+# Run in development mode with repository-local data. This is the default
+# command if no command is specified.
 dev *args:
     cargo run --release -- --dev --data data {{args}}
 
-
-# Run TurboDoc in its default release mode with the specified arguments.
+# Run in production mode.
 run *args:
     cargo run --release -- {{args}}
 

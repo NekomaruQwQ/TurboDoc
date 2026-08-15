@@ -124,7 +124,7 @@
 <div class="workbench">
     <WorkbenchToolbar />
     <Resizable.PaneGroup direction="horizontal" class="workbench-pane-group">
-        <Resizable.Pane defaultSize={20} class="workbench-sidebar-pane">
+        <Resizable.Pane defaultSize={24} class="workbench-sidebar-pane">
             <aside
                 class="sidebar"
                 aria-label="Documentation sidebar">
