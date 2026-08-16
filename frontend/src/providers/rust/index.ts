@@ -67,6 +67,8 @@ const RustProvider: Provider<RustProviderData> = {
     homeUrl: "https://docs.rs/",
     enableItemGrouping: true,
     renderItemNameAsCode: true,
+    renderPageNameAsCode: true,
+    ownsUrl: url => parseUrl(url) !== null,
     render,
     setupEffects: setupRustEffects,
 };
@@ -379,6 +381,7 @@ function getCratePages(
             name,
             sortKey,
             url,
+            current: Boolean(isThisCrate && currentPath === path),
             pinned: true,
             setPinned(pinned: boolean) {
                 if (pinned) return; // already pinned.
@@ -394,6 +397,7 @@ function getCratePages(
         name: { type: "text", text: rootModuleName },
         sortKey: rootModulePath,
         url: buildPageUrl([rootModuleName]),
+        current: Boolean(isThisCrate && currentPath === rootModulePath),
         pinned: null,
         setPinned: _ => {},
     });
@@ -410,6 +414,7 @@ function getCratePages(
             name,
             sortKey,
             url: ctx.currentUrl,
+            current: true,
             pinned: false,
             setPinned(pinned: boolean) {
                 if (!pinned) return; // already unpinned.

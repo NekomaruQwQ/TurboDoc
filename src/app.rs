@@ -1255,6 +1255,24 @@ mod handler {
         }
 
         #[test]
+        fn general_documentation_urls_remain_hosted() {
+            assert_eq!(
+                (
+                    classify_frame_navigation(
+                        "https://en.wikipedia.org/wiki/Rust_(programming_language)"),
+                    classify_frame_navigation("https://minecraft.wiki/w/Redstone")),
+                (FrameNavigationKind::Hosted, FrameNavigationKind::Hosted));
+        }
+
+        #[test]
+        fn lookalike_documentation_hostname_remains_external() {
+            assert_eq!(
+                classify_frame_navigation(
+                    "https://docs.rs.example.com/serde/latest/serde/"),
+                FrameNavigationKind::External);
+        }
+
+        #[test]
         fn unsupported_https_url_remains_external() {
             assert_eq!(
                 classify_frame_navigation("https://example.com/"),
@@ -1440,6 +1458,8 @@ mod tests {
                 "https://docs.rs/*",
                 "https://doc.rust-lang.org/*",
                 "https://microsoft.github.io/windows-docs-rs/doc/*",
+                "https://en.wikipedia.org/*",
+                "https://minecraft.wiki/*",
                 "https://index.crates.io/*",
                 "https://crates.io/api/v1/crates/*",
                 "http://localhost:5173/api",

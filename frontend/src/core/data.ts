@@ -74,6 +74,11 @@ export type ProviderData =
 /** The uniform interface for documentation providers. */
 export interface Provider<T = unknown>
     extends ProviderInfo {
+    /** Return whether this provider can render the supplied navigation URL.
+     *  Implementations must parse URL structure instead of relying on raw
+     *  string prefixes, which can admit lookalike hosts. */
+    ownsUrl(url: string): boolean,
+
     /** Derive a fresh view model from provider-specific data storage.
      *  Called from `ExplorerProvider.svelte` inside a `$derived`, so it
      *  re-runs whenever its dependencies (e.g. `ctx.data`, `ctx.currentUrl`)
@@ -109,6 +114,9 @@ export interface ProviderInfo {
 
     /** Whether to render item names in <code> tags (monospace font). */
     readonly renderItemNameAsCode: boolean,
+
+    /** Whether to render text page names with the workbench's monospace face. */
+    readonly renderPageNameAsCode: boolean,
 }
 
 export interface ProviderContext<T = unknown> {
@@ -208,6 +216,11 @@ export interface Item {
     /** List of documentation pages for this item. */
     pages: Page[],
 
+    /** Persist a manually chosen order for the item's pinned pages.
+     *  Providers without this callback keep the Explorer's `sortKey` order.
+     *  Callers pass page URLs because they are globally unique identities. */
+    reorderPages?(orderedUrls: string[]): void,
+
     /** List of external links for this item. */
     links?: ItemLink[],
 
@@ -298,6 +311,9 @@ export interface Page {
     /** Target URL to navigate to when this page is selected, also used as
      *  the global unique identifier for the page. */
     url: string,
+
+    /** Whether the current accepted navigation belongs to this page. */
+    current: boolean,
 
     /** Whether this page is pinned for quick access, or null if pinning disabled */
     pinned: boolean | null,

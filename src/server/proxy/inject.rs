@@ -10,12 +10,6 @@
 //! light/dark toggle could change the injected script without invalidating
 //! the entire HTTP cache.
 
-const RUSTDOC_PREFIXES: &[&str] = &[
-    "https://docs.rs",
-    "https://doc.rust-lang.org",
-    "https://microsoft.github.io/windows-docs-rs/doc/",
-];
-
 const DARK_MODE_SCRIPT: &str =
     "<script>window.localStorage.setItem('rustdoc-theme','dark');</script>";
 
@@ -40,7 +34,7 @@ impl InjectedBody {
 /// downstream invalidation policy in `headers`.
 pub fn dark_mode(url: &str, content_type: &str, body: Vec<u8>) -> InjectedBody {
     if !content_type.starts_with("text/html") { return InjectedBody::unchanged(body); }
-    if !RUSTDOC_PREFIXES.iter().any(|p| url.starts_with(p)) {
+    if !is_rustdoc_url(url) {
         return InjectedBody::unchanged(body);
     }
 
@@ -60,6 +54,30 @@ pub fn dark_mode(url: &str, content_type: &str, body: Vec<u8>) -> InjectedBody {
         bytes: injected.into_bytes(),
         modified: true,
     }
+}
+
+/// Recognize Rustdoc surfaces without applying its theme storage to other
+/// documentation that happens to share `doc.rust-lang.org`.
+fn is_rustdoc_url(url: &str) -> bool {
+    if url.starts_with("https://docs.rs/") ||
+        url.starts_with("https://microsoft.github.io/windows-docs-rs/doc/") {
+        return true;
+    }
+
+    let Some(mut path) = url.strip_prefix("https://doc.rust-lang.org/") else {
+        return false;
+    };
+    if let Some(stable_path) = path.strip_prefix("stable/") {
+        path = stable_path;
+    } else if let Some(nightly_path) = path.strip_prefix("nightly/") {
+        path = nightly_path;
+    }
+
+    let crate_name = path
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or_default();
+    matches!(crate_name, "std" | "core" | "alloc" | "proc_macro")
 }
 
 #[cfg(test)]
@@ -97,6 +115,41 @@ mod tests {
         let result = dark_mode(
             "https://docs.rs/-/rustdoc.static/rustdoc.css",
             "text/css",
+            original.clone());
+
+        assert!(!result.modified);
+        assert_eq!(result.bytes, original);
+    }
+
+    #[test]
+    fn injects_versioned_standard_library_rustdoc() {
+        let body = format!("<html><head>{ANCHOR}</head></html>").into_bytes();
+        let result = dark_mode(
+            "https://doc.rust-lang.org/stable/std/vec/struct.Vec.html",
+            "text/html",
+            body);
+
+        assert!(result.modified);
+    }
+
+    #[test]
+    fn leaves_rust_book_html_unmodified() {
+        let original = format!("<html><head>{ANCHOR}</head></html>").into_bytes();
+        let result = dark_mode(
+            "https://doc.rust-lang.org/stable/book/ch01-00-getting-started.html",
+            "text/html",
+            original.clone());
+
+        assert!(!result.modified);
+        assert_eq!(result.bytes, original);
+    }
+
+    #[test]
+    fn leaves_wiki_html_unmodified() {
+        let original = format!("<html><head>{ANCHOR}</head></html>").into_bytes();
+        let result = dark_mode(
+            "https://minecraft.wiki/w/Redstone",
+            "text/html",
             original.clone());
 
         assert!(!result.modified);

@@ -7,10 +7,11 @@ TurboDoc is a universal documentation viewer with local caching and workspace ma
 The frontend uses a **multi-provider architecture** where each documentation source (e.g., Rust crates) is implemented as a `Provider` plugin that returns a uniform view model.
 
 **Key Features:**
-- Multi-provider documentation viewing (currently: unified Rust provider)
+- Multi-provider documentation viewing (unified Rust plus general Docs)
 - Search and add crates from crates.io
 - Version selection with intelligent grouping
 - Pin/unpin documentation pages (VS Code-style tabs)
+- Drag-reorder pinned general-documentation pages
 - Named groups for organizing items
 - Data persistence via HTTP API
 - Automatic cross-crate navigation
@@ -70,6 +71,9 @@ The frontend uses a **multi-provider architecture** where each documentation sou
 - Move items between groups via menu
 - Import crates from docs.rs URLs
 - Unified Rust provider (docs.rs + doc.rust-lang.org + windows-docs-rs)
+- General Docs provider (Wikipedia + stable Rust Book + Minecraft Wiki)
+- Automatic cross-provider routing for accepted documentation navigation
+- Accessible pointer, touch, and keyboard ordering of Doc pinned pages
 
 #### Remaining
 - Preset picker UI
@@ -192,6 +196,7 @@ Rust file server or reverse proxy is involved.
 - **Icons**: `@lucide/svelte` (imported individually for tree-shaking) plus
   provider-owned monochrome SVG marks rendered as current-color masks
 - **Utilities**: remeda (functional), semver, zod
+- **Drag and drop**: `svelte-dnd-action` (handle-scoped pointer, touch, and keyboard sorting)
 - **Backend**: Rust (rusqlite + reqwest + `http-cache-semantics`) — in-process, no HTTP listener. `server::start` opens the SQLite cache and returns a `Server` handle the host calls from the WebView2 callback via `runtime.block_on(...)`.
 - **Host**: Rust (eframe/egui + wgpu/DX12 + WebView2) — native startup/error UI, window management, release-folder mapping, WebView2 request interception, backend lifecycle, and optional Vite-child lifecycle. eframe owns the root winit window and WebView2 uses its HWND as the parent for a child controller. The host process owns no listener; only `--dev` binds a Vite port.
 - **Native boundary**: All webview→host application communication uses REST-style `fetch()` under `/api/*`; dev uses the Vite origin while release uses the unmapped `https://api.turbodoc.example` origin. WebView2 intercepts that namespace, answers release preflights, passes `/api/ready` through to Vite only in dev mode, dispatches `/api/data/{provider_id}` to Rust, and rejects every other path. `app.rs` builds host→webview calls to named functions under `window.__turboDoc__`, while the TurboDoc-agnostic WebView2 wrapper executes their source in FIFO order through `ExecuteScriptWithResult`; there is no WebView2 message protocol or generic event dispatcher.
@@ -246,7 +251,7 @@ ExplorerItem (shadcn-svelte Collapsible.Root, backed by Bits UI)
 │                     radio-style versions, actions)
 └── Collapsible.Content
     └── ExplorerPageList
-        └── ExplorerPage[] (sorted by sortKey)
+        └── ExplorerPage[] (provider-sorted or manually ordered pinned block)
             ├── ExplorerPageName (text or symbol with color coding)
             └── Pin/unpin icon
 ```
@@ -261,16 +266,16 @@ ExplorerItem (shadcn-svelte Collapsible.Root, backed by Bits UI)
 - **ExplorerCreateGroupComponent** (`ExplorerCreateGroupComponent.svelte`): Button that transforms to inline input for creating new groups
 - **ExplorerItem** (`ExplorerItem.svelte`): Collapsible card with a full-width name and item menu; expansion state via `itemExpanded(providerId, itemId)` accessor
 - **ExplorerItemMenu** (`ExplorerItemMenu.svelte`): Move to group submenu, external links, five direct radio-style version choices plus grouped overflow, and custom actions; opening it is the lazy metadata intent
-- **ExplorerPageList** (`ExplorerPageList.svelte`): Sorted page list with symbol color coding and pinning buttons
+- **ExplorerPageList** (`ExplorerPageList.svelte`): Provider-current page list with symbol color coding and pinning buttons. Providers without manual ordering use `sortKey`; sortable items keep home and preview outside an accessible drag-handle zone and persist only finalized pinned-page permutations.
 - **InputActionDialog** (`InputActionDialog.svelte`): Generic dialog for `ProviderAction` of type `"input"` — provider supplies labels and an `invoke(value)` callback; the dialog owns the textarea/input UI and supports either its legacy button or an externally controlled trigger
 
 ### Identification Scheme
 
 | Entity | Global ID Format | Example |
 |--------|------------------|---------|
-| Provider | `<provider>` | `rust` |
+| Provider | `<provider>` | `rust`, `doc` |
 | Group | `<provider>:<group_name>` | `rust:My Project` |
-| Item | `<provider>:<item_name>` | `rust:tokio` |
+| Item | `<provider>:<item_name>` | `rust:tokio`, `doc:rust-book` |
 | Page (global) | Full URL | `https://docs.rs/tokio/latest/tokio/` |
 | Page (local) | `<semantic>` | `runtime/struct.Runtime` |
 
@@ -281,14 +286,14 @@ ExplorerItem (shadcn-svelte Collapsible.Root, backed by Bits UI)
 
 ### Provider System
 
-Providers register in `frontend/src/providers/index.ts` as a plain `Provider[]` array (default export) and implement the `Provider<T>` interface from `frontend/src/core/data.ts`. Every provider supplies its NavBar icon and canonical `homeUrl`; only one provider is rendered at a time — see "Active Provider Selection" below. Each provider's `render()` returns a `ProviderOutput` containing:
+Providers register in `frontend/src/providers/index.ts` as a plain `Provider[]` array (default export) and implement the `Provider<T>` interface from `frontend/src/core/data.ts`. Every provider supplies its NavBar icon, canonical `homeUrl`, structural `ownsUrl(url)` predicate, and item/page typography preferences; only one provider is rendered at a time — see "Active Provider Selection" below. Each provider's `render()` returns a `ProviderOutput` containing:
 - `items: Record<string, Item>` — uniform view models with pages, links, actions, versions
 - `search?: ProviderSearch` — provider wording and callbacks for generic item matching, activation, creation, and the empty-input action
 - `actions?: ProviderAction[]` — provider-level UI (e.g., import dialog)
 
-View models contain callbacks (e.g., `setPinned`, `setCurrentVersion`, `invoke`) that update provider data by directly mutating the `$state`-proxied store. View models are derived inside a `$derived` block — never memoized manually, never serialized. See `frontend/src/core/data.ts` for the full type definitions.
+View models contain callbacks (e.g., `setPinned`, `reorderPages`, `setCurrentVersion`, `invoke`) that update provider data by directly mutating the `$state`-proxied store. Each `Page` also declares whether it owns the current navigation, so section fragments and provider-specific aliases do not leak into generic UI equality checks. View models are derived inside a `$derived` block — never memoized manually, never serialized. See `frontend/src/core/data.ts` for the full type definitions.
 
-**Current:** `rust` (docs.rs + doc.rust-lang.org + windows-docs-rs). **Planned:** `rust.cargo`, `cpp.cppreference`, `cpp.msdocs`, etc.
+**Current:** `rust` (docs.rs + doc.rust-lang.org + windows-docs-rs) and `doc` (Wikipedia + stable Rust Book + Minecraft Wiki). **Planned:** `rust.cargo`, `cpp.cppreference`, `cpp.msdocs`, etc.
 
 **Data flow:**
 ```
@@ -311,6 +316,7 @@ navigateTo(url) ──► DeferredNavigation.request(url)
                                                       with navigationId
                                                             │
                                                             ├─► persist currentUrl
+                                                            ├─► activate owning provider
                                                             ├─► Explorer auto-reveal
                                                             │     ├─ card + page satisfy center range: preserve scroll
                                                             │     └─ otherwise: constrained card centering
@@ -344,19 +350,41 @@ a current-color CSS mask. The mark is © Rust Foundation and licensed under
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); its use also follows
 the [Rust trademark policy](https://rustfoundation.org/policy/rust-trademark-policy/).
 
+#### General Docs Provider
+
+The `doc` provider (`frontend/src/providers/doc/`) exposes a code-owned catalog
+of Wikipedia, the stable Rust Book, and Minecraft Wiki. Each site is one flat
+item; TurboDoc does not crawl source navigation or reproduce chapters and
+categories. A site home is fixed first, followed by persisted pinned targets
+in the user's order and one optional current-page preview.
+
+URL matching requires HTTPS and exact parsed origins. Rust Book ownership is
+further restricted to `/stable/book/` and its `/book/` alias, which normalizes
+to the stable identity. Search and named groups remain available, but catalog
+items cannot be created or deleted. Fragments remain useful navigation targets
+while page identity ignores them, preventing duplicate pins for two sections
+of one article.
+
+Pinned Doc pages use `svelte-dnd-action` handles for pointer, delayed-touch,
+and keyboard reordering. Home and preview rows live outside the drop zone;
+stale, partial, duplicate, or foreign reorder results are rejected before
+persistence. Rust items omit the reorder callback and retain alphabetical
+symbol ordering.
+
 #### Active Provider Selection
 
 The app shows exactly one provider at a time. `App.svelte` restores the active provider ID synchronously from the validated `turbodoc:active-provider-id` localStorage slot, falling back to the first registered provider and repairing the slot when the saved ID is missing or no longer registered. The NavBar renders all registered providers. Explicitly selecting a different provider persists its ID and navigates the document viewer to that provider's `homeUrl`; reselecting the active provider is a no-op. Startup restoration retains the last document URL rather than treating launch as an explicit switch.
 
 Switching providers does not delete other providers' data — `<providerId>.toml` files are independent and reappear unchanged when re-selected.
 
-#### Cross-Provider Navigation (Future)
+#### Cross-Provider Navigation
 
-Currently handled within the unified `rust` provider (cross-crate). When multiple providers exist, the planned algorithm:
-1. Each provider attempts to parse the navigated URL (provider-specific `parseUrl`)
-2. First matching provider handles the import
-3. Auto-import to target provider
-4. Navigate to the new page
+When the native host accepts an iframe navigation, `App.svelte` asks the
+registered providers for the first structural `ownsUrl` match. A different
+owner becomes active and is persisted without issuing another navigation,
+because the viewer already accepted the target. Rust and Doc ownership are
+deliberately disjoint on `doc.rust-lang.org`: Rust owns standard-library crate
+paths while Doc owns only the Book paths.
 
 ---
 
@@ -549,6 +577,7 @@ Design decisions that shaped the current architecture. Organized by area.
 - Technique: insert `<script>window.localStorage.setItem('rustdoc-theme', 'dark');</script>` after `<meta charset="UTF-8">` in rustdoc HTML responses
 - The transform is stable and deterministic, so injected HTML retains upstream freshness in WebView2. Its upstream strong `ETag` and body digests are dropped because the final bytes differ; `Content-Length` is recomputed.
 - Any future state-dependent theme transform or change to the injected bytes must first revise browser-cache invalidation.
+- Injection is restricted to Rustdoc URL shapes. The Rust Book and general Wiki HTML share the proxy/cache pipeline but are never given Rustdoc's theme storage key.
 
 ### Data Model
 
@@ -565,10 +594,12 @@ Design decisions that shaped the current architecture. Organized by area.
 
 **Preview Page (Derived State)**
 - Preview state derived from `currentUrl` (localStorage) and per-item `pinnedPages`
-- A page is "preview" when it matches `currentUrl` but is NOT in `pinnedPages`
+- A page is "preview" when the provider says the current page identity is NOT in `pinnedPages`
 - Preview pages render italic with outline pin icon (visible on hover)
 - Pinned pages render normal with filled pin icon
 - `Page.pinned = null` means pinning is disabled for that page (e.g., home page)
+- Doc page identity ignores fragments, while its persisted target retains the selected section
+- Doc `pinnedPages` array order is user-owned and changed only by a validated complete drag permutation
 
 **Provider-Opaque Data**
 - `ProviderData.data` is `unknown` at app level — only the provider knows its shape
@@ -602,7 +633,7 @@ ProviderData ($state) ──► provider.render() inside $derived ──► rend
 
 **Independent State Atoms**
 - `App.svelte` owns the active `providerId` ($state, restored synchronously from localStorage) and the directly invoked `documentNavigationStarted` function (writes `currentUrl` to localStorage). No server-persisted app-level state.
-- `currentUrl` consumed via the `currentUrl.value` reactive accessor (`@/core/uiState.svelte`) in components that need it (`ExplorerPageList`, etc.) — not routed through any global state container.
+- `currentUrl` is consumed through `ProviderContext` during view-model derivation; generic page UI renders provider-owned `Page.current` rather than comparing raw URLs.
 - Expansion state managed per-component via the `groupExpanded`/`itemExpanded` factories — each accessor reads/writes its own key in the `turbodoc:expanded` localStorage slot. mitt events filter by element so only the matching subscribers re-render.
 - Provider data is lazily loaded per-provider inside `Explorer.svelte` via `ProviderDataStore.load()`.
 - Each atom has independent auto-save — a change in one slice doesn't trigger writes to others.
@@ -845,6 +876,8 @@ TurboDoc/
 ---
 
 ## Change History
+
+- **2026-08**: Add the `doc` provider for English Wikipedia, the stable Rust Book, and Minecraft Wiki. Keep the site catalog code-owned and flat while persisting per-site pinned pages in manual reading order. Add handle-scoped, accessible pointer/touch/keyboard drag ordering with home and preview outside the drop zone; validate finalized permutations and honor reduced motion. Move current-page and URL-ownership semantics into providers so native navigation can switch between Rust and Docs without a second viewer navigation. Add exact hosted/proxied origins, close raw-prefix lookalike-host gaps, and restrict Rustdoc dark-mode injection away from the Book and Wikis. See `docs/M5-DocProvider.md`.
 
 - **2026-08**: Separate application presentation from Svelte structure and
   logic. Replace inline Tailwind utility clusters in `frontend/src/ui/` with

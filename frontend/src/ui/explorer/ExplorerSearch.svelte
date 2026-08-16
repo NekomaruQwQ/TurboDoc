@@ -5,6 +5,7 @@
     import Search from "@lucide/svelte/icons/search";
 
     import type { Item, ProviderSearch } from "@/core/data";
+    import * as ctx from "@/core/context.svelte";
     import {
         buildItemSearchIndex,
         findExactItem,
@@ -20,6 +21,7 @@
     const IMPORT_ACTION_VALUE = "action:import";
     const ITEM_VALUE_PREFIX = "item:";
     const SEARCH_ERROR_ID = "explorer-search-error";
+    const provider = ctx.getProviderInfo();
 
     let {
         items,
@@ -141,6 +143,7 @@
             disabled={pendingSearchText !== null}
             placeholder={search.placeholder}
             class="explorer-search-input"
+            data-code-name={provider.renderItemNameAsCode}
             onfocus={() => open = true}
             onclick={() => open = true}
             oninput={handleInput} />
@@ -162,7 +165,8 @@
                     <Combobox.Item
                         value={itemValue(entry.id)}
                         label={entry.item.name}
-                        class="explorer-search-item">
+                        class="explorer-search-item"
+                        data-code-name={provider.renderItemNameAsCode}>
                         <span class="option-name">{entry.item.name}</span>
                     </Combobox.Item>
                 {/each}
@@ -253,7 +257,6 @@
         background-color: transparent;
         padding: 0 0.5rem 0 1.75rem;
         color: var(--color-foreground);
-        font-family: var(--font-mono);
         font-size: 0.75rem;
         outline: none;
         transition: color 150ms, border-color 150ms, background-color 150ms,
@@ -263,6 +266,11 @@
     :global(.explorer-search-input::placeholder) {
         color: var(--color-muted-foreground);
         font-family: var(--font-sans);
+    }
+
+    :global(.explorer-search-input[data-code-name="true"]),
+    :global(.explorer-search-item[data-code-name="true"]) {
+        font-family: var(--font-mono);
     }
 
     :global(.explorer-search-input:hover) {
@@ -324,10 +332,6 @@
         font-size: 0.75rem;
         outline: none;
         user-select: none;
-    }
-
-    :global(.explorer-search-item) {
-        font-family: var(--font-mono);
     }
 
     :global(.explorer-search-action) {

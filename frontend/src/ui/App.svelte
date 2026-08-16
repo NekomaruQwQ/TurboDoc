@@ -14,6 +14,7 @@
         reduceInitialDocumentLoad,
     } from "@/core/documentLifecycle";
     import type { Provider } from "@/core/data";
+    import { findProviderForUrl } from "@/core/providerRouting";
     import providers from "@/providers";
 
     import WorkbenchToolbar from "./WorkbenchToolbar.svelte";
@@ -44,6 +45,8 @@
         if (event.url === "https://docs.rs/-/storage-change-detection.html") return;
         storage.save("currentUrl", event.url);
         reportedNavigationId = event.navigationId;
+        const owningProvider = findProviderForUrl(providers, event.url);
+        if (owningProvider) activateProvider(owningProvider, false);
         documentLoad = reduceInitialDocumentLoad(documentLoad, {
             type: "started",
             url: event.url,
@@ -111,13 +114,20 @@
     let providerId = $state(initialProviderId);
     let provider = $derived(providers.find(p => p.id === providerId) ?? providers[0]);
 
-    /** Persist an explicit provider switch and open its canonical landing
-     * page. Reselecting the active provider intentionally does not reload it. */
-    function selectProvider(nextProvider: Provider): void {
+    /** Persist a provider switch and optionally open its canonical landing
+     * page. Navigation-reported switches keep the already accepted document. */
+    function activateProvider(
+        nextProvider: Provider,
+        navigateHome: boolean): void {
         if (nextProvider.id === providerId) return;
         providerId = nextProvider.id;
         storage.save("activeProviderId", nextProvider.id);
-        ctx.navigateTo(nextProvider.homeUrl);
+        if (navigateHome) ctx.navigateTo(nextProvider.homeUrl);
+    }
+
+    /** Open a provider selected directly from the navigation rail. */
+    function selectProvider(nextProvider: Provider): void {
+        activateProvider(nextProvider, true);
     }
 </script>
 

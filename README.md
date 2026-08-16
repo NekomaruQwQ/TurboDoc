@@ -1,13 +1,13 @@
 # TurboDoc
 
-A fast, local-first Rust documentation workbench for Windows.
+A fast, local-first documentation workbench for Windows.
 
 ![TurboDoc showing Rust documentation in its compact desktop workbench](docs/img/screenshot.png)
 
-TurboDoc keeps the Rust documentation you use every day in one focused workspace. Search for crates, pin important pages, organize references into groups, and follow cross-crate links without growing another forest of browser tabs. Visited documentation is cached locally and revalidated in the background, keeping repeat navigation quick without freezing the ecosystem at an offline snapshot.
+TurboDoc keeps the documentation you use every day in one focused workspace. Search Rust crates or a catalog of general documentation sites, pin important pages, organize references into groups, and follow links without growing another forest of browser tabs. Visited documentation is cached locally and revalidated in the background, keeping repeat navigation quick without freezing upstream content at an offline snapshot.
 
 > [!NOTE]
-> TurboDoc is under active development, currently supports Rust documentation, and is built from source on Windows.
+> TurboDoc is under active development, currently supports Rust documentation plus a small built-in catalog of general documentation sites, and is built from source on Windows.
 
 ## Why TurboDoc?
 
@@ -19,9 +19,11 @@ TurboDoc treats documentation as a workspace rather than a collection of disconn
 
 - **Focused desktop workbench** — a compact, VS Code-inspired interface with a native Windows title bar, resizable explorer, and dedicated document pane
 - **Unified Rust documentation** — browse docs.rs, doc.rust-lang.org, and windows-docs-rs through one provider
+- **General documentation sites** — browse Wikipedia, the stable Rust Book, and Minecraft Wiki as flat workspace items
 - **Fast crate access** — search crates from the pinned explorer combobox or import docs.rs URLs in bulk
 - **Persistent organization** — arrange crates into collapsible named groups and keep versions, pinned pages, and expansion state across sessions
 - **Preview and pin workflow** — navigate freely through one transient preview page per crate, then pin the references worth keeping
+- **Reading-order page lists** — rearrange pinned general-documentation pages directly with accessible drag handles
 - **Navigation-aware explorer** — cross-crate links are recognized automatically and the matching crate and page are revealed in the sidebar
 - **Version selection** — load recommended releases on demand and switch through semver-grouped versions, including `latest`
 - **Local HTTP cache** — SQLite-backed caching follows upstream freshness rules, serves stale content immediately while revalidating, and evicts old entries with an LRU policy
@@ -64,7 +66,7 @@ The desktop shell and backend live in one Rust process. By default, WebView2 map
 
 ```text
 WebView2
-├─ docs.rs / Rust standard library / windows-docs-rs
+├─ Rust docs / Wikipedia / Rust Book / Minecraft Wiki
 │  └─ WebResourceRequested → Server::fetch
 │       └─ SQLite cache ↔ upstream documentation
 ├─ /api/* (release: https://api.turbodoc.example; dev: Vite origin)

@@ -29,9 +29,11 @@ mod webview;
 /// URL prefixes that the host can navigate to instead of opening in
 /// external browser.
 const HOSTED_URL: &[&str] = &[
-    "https://docs.rs",
-    "https://doc.rust-lang.org",
+    "https://docs.rs/",
+    "https://doc.rust-lang.org/",
     "https://microsoft.github.io/windows-docs-rs/doc/",
+    "https://en.wikipedia.org/",
+    "https://minecraft.wiki/",
 ];
 
 /// URL prefixes that the host intercepts and proxies to the server,
@@ -40,6 +42,8 @@ const PROXIED_URL: &[&str] = &[
     "https://docs.rs/",
     "https://doc.rust-lang.org/",
     "https://microsoft.github.io/windows-docs-rs/doc/",
+    "https://en.wikipedia.org/",
+    "https://minecraft.wiki/",
     "https://index.crates.io/",
     "https://crates.io/api/v1/crates/",
 ];

@@ -24,7 +24,7 @@
     open={expanded.value}
     onOpenChange={v => expanded.value = v}
     role="group"
-    aria-label={`${item.name} crate`}>
+    aria-label={`${item.name} documentation`}>
     <div
         data-explorer-item-header
         class="item-header">
@@ -35,12 +35,16 @@
             {:else}
                 <ChevronRight />
             {/if}
-            <span class="item-name">{item.name}</span>
+            <span
+                class="item-name"
+                data-code-name={provider.renderItemNameAsCode}>
+                {item.name}
+            </span>
         </Collapsible.Trigger>
         <ExplorerItemMenu {item} {itemGroupName} />
     </div>
     <Collapsible.Content class="explorer-item-pages">
-        <ExplorerPageList pages={item.pages} />
+        <ExplorerPageList {item} />
     </Collapsible.Content>
 </Collapsible.Root>
 
@@ -78,7 +82,6 @@
         background-color: transparent;
         padding-left: 0.375rem;
         color: inherit;
-        font-family: var(--font-mono);
         font-size: 13px;
         text-align: left;
     }
@@ -95,6 +98,10 @@
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+    }
+
+    .item-name[data-code-name="true"] {
+        font-family: var(--font-mono);
     }
 
     :global(.explorer-item-pages) {
