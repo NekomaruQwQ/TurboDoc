@@ -4,10 +4,10 @@ A fast, local-first documentation workbench for Windows.
 
 ![TurboDoc showing Rust documentation in its compact desktop workbench](docs/img/screenshot.png)
 
-TurboDoc keeps the documentation you use every day in one focused workspace. Search Rust crates or a catalog of general documentation sites, pin important pages, organize references into groups, and follow links without growing another forest of browser tabs. Visited documentation is cached locally and revalidated in the background, keeping repeat navigation quick without freezing upstream content at an offline snapshot.
+TurboDoc keeps the documentation you use every day in one focused workspace. Search Rust crates or switch among focused documentation providers, pin important pages, organize references, and follow links without growing another forest of browser tabs. Visited documentation is cached locally and revalidated in the background, keeping repeat navigation quick without freezing upstream content at an offline snapshot.
 
 > [!NOTE]
-> TurboDoc is under active development, currently supports Rust documentation plus a small built-in catalog of general documentation sites, and is built from source on Windows.
+> TurboDoc is under active development, currently supports Rust documentation plus built-in Rust Book, Minecraft Wiki, and Wikipedia providers, and is built from source on Windows.
 
 ## Why TurboDoc?
 
@@ -19,7 +19,7 @@ TurboDoc treats documentation as a workspace rather than a collection of disconn
 
 - **Focused desktop workbench** — a compact, VS Code-inspired interface with a native Windows title bar, resizable explorer, and dedicated document pane
 - **Unified Rust documentation** — browse docs.rs, doc.rust-lang.org, and windows-docs-rs through one provider
-- **General documentation sites** — browse Wikipedia, the stable Rust Book, and Minecraft Wiki as flat workspace items
+- **Focused reading providers** — browse the stable Rust Book, Minecraft Wiki, and Wikipedia through independent provider workspaces
 - **Fast crate access** — search crates from the pinned explorer combobox or import docs.rs URLs in bulk
 - **Persistent organization** — arrange crates into collapsible named groups and keep versions, pinned pages, and expansion state across sessions
 - **Preview and pin workflow** — navigate freely through one transient preview page per crate, then pin the references worth keeping
@@ -28,7 +28,7 @@ TurboDoc treats documentation as a workspace rather than a collection of disconn
 - **Version selection** — load recommended releases on demand and switch through semver-grouped versions, including `latest`
 - **Local HTTP cache** — SQLite-backed caching follows upstream freshness rules, serves stale content immediately while revalidating, and evicts old entries with an LRU policy
 - **Consistent dark rendering** — rustdoc dark mode is injected as pages are served, avoiding a bright flash during navigation
-- **Extensible provider model** — the frontend renders a common view model, keeping future documentation sources isolated behind provider implementations
+- **Extensible provider model** — the frontend renders a common view model, while `createDocProvider` turns code-owned site catalogs and URL policies into isolated providers
 
 ## Getting Started
 

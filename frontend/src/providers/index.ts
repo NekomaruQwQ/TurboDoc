@@ -1,9 +1,15 @@
 import type { Provider } from "@/core/data";
 
 import RustProvider from "@/providers/rust";
-import DocProvider from "@/providers/doc";
+import {
+    MinecraftWikiProvider,
+    RustDocProvider,
+    WikipediaProvider,
+} from "@/providers/doc/providers";
 
 export default [
     RustProvider,
-    DocProvider,
+    RustDocProvider,
+    MinecraftWikiProvider,
+    WikipediaProvider,
 ] as Provider[];

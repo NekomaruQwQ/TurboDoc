@@ -7,7 +7,7 @@ TurboDoc is a universal documentation viewer with local caching and workspace ma
 The frontend uses a **multi-provider architecture** where each documentation source (e.g., Rust crates) is implemented as a `Provider` plugin that returns a uniform view model.
 
 **Key Features:**
-- Multi-provider documentation viewing (unified Rust plus general Docs)
+- Multi-provider documentation viewing (unified Rust plus configured Doc providers)
 - Search and add crates from crates.io
 - Version selection with intelligent grouping
 - Pin/unpin documentation pages (VS Code-style tabs)
@@ -71,7 +71,7 @@ The frontend uses a **multi-provider architecture** where each documentation sou
 - Move items between groups via menu
 - Import crates from docs.rs URLs
 - Unified Rust provider (docs.rs + doc.rust-lang.org + windows-docs-rs)
-- General Docs provider (Wikipedia + stable Rust Book + Minecraft Wiki)
+- Factory-created Rust Docs, Minecraft Wiki, and Wikipedia providers
 - Automatic cross-provider routing for accepted documentation navigation
 - Accessible pointer, touch, and keyboard ordering of Doc pinned pages
 
@@ -273,9 +273,9 @@ ExplorerItem (shadcn-svelte Collapsible.Root, backed by Bits UI)
 
 | Entity | Global ID Format | Example |
 |--------|------------------|---------|
-| Provider | `<provider>` | `rust`, `doc` |
+| Provider | `<provider>` | `rust`, `rust-doc`, `minecraft-wiki` |
 | Group | `<provider>:<group_name>` | `rust:My Project` |
-| Item | `<provider>:<item_name>` | `rust:tokio`, `doc:rust-book` |
+| Item | `<provider>:<item_name>` | `rust:tokio`, `rust-doc:rust-book` |
 | Page (global) | Full URL | `https://docs.rs/tokio/latest/tokio/` |
 | Page (local) | `<semantic>` | `runtime/struct.Runtime` |
 
@@ -293,7 +293,9 @@ Providers register in `frontend/src/providers/index.ts` as a plain `Provider[]` 
 
 View models contain callbacks (e.g., `setPinned`, `reorderPages`, `setCurrentVersion`, `invoke`) that update provider data by directly mutating the `$state`-proxied store. Each `Page` also declares whether it owns the current navigation, so section fragments and provider-specific aliases do not leak into generic UI equality checks. View models are derived inside a `$derived` block — never memoized manually, never serialized. See `frontend/src/core/data.ts` for the full type definitions.
 
-**Current:** `rust` (docs.rs + doc.rust-lang.org + windows-docs-rs) and `doc` (Wikipedia + stable Rust Book + Minecraft Wiki). **Planned:** `rust.cargo`, `cpp.cppreference`, `cpp.msdocs`, etc.
+**Current:** `rust` (docs.rs + doc.rust-lang.org + windows-docs-rs),
+`rust-doc` (stable Rust Book), `minecraft-wiki`, and `wikipedia`.
+**Planned:** `rust.cargo`, `cpp.cppreference`, `cpp.msdocs`, etc.
 
 **Data flow:**
 ```
@@ -350,19 +352,32 @@ a current-color CSS mask. The mark is © Rust Foundation and licensed under
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); its use also follows
 the [Rust trademark policy](https://rustfoundation.org/policy/rust-trademark-policy/).
 
-#### General Docs Provider
+#### Doc Provider Factory
 
-The `doc` provider (`frontend/src/providers/doc/`) exposes a code-owned catalog
-of Wikipedia, the stable Rust Book, and Minecraft Wiki. Each site is one flat
-item; TurboDoc does not crawl source navigation or reproduce chapters and
-categories. A site home is fixed first, followed by persisted pinned targets
-in the user's order and one optional current-page preview.
+`createDocProvider(config)` in `frontend/src/providers/doc/index.ts` compiles a
+code-owned site catalog into an isolated `Provider<DocProviderData>`. Provider
+metadata, landing site, grouping capability, search wording, and ordered sites
+are explicit configuration. Each site supplies structural URL ownership,
+optional alias normalization and page-identity policy, and a page-name
+resolver. The factory validates provider IDs, catalog IDs, homes, and ownership
+once before returning closure-backed routing and rendering callbacks.
 
-URL matching requires HTTPS and exact parsed origins. Rust Book ownership is
-further restricted to `/stable/book/` and its `/book/` alias, which normalizes
-to the stable identity. Search and named groups remain available, but catalog
-items cannot be created or deleted. Fragments remain useful navigation targets
-while page identity ignores them, preventing duplicate pins for two sections
+`frontend/src/providers/doc/providers.ts` uses the factory for `rust-doc`,
+`minecraft-wiki`, and `wikipedia`. Each has its own TOML persistence namespace,
+recent-item history, expansion state, NavBar destination, and site catalog.
+Adding another provider over an already hosted origin requires only another
+configuration and registry entry. A new origin must also be added explicitly
+to the Rust host's `HOSTED_URL` and `PROXIED_URL` security boundaries.
+
+Each configured site is one flat item; TurboDoc does not crawl source
+navigation or reproduce chapters and categories. A site home is fixed first,
+followed by persisted pinned targets in the user's order and one optional
+current-page preview. URL matching requires HTTPS without credentials and exact
+parsed origins. Normalized URLs are rechecked against the accepting site before
+use. Rust Book ownership is further restricted to `/stable/book/` and its
+`/book/` alias, which normalizes to the stable identity. Catalog items cannot be
+created or deleted. Fragments remain useful navigation targets while the
+default page identity ignores them, preventing duplicate pins for two sections
 of one article.
 
 Pinned Doc pages use `svelte-dnd-action` handles for pointer, delayed-touch,
@@ -382,9 +397,9 @@ Switching providers does not delete other providers' data — `<providerId>.toml
 When the native host accepts an iframe navigation, `App.svelte` asks the
 registered providers for the first structural `ownsUrl` match. A different
 owner becomes active and is persisted without issuing another navigation,
-because the viewer already accepted the target. Rust and Doc ownership are
-deliberately disjoint on `doc.rust-lang.org`: Rust owns standard-library crate
-paths while Doc owns only the Book paths.
+because the viewer already accepted the target. Rust and Rust Docs ownership
+are deliberately disjoint on `doc.rust-lang.org`: Rust owns standard-library
+crate paths while Rust Docs owns only the Book paths.
 
 ---
 
@@ -759,6 +774,11 @@ TurboDoc/
 │       │
 │       ├── providers/
 │       │   ├── index.ts            # Provider registry (default-exported `Provider[]`)
+│       │   ├── doc/                 # Configurable flat-site provider template
+│       │   │   ├── index.ts        # `createDocProvider`, validated config contract, rendering
+│       │   │   ├── providers.ts    # Rust Docs, Minecraft Wiki, and Wikipedia instances
+│       │   │   ├── sites.ts        # Reusable site ownership, normalization, and naming policies
+│       │   │   └── page-order.ts   # Resolver-injected pin sanitization and reorder validation
 │       │   └── rust/               # Unified Rust provider
 │       │       ├── index.ts            # Provider implementation (render, URL handling, page parsing, getImportCratesAction inlined)
 │       │       ├── rust.svg            # CC BY Rust Foundation mark used by the NavBar
@@ -876,6 +896,17 @@ TurboDoc/
 ---
 
 ## Change History
+
+- **2026-08**: Generalize the singleton `doc` implementation into the
+  validated `createDocProvider(config)` template. Move URL ownership,
+  canonicalization, page identity, page naming, rendering, and persistence
+  callbacks into instance-local runtime closures; inject those resolvers into
+  page-order validation instead of consulting a global catalog. Register
+  separate `rust-doc`, `minecraft-wiki`, and `wikipedia` providers with
+  independent persistence and navigation-rail destinations. Retain the Rust
+  host's explicit origin allowlist as a separate security boundary. Leave the
+  superseded `doc.toml` untouched rather than attempting a lossy cross-provider
+  migration.
 
 - **2026-08**: Add the `doc` provider for English Wikipedia, the stable Rust Book, and Minecraft Wiki. Keep the site catalog code-owned and flat while persisting per-site pinned pages in manual reading order. Add handle-scoped, accessible pointer/touch/keyboard drag ordering with home and preview outside the drop zone; validate finalized permutations and honor reduced motion. Move current-page and URL-ownership semantics into providers so native navigation can switch between Rust and Docs without a second viewer navigation. Add exact hosted/proxied origins, close raw-prefix lookalike-host gaps, and restrict Rustdoc dark-mode injection away from the Book and Wikis. See `docs/M5-DocProvider.md`.
 

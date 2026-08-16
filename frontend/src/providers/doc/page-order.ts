@@ -1,21 +1,34 @@
-import { getDocPageIdentity, parseDocPageTarget } from "./sites";
+/** Canonical page information required by ordering and persistence logic. */
+export interface ResolvedDocPage {
+    /** Stable site identifier within the owning Doc provider. */
+    readonly siteId: string;
+
+    /** Canonical absolute navigation target, including any useful fragment. */
+    readonly url: string;
+
+    /** Stable identity used to deduplicate and reorder pages. */
+    readonly identity: string;
+}
+
+/** Resolve a raw navigation target against one Doc provider's site catalog. */
+export type ResolveDocPage = (input: string) => ResolvedDocPage | null;
 
 /** Retain valid, unique pages belonging to one site in their persisted order.
  * Home is excluded because it is a fixed row owned by the provider. */
 export function normalizePinnedPages(
     siteId: string,
-    homeUrl: string,
-    pages: readonly string[]): string[] {
-    const homeIdentity = getDocPageIdentity(homeUrl);
+    homeIdentity: string,
+    pages: readonly string[],
+    resolvePage: ResolveDocPage): string[] {
     const identities = new Set<string>();
     const normalized: string[] = [];
 
     for (const page of pages) {
-        const target = parseDocPageTarget(page);
-        const identity = getDocPageIdentity(page);
-        if (!target || target.site.id !== siteId || !identity ||
-            identity === homeIdentity || identities.has(identity)) continue;
-        identities.add(identity);
+        const target = resolvePage(page);
+        if (!target || target.siteId !== siteId ||
+            target.identity === homeIdentity ||
+            identities.has(target.identity)) continue;
+        identities.add(target.identity);
         normalized.push(target.url);
     }
 
@@ -29,24 +42,28 @@ export function normalizePinnedPages(
  */
 export function reorderPinnedPages(
     current: readonly string[],
-    orderedUrls: readonly string[]): string[] | null {
+    orderedUrls: readonly string[],
+    resolvePage: ResolveDocPage): string[] | null {
     if (current.length !== orderedUrls.length) return null;
 
     const currentByIdentity = new Map<string, string>();
+    let siteId: string | undefined;
     for (const page of current) {
-        const identity = getDocPageIdentity(page);
-        if (!identity || currentByIdentity.has(identity)) return null;
-        currentByIdentity.set(identity, page);
+        const target = resolvePage(page);
+        siteId ??= target?.siteId;
+        if (!target || target.siteId !== siteId ||
+            currentByIdentity.has(target.identity)) return null;
+        currentByIdentity.set(target.identity, page);
     }
 
     const reordered: string[] = [];
     for (const requested of orderedUrls) {
-        const identity = getDocPageIdentity(requested);
-        if (!identity) return null;
-        const page = currentByIdentity.get(identity);
+        const target = resolvePage(requested);
+        if (!target || target.siteId !== siteId) return null;
+        const page = currentByIdentity.get(target.identity);
         if (!page) return null;
         reordered.push(page);
-        currentByIdentity.delete(identity);
+        currentByIdentity.delete(target.identity);
     }
 
     return currentByIdentity.size === 0 ? reordered : null;

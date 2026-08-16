@@ -6,6 +6,11 @@ TurboDoc's second provider renders a small, code-owned catalog of general
 documentation sites. Unlike Rust symbols, a site's pinned pages preserve the
 user's reading order and can be rearranged directly with a drag handle.
 
+> **Historical milestone:** this file records the initial singleton `doc`
+> implementation. The current architecture exposes the same behavior through
+> `createDocProvider(config)` and separate Rust Docs, Minecraft Wiki, and
+> Wikipedia instances; see `docs/README.md`.
+
 The first catalog contains English Wikipedia, the stable Rust Book, and the
 Minecraft Wiki. Each site is one flat Explorer item: TurboDoc intentionally
 does not crawl or reproduce the source site's chapter or category hierarchy.
