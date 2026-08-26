@@ -141,6 +141,28 @@ describe("createDocProvider", () => {
 });
 
 describe("factory-created Doc provider rendering", () => {
+    test("passes canonical URLs to the site naming callback while retaining Home", () => {
+        const namedUrls: string[] = [];
+        const provider = createDocProvider({
+            ...DOC_PROVIDER_CONFIG,
+            homeSiteId: RUST_BOOK_SITE.id,
+            sites: [{
+                ...RUST_BOOK_SITE,
+                resolvePageName(url) {
+                    namedUrls.push(url.href);
+                    return "Custom label";
+                },
+            }],
+        });
+        const { ctx } = context("https://doc.rust-lang.org/book/ch03-05-control-flow.html#loops");
+        const pages = provider.render(ctx).items["rust-book"]?.pages;
+
+        expect(namedUrls).toEqual(["https://doc.rust-lang.org/stable/book/ch03-05-control-flow.html#loops"]);
+        expect(pages?.map(page => page.name)).toEqual([
+            { type: "text", text: "Home" }, { type: "text", text: "Custom label" },
+        ]);
+    });
+
     test("renders an unpinned current page as the preview tail", () => {
         const currentUrl = "https://minecraft.wiki/w/Redstone#Power_sources";
         const { ctx } = context(currentUrl);
@@ -194,12 +216,50 @@ describe("factory-created Doc provider rendering", () => {
         };
         const item = DocProvider.render(ctx).items["minecraft-wiki"];
 
-        item?.reorderPages?.([creeper, redstone]);
+        item?.pageLayout?.reorder?.([{ id: "", pageUrls: [creeper, redstone] }]);
 
         expect(ctx.data.sites["minecraft-wiki"]?.pinnedPages).toEqual([
             creeper,
             redstone,
         ]);
+    });
+
+    test("unpinning a collection page makes a preview; repinning makes it loose", () => {
+        const mathematics = "https://en.wikipedia.org/wiki/Mathematics#History";
+        const logic = "https://en.wikipedia.org/wiki/Logic";
+        const { ctx } = context(mathematics);
+        ctx.data.sites = {
+            wikipedia: { pinnedPages: [mathematics, logic], collections: { Maths: { pages: [mathematics] } } },
+        };
+        DocProvider.render(ctx).items.wikipedia?.pages.find(page => page.url === mathematics)?.setPinned(false);
+
+        const unpinned = DocProvider.render(ctx).items.wikipedia;
+        expect(ctx.data.sites.wikipedia?.collections).toEqual({ Maths: { pages: [] } });
+        expect(unpinned?.pageLayout?.blocks.map(block => [block.id, block.pageUrls])).toEqual([
+            ["home", [WIKIPEDIA_SITE.homeUrl]], ["", [logic]], ["preview", [mathematics]], ["collection:Maths", []],
+        ]);
+
+        unpinned?.pages.find(page => page.url === mathematics)?.setPinned(true);
+        expect(ctx.data.sites.wikipedia?.pinnedPages).toEqual([logic, mathematics]);
+        expect(DocProvider.render(ctx).items.wikipedia?.pageLayout?.blocks[1]?.pageUrls).toEqual([logic, mathematics]);
+        expect(ctx.data.sites.wikipedia?.collections).toEqual({ Maths: { pages: [] } });
+    });
+
+    test("book previews follow outline order and pinning does not relocate them", () => {
+        const prefix = "https://doc.rust-lang.org/stable/book/";
+        const first = `${prefix}ch03-01-variables-and-mutability.html`;
+        const preview = `${prefix}ch03-02-data-types.html`;
+        const last = `${prefix}ch03-03-how-functions-work.html`;
+        const { ctx } = context(preview);
+        ctx.data.sites = { "rust-book": { pinnedPages: [last, first] } };
+        const item = DocProvider.render(ctx).items["rust-book"];
+        const layout = item?.pageLayout;
+        expect(layout?.blocks.at(-1)?.pageUrls).toEqual([first, preview, last]);
+        expect(layout?.reorder).toBeUndefined();
+        expect(layout?.create).toBeUndefined();
+
+        item?.pages.find(page => page.url === preview)?.setPinned(true);
+        expect(DocProvider.render(ctx).items["rust-book"]?.pageLayout).toEqual(layout);
     });
 
     test("selecting a catalog item navigates to its canonical home", () => {

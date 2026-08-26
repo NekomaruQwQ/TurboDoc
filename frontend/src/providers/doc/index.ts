@@ -9,9 +9,10 @@ import type {
 
 import {
     normalizePinnedPages,
-    reorderPinnedPages,
     type ResolvedDocPage,
 } from "./page-order";
+import { createCollectionLayout, normalizePageCollections, type PageCollections } from "./page-collections";
+import { createSectionLayout, type DocPageOrganization } from "./page-sections";
 
 /** A code-owned documentation site exposed as one provider item. */
 export interface DocSiteConfig {
@@ -35,6 +36,9 @@ export interface DocSiteConfig {
     /** Derive the non-home page label from a canonical URL.
      * Implementations must not mutate the supplied URL. */
     readonly resolvePageName: (url: URL) => string;
+
+    /** Exclusive source-owned organization policy; never inferred by the UI. */
+    readonly organization: DocPageOrganization;
 
     /** Optionally override the default canonical URL without its fragment.
      * The returned identity must be non-empty and stable across navigation. */
@@ -76,8 +80,11 @@ export interface DocProviderConfig {
 
 /** Ordered user-owned state for one immutable catalog site. */
 export interface DocSiteData {
-    /** Pinned absolute page targets in the user's chosen order. */
+    /** Authoritative pinned targets and fallback order for unplaced pages. */
     pinnedPages: string[];
+
+    /** Optional user-defined ordered pin subsets. Book sources ignore these. */
+    collections?: PageCollections;
 }
 
 /** Persisted Doc-provider state keyed by stable configured site ID. */
@@ -276,7 +283,7 @@ function render(
     };
 }
 
-/** Render one flat site item with fixed home, pinned pages, and preview tail. */
+/** Render the site's pages, then apply its exclusive organization policy. */
 function renderSite(
     ctx: DocProviderContext,
     site: DocSiteConfig,
@@ -348,16 +355,19 @@ function renderSite(
         name: site.name,
         sortKey: site.name,
         pages,
-        reorderPages(orderedUrls: string[]) {
-            const current = readPinnedPages(ctx, site, runtime);
-            const reordered = reorderPinnedPages(
-                current,
-                orderedUrls,
-                runtime.resolvePage);
-            if (!reordered ||
-                reordered.every((page, index) => page === current[index])) return;
-            writePinnedPages(ctx, site, reordered, runtime);
-        },
+        pageLayout: site.organization.type === "provider-sections"
+            ? createSectionLayout(pages, site.organization.resolvePagePlacement)
+            : createCollectionLayout(pages, () => {
+                const pinnedPages = readPinnedPages(ctx, site, runtime);
+                return {
+                    pinnedPages,
+                    collections: normalizePageCollections(
+                        pinnedPages, ctx.data.sites?.[site.id]?.collections, runtime.resolvePage),
+                };
+            }, state => {
+                ctx.data.sites ??= {};
+                ctx.data.sites[site.id] = state;
+            }, runtime.resolvePage),
     };
 }
 
@@ -411,4 +421,10 @@ function writePinnedPages(
         getSiteHome(runtime, site.id).identity,
         pages,
         runtime.resolvePage);
+    if (site.organization.type === "user-collections" && ctx.data.sites[site.id].collections) {
+        ctx.data.sites[site.id].collections = normalizePageCollections(
+            ctx.data.sites[site.id].pinnedPages,
+            ctx.data.sites[site.id].collections,
+            runtime.resolvePage);
+    }
 }

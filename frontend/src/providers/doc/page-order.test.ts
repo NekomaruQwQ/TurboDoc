@@ -48,6 +48,14 @@ describe("normalizePinnedPages", () => {
             "https://example.com/guide",
         ], resolvePage)).toEqual([]);
     });
+
+    test("tolerates malformed persisted lists without losing valid entries", () => {
+        for (const value of [null, "not an array", { pages: [REDSTONE] }]) {
+            expect(normalizePinnedPages("minecraft-wiki", HOME, value, resolvePage)).toEqual([]);
+        }
+        expect(normalizePinnedPages("minecraft-wiki", HOME,
+            [null, 42, {}, REDSTONE, false, CREEPER], resolvePage)).toEqual([REDSTONE, CREEPER]);
+    });
 });
 
 describe("reorderPinnedPages", () => {

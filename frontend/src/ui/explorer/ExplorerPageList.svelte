@@ -1,40 +1,60 @@
 <script lang="ts">
+    import { tick } from "svelte";
     import { flip } from "svelte/animate";
     import * as _ from "remeda";
     import {
         dragHandle,
         dragHandleZone,
+        SOURCES,
+        TRIGGERS,
         type DndEvent,
     } from "svelte-dnd-action";
 
     import GripVertical from "@lucide/svelte/icons/grip-vertical";
     import Pin from "@lucide/svelte/icons/pin";
+    import Check from "@lucide/svelte/icons/check";
+    import Plus from "@lucide/svelte/icons/plus";
+    import { Button } from "@shadcn/components/ui/button";
+    import * as Dialog from "@shadcn/components/ui/dialog";
 
     import * as ctx from "@/core/context.svelte";
-    import type { Item, Page } from "@/core/data";
+    import type { Item, Page, PageBlock, PageBlockNameAction } from "@/core/data";
+    import ExplorerPageBlockHeader from "./ExplorerPageBlockHeader.svelte";
 
     /** Shape required by svelte-dnd-action; URLs are stable page identities. */
     type DraggablePage = {
         id: string;
         page?: Page;
+        isDndShadowItem?: boolean;
     };
 
     const { item }: { item: Item } = $props();
     const provider = ctx.getProviderInfo();
     const navigateTo = ctx.navigateTo;
-    const manuallyOrdered = $derived(item.reorderPages !== undefined);
-    const fixedPages = $derived(item.pages.filter(page => page.pinned === null));
-    const previewPages = $derived(item.pages.filter(page => page.pinned === false));
-    const pinnedPages = $derived(item.pages.filter(page => page.pinned === true));
+    const manuallyOrdered = $derived(item.pageLayout?.reorder !== undefined);
+    const pageByUrl = $derived(new Map(item.pages.map(page => [page.url, page])));
     const sortedPages = $derived(_.sortBy(item.pages, page => page.sortKey));
-    let draggablePages = $state<DraggablePage[]>([]);
+    let zones = $state<Record<string, DraggablePage[]>>({});
+    let dragging = $state(false);
+    let listElement: HTMLDivElement;
+    let editing = $state<{ id?: string; action: PageBlockNameAction }>();
+    let nameValue = $state("");
+    let nameError = $state("");
+    let removeAction = $state<PageBlock["remove"]>();
+    let removeOpen = $state(false);
+    let finalizeQueued = false;
     const flipDurationMs = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)")
         .matches ? 0 : 100;
 
-    // A provider render replaces page callbacks after persistence changes, so
-    // rebuild drag records only when its pinned page list actually changes.
+    // Only provider updates rebuild zones. Consider events stay local so two
+    // zones can exchange their temporary shadow without persisting partial data.
     $effect(() => {
-        draggablePages = pinnedPages.map(page => ({ id: page.url, page }));
+        zones = Object.fromEntries((item.pageLayout?.blocks ?? [])
+            .filter(block => block.reorderable)
+            .map(block => [block.id, block.pageUrls.flatMap(url => {
+                const page = pageByUrl.get(url);
+                return page?.pinned === true ? [{ id: url, page }] : [];
+            })]));
     });
 
     /** Flatten either page-name representation for accessible drag labels. */
@@ -45,55 +65,145 @@
     }
 
     /** Mirror pointer/keyboard consideration so the action can make room. */
-    function considerPageOrder(event: CustomEvent<DndEvent<DraggablePage>>): void {
-        draggablePages = event.detail.items;
+    function considerPageOrder(id: string, event: CustomEvent<DndEvent<DraggablePage>>): void {
+        zones[id] = event.detail.items;
+        dragging = event.detail.info.trigger !== TRIGGERS.DRAG_STOPPED;
     }
 
     /** Commit only complete page records; the provider validates permutation. */
-    function finalizePageOrder(event: CustomEvent<DndEvent<DraggablePage>>): void {
-        draggablePages = event.detail.items;
-        const orderedUrls = draggablePages
-            .map(entry => entry.page?.url)
-            .filter((url): url is string => url !== undefined);
-        item.reorderPages?.(orderedUrls);
+    function finalizePageOrder(id: string, event: CustomEvent<DndEvent<DraggablePage>>): void {
+        zones[id] = event.detail.items;
+        if (event.detail.info.source === SOURCES.POINTER) dragging = false;
+        if (finalizeQueued) return;
+        finalizeQueued = true;
+        const layout = item.pageLayout;
+        // Cross-zone drops finalize both endpoints in the same turn. Commit
+        // their complete snapshot once; never save the source-only intermediate.
+        queueMicrotask(() => {
+            finalizeQueued = false;
+            if (item.pageLayout !== layout) return;
+            const blocks = layout?.blocks.filter(block => block.reorderable) ?? [];
+            if (blocks.some(block => zones[block.id]?.some(entry =>
+                !entry.page || entry.isDndShadowItem))) return;
+            layout?.reorder?.(blocks.map(block => ({
+                id: block.id,
+                pageUrls: (zones[block.id] ?? []).flatMap(entry =>
+                    entry.page ? [entry.page.url] : []),
+            })));
+        });
+    }
+
+    /** Keep editing outside keyed headers so alphabetical relocation is safe. */
+    function startNameEdit(action: PageBlockNameAction, id?: string): void {
+        nameValue = action.value;
+        nameError = "";
+        editing = { id, action };
+    }
+
+    /** Focus the inline editor immediately when its conditional form mounts. */
+    function focusNameInput(node: HTMLInputElement): void {
+        node.focus();
+        node.select();
+    }
+
+    /** Escape returns focus to the invoking control; ordinary blur does not. */
+    async function cancelName(): Promise<void> {
+        const id = editing?.id;
+        editing = undefined;
+        await tick();
+        const selector = id === undefined ? ".create-block"
+            : `[data-block-id="${CSS.escape(id)}"] [data-block-actions]`;
+        listElement.querySelector<HTMLElement>(selector)?.focus();
+    }
+
+    /** Keep validation errors inline; restore focus to the relocated heading. */
+    async function confirmName(): Promise<void> {
+        if (!editing) return;
+        const result = editing.action.invoke(nameValue);
+        if ("error" in result) {
+            nameError = result.error;
+            return;
+        }
+        editing = undefined;
+        await tick();
+        listElement.querySelector<HTMLElement>(
+            `[data-block-id="${CSS.escape(result.blockId)}"] [data-block-actions]`)?.focus();
+    }
+
+    /** Nonempty removal needs provider-supplied confirmation, not a UI guess. */
+    function requestRemove(action: NonNullable<PageBlock["remove"]>): void {
+        if (action.confirmation) {
+            removeAction = action;
+            removeOpen = true;
+        } else {
+            action.invoke();
+        }
     }
 </script>
 
-<div class="page-list" data-manual-order={manuallyOrdered}>
-    {#if manuallyOrdered}
-        {#each fixedPages as page (page.url)}
-            <div class="page-entry">
-                {@render PageItemRenderer(page, false)}
+<div class="page-list" bind:this={listElement} data-manual-order={manuallyOrdered}>
+    {#if item.pageLayout}
+        {#each item.pageLayout.blocks as block (block.id)}
+            <div class="page-block" data-block-id={block.id}>
+                {#if editing && editing.id === block.id}
+                    {@render NameEditor()}
+                {:else if block.titlePath?.length}
+                    <ExplorerPageBlockHeader
+                        {block}
+                        onrename={action => startNameEdit(action, block.id)}
+                        onremove={requestRemove} />
+                {/if}
+                {#if block.reorderable && manuallyOrdered}
+                    <div
+                        class="page-list-sortable"
+                        data-empty={(zones[block.id]?.length ?? 0) === 0}
+                        data-drop-space={dragging || !!block.titlePath?.length}
+                        aria-label={block.accessibleName ?? `Pages for ${item.name}`}
+                        use:dragHandleZone={{
+                            items: zones[block.id] ?? [],
+                            type: `page-order:${provider.id}:${item.id}`,
+                            flipDurationMs,
+                            delayTouchStart: true,
+                            dropTargetStyle: {},
+                            dropTargetClasses: ["page-list-drop-target"],
+                        }}
+                        onconsider={event => considerPageOrder(block.id, event)}
+                        onfinalize={event => finalizePageOrder(block.id, event)}>
+                        {#each zones[block.id] ?? [] as entry (entry.id)}
+                            <div
+                                class="page-entry"
+                                aria-label={entry.page && pageAccessibleName(entry.page)}
+                                animate:flip={{ duration: flipDurationMs }}>
+                                {#if entry.page}
+                                    {@render PageItemRenderer(entry.page, true)}
+                                {/if}
+                            </div>
+                        {/each}
+                    </div>
+                {:else}
+                    {#each block.pageUrls as url (url)}
+                        {@const page = pageByUrl.get(url)}
+                        {#if page}
+                            <div class="page-entry">
+                                {@render PageItemRenderer(page, false)}
+                            </div>
+                        {/if}
+                    {/each}
+                {/if}
             </div>
         {/each}
-        <div
-            class="page-list-sortable"
-            aria-label={`Pinned pages for ${item.name}`}
-            use:dragHandleZone={{
-                items: draggablePages,
-                type: `page-order:${provider.id}:${item.id}`,
-                flipDurationMs,
-                delayTouchStart: true,
-                dropTargetClasses: ["page-list-drop-target"],
-            }}
-            onconsider={considerPageOrder}
-            onfinalize={finalizePageOrder}>
-            {#each draggablePages as entry (entry.id)}
-                <div
-                    class="page-entry"
-                    aria-label={entry.page && pageAccessibleName(entry.page)}
-                    animate:flip={{ duration: flipDurationMs }}>
-                    {#if entry.page}
-                        {@render PageItemRenderer(entry.page, true)}
-                    {/if}
-                </div>
-            {/each}
-        </div>
-        {#each previewPages as page (page.url)}
-            <div class="page-entry">
-                {@render PageItemRenderer(page, false)}
-            </div>
-        {/each}
+        {#if item.pageLayout.create}
+            {#if editing && editing.id === undefined}
+                {@render NameEditor()}
+            {:else}
+                <button class="create-block" onclick={() => {
+                    if (item.pageLayout?.create) startNameEdit(item.pageLayout.create);
+                }}>
+                    <Plus aria-hidden="true" />
+                    {item.pageLayout.create.label}
+                </button>
+            {/if}
+        {/if}
     {:else}
         {#each sortedPages as page (page.url)}
             <div class="page-entry">
@@ -102,6 +212,53 @@
         {/each}
     {/if}
 </div>
+
+{#snippet NameEditor()}
+    <form class="block-name-editor" onsubmit={event => {
+        event.preventDefault();
+        void confirmName();
+    }} onfocusout={event => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) editing = undefined;
+    }}>
+        <div class="block-name-controls">
+            <input
+                use:focusNameInput
+                bind:value={nameValue}
+                aria-label={editing?.action.label}
+                aria-invalid={!!nameError}
+                placeholder={editing?.action.placeholder}
+                oninput={() => nameError = ""}
+                onkeydown={event => {
+                    if (event.key === "Escape") {
+                        event.preventDefault();
+                        void cancelName();
+                    }
+                }} />
+            <button class="name-confirm" type="submit" aria-label="Confirm name">
+                <Check aria-hidden="true" />
+            </button>
+        </div>
+        {#if nameError}<span class="name-error" role="alert">{nameError}</span>{/if}
+    </form>
+{/snippet}
+
+{#if removeAction}
+    <Dialog.Root bind:open={removeOpen}>
+        <Dialog.Content>
+            <Dialog.Header>
+                <Dialog.Title>{removeAction.label}?</Dialog.Title>
+                <Dialog.Description>{removeAction.confirmation}</Dialog.Description>
+            </Dialog.Header>
+            <Dialog.Footer>
+                <Button variant="outline" onclick={() => removeOpen = false}>Cancel</Button>
+                <Button variant="destructive" onclick={() => {
+                    removeOpen = false;
+                    removeAction?.invoke();
+                }}>{removeAction.label}</Button>
+            </Dialog.Footer>
+        </Dialog.Content>
+    </Dialog.Root>
+{/if}
 
 {#snippet PageItemRenderer(page: Page, draggable: boolean)}
     <div
@@ -113,7 +270,7 @@
                     <span
                         class="drag-handle"
                         use:dragHandle
-                        aria-label={`Reorder ${pageAccessibleName(page)}`}>
+                        aria-label={`Move ${pageAccessibleName(page)}`}>
                         <GripVertical aria-hidden="true" />
                     </span>
                 {/if}
@@ -154,6 +311,75 @@
     .page-list-sortable {
         display: flex;
         flex-direction: column;
+    }
+
+    .page-list-sortable[data-empty="true"][data-drop-space="true"] {
+        min-height: 1.25rem;
+        background: color-mix(in oklab, var(--color-workbench-divider) 20%, transparent);
+    }
+
+    .page-block { min-width: 0; }
+
+    .create-block {
+        display: flex;
+        width: 100%;
+        min-height: 1.75rem;
+        align-items: center;
+        gap: 0.375rem;
+        margin-top: 0.25rem;
+        border: 0;
+        border-radius: var(--radius-sm);
+        padding-inline: 0.375rem;
+        background: transparent;
+        color: var(--color-muted-foreground);
+        font-size: 0.75rem;
+        text-align: left;
+    }
+
+    .create-block:hover,
+    .name-confirm:hover { background: var(--color-workbench-hover); }
+
+    .create-block:focus-visible,
+    .name-confirm:focus-visible {
+        outline: 1px solid var(--color-ring);
+        outline-offset: -1px;
+    }
+
+    .create-block :global(svg),
+    .name-confirm :global(svg) { width: 0.875rem; height: 0.875rem; }
+
+    .block-name-editor { margin-block: 0.25rem; }
+    .block-name-controls { display: flex; gap: 0.125rem; }
+
+    .block-name-controls input {
+        min-width: 0;
+        height: 1.75rem;
+        flex: 1;
+        border: 1px solid var(--color-ring);
+        border-radius: var(--radius-sm);
+        padding-inline: 0.375rem;
+        background: var(--color-workbench);
+        color: var(--color-foreground);
+        font-size: 0.75rem;
+        outline: none;
+    }
+
+    .name-confirm {
+        display: inline-flex;
+        width: 1.75rem;
+        align-items: center;
+        justify-content: center;
+        border: 0;
+        border-radius: var(--radius-sm);
+        background: transparent;
+        color: var(--color-muted-foreground);
+    }
+
+    .name-error { color: var(--color-destructive); font-size: 0.75rem; }
+
+    @media (prefers-reduced-motion: reduce) {
+        .page-list-sortable,
+        .page-row { transition: none; }
     }
 
     .page-list-sortable {

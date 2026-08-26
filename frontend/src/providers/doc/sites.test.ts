@@ -47,7 +47,7 @@ describe("configured page-name policies", () => {
     test("humanizes a Rust Book chapter filename", () => {
         expect(RUST_BOOK_SITE.resolvePageName(new URL(
             "https://doc.rust-lang.org/stable/book/ch04-01-what-is-ownership.html",
-        ))).toBe("What is ownership");
+        ))).toBe("04-01 What Is Ownership");
     });
 
     test("decodes a MediaWiki article title", () => {

@@ -11,7 +11,8 @@ The frontend uses a **multi-provider architecture** where each documentation sou
 - Search and add crates from crates.io
 - Version selection with intelligent grouping
 - Pin/unpin documentation pages (VS Code-style tabs)
-- Drag-reorder pinned general-documentation pages
+- Alphabetical page collections with drag-reordering within/between collections
+- Ordered section spans and URL-derived page names across 15 Rust books
 - Named groups for organizing items
 - Data persistence via HTTP API
 - Automatic cross-crate navigation
@@ -74,6 +75,8 @@ The frontend uses a **multi-provider architecture** where each documentation sou
 - Factory-created Rust Docs, Minecraft Wiki, and Wikipedia providers
 - Automatic cross-provider routing for accepted documentation navigation
 - Accessible pointer, touch, and keyboard ordering of Doc pinned pages
+- User-defined page collections for Wikis, separate from outer item Groups
+- Provider-owned Rust book sections with previews in reading order
 
 #### Remaining
 - Preset picker UI
@@ -291,7 +294,7 @@ Providers register in `frontend/src/providers/index.ts` as a plain `Provider[]` 
 - `search?: ProviderSearch` — provider wording and callbacks for generic item matching, activation, creation, and the empty-input action
 - `actions?: ProviderAction[]` — provider-level UI (e.g., import dialog)
 
-View models contain callbacks (e.g., `setPinned`, `reorderPages`, `setCurrentVersion`, `invoke`) that update provider data by directly mutating the `$state`-proxied store. Each `Page` also declares whether it owns the current navigation, so section fragments and provider-specific aliases do not leak into generic UI equality checks. View models are derived inside a `$derived` block — never memoized manually, never serialized. See `frontend/src/core/data.ts` for the full type definitions.
+View models contain callbacks (e.g., `setPinned`, `pageLayout.reorder`, `setCurrentVersion`, `invoke`) that update provider data by directly mutating the `$state`-proxied store. Each `Page` also declares whether it owns the current navigation, so section fragments and provider-specific aliases do not leak into generic UI equality checks. View models are derived inside a `$derived` block — never memoized manually, never serialized. See `frontend/src/core/data.ts` for the full type definitions.
 
 **Current:** `rust` (docs.rs + doc.rust-lang.org + windows-docs-rs),
 `rust-doc` (stable Rust Book), `minecraft-wiki`, and `wikipedia`.
@@ -358,8 +361,8 @@ the [Rust trademark policy](https://rustfoundation.org/policy/rust-trademark-pol
 code-owned site catalog into an isolated `Provider<DocProviderData>`. Provider
 metadata, landing site, grouping capability, search wording, and ordered sites
 are explicit configuration. Each site supplies structural URL ownership,
-optional alias normalization and page-identity policy, and a page-name
-resolver. The factory validates provider IDs, catalog IDs, homes, and ownership
+optional alias normalization and page-identity policy, a page-name resolver,
+and an exclusive page-organization policy. The factory validates provider IDs, catalog IDs, homes, and ownership
 once before returning closure-backed routing and rendering callbacks.
 
 `frontend/src/providers/doc/providers.ts` uses the factory for `rust-doc`,
@@ -369,22 +372,65 @@ Adding another provider over an already hosted origin requires only another
 configuration and registry entry. A new origin must also be added explicitly
 to the Rust host's `HOSTED_URL` and `PROXIED_URL` security boundaries.
 
-Each configured site is one flat item; TurboDoc does not crawl source
-navigation or reproduce chapters and categories. A site home is fixed first,
-followed by persisted pinned targets in the user's order and one optional
-current-page preview. URL matching requires HTTPS without credentials and exact
-parsed origins. Normalized URLs are rechecked against the accepting site before
-use. Rust Book ownership is further restricted to `/stable/book/` and its
-`/book/` alias, which normalizes to the stable identity. Catalog items cannot be
-created or deleted. Fragments remain useful navigation targets while the
-default page identity ignores them, preventing duplicate pins for two sections
-of one article.
+Each configured site remains one item and one URL-ownership boundary; page
+organization never creates additional Explorer items. URL matching requires
+HTTPS without credentials and exact parsed origins and path boundaries.
+Normalized URLs are rechecked against the accepting site before use. Supported
+unversioned Rust book aliases normalize to their stable paths; the Unstable
+Book intentionally uses nightly only. Catalog items cannot be created or
+deleted. Fragments remain navigation targets while the default page identity
+ignores them, preventing duplicate pins for two sections of one article.
 
-Pinned Doc pages use `svelte-dnd-action` handles for pointer, delayed-touch,
-and keyboard reordering. Home and preview rows live outside the drop zone;
-stale, partial, duplicate, or foreign reorder results are rejected before
-persistence. Rust items omit the reorder callback and retain alphabetical
-symbol ordering.
+#### Page Organization
+
+The shared `PageLayout` / `PageBlock` model contains ordered URL references,
+optional title paths, and optional edit capabilities. The renderer does not
+know whether a block represents a collection or a book section. Headers are
+muted, case-preserving and non-collapsible; only their action buttons hover.
+Items without a layout, including the original Rust crate provider, retain
+their `sortKey` order with previews naturally interleaved among pins.
+
+Each Doc site selects exactly one policy:
+
+1. **User collections** (Wikipedia and Minecraft Wiki): Home → loose pins →
+   untitled preview block → alphabetically sorted collections → Add collection.
+   A collection header offers rename/remove actions; renaming changes its sort
+   position. Removing a nonempty collection requires confirmation and appends
+   its pins to the loose list. `pinnedPages` remains authoritative; optional
+   `collections[name].pages` stores ordered subsets, including empty collections.
+   Invalid membership is ignored and ambiguous cross-collection claims become
+   loose. Unpinning forgets membership; repinning puts the page in loose pins.
+2. **Provider sections** (Rust books): Home, unknown loose pages, then populated
+   contiguous outline spans in source reading order. Known previews occupy
+   their proper span and rank, just like pins; an unknown preview follows the
+   loose pins. Nested ancestry is rendered as a flat `Chapter › Section` title.
+   Returning to a parent creates another span rather than regrouping pages out
+   of order. Naturally untitled spans retain their source position. Users may
+   pin/unpin pages but cannot edit or reorder sections or their contents.
+
+Collection pins use `svelte-dnd-action` handles for pointer, delayed-touch and
+keyboard movement within/between zones scoped to their owning item. Home and
+preview rows are not draggable. Source/target finalize events are coalesced,
+then the provider validates the complete block set and exact pin permutation
+against current state before one persistence update. Stale, partial, duplicate
+or foreign results are rejected; original fragment targets are preserved.
+
+Rust Docs includes Rust Book, Cargo Book, Nomicon, rust-analyzer Book, Rust By
+Example, Rust Reference, Edition Guide, rustc Book, rustdoc Book, Clippy Book,
+Style Guide, Unstable Book, Embedded Book, rustc-dev-guide and rustup Book.
+Checked-in outline snapshots contain only paths, titles, ancestry and provenance;
+they are not fetched during startup, navigation, tests or ordinary builds.
+Outline maps are compiled lazily per book and reused. To refresh all snapshots
+explicitly, run `bun scripts/refresh-book-outlines.ts` from `frontend/`. The
+importer validates every source before replacing the generated file.
+
+Page naming remains each site's `resolvePageName(URL)` callback, independent
+of outline placement. Rust Book names retain chapter numbers, for example
+`ch03-05-control-flow.html` → `03-05 Control Flow`; other books use appropriate
+slug/acronym rules, and Wiki names remain decoded canonical article titles.
+Home is always special, malformed percent escapes are safe, and no live
+document-title or naming-metadata request is required. See
+`docs/M6-PageOrganization.md` for implementation and verification notes.
 
 #### Active Provider Selection
 
@@ -399,7 +445,7 @@ registered providers for the first structural `ownsUrl` match. A different
 owner becomes active and is persisted without issuing another navigation,
 because the viewer already accepted the target. Rust and Rust Docs ownership
 are deliberately disjoint on `doc.rust-lang.org`: Rust owns standard-library
-crate paths while Rust Docs owns only the Book paths.
+crate paths while Rust Docs owns only the configured book paths.
 
 ---
 
@@ -896,6 +942,14 @@ TurboDoc/
 ---
 
 ## Change History
+
+- **2026-08**: Separate neutral page-block presentation from user collections
+  and provider-owned section spans. Add alphabetical Wiki collections with
+  validated cross-zone pin movement and safe removal, retain original Rust
+  crate ordering, and place book previews in source reading order. Expand
+  Rust Docs to 15 official books with checked-in outline metadata, an explicit
+  validated refresh tool, site-specific URL naming and narrow native URL
+  scopes. See `docs/M6-PageOrganization.md`.
 
 - **2026-08**: Generalize the singleton `doc` implementation into the
   validated `createDocProvider(config)` template. Move URL ownership,

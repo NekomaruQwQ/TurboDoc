@@ -31,6 +31,9 @@ mod webview;
 const HOSTED_URL: &[&str] = &[
     "https://docs.rs/",
     "https://doc.rust-lang.org/",
+    "https://rust-analyzer.github.io/book/",
+    "https://rustc-dev-guide.rust-lang.org/",
+    "https://rust-lang.github.io/rustup/",
     "https://microsoft.github.io/windows-docs-rs/doc/",
     "https://en.wikipedia.org/",
     "https://minecraft.wiki/",
@@ -41,6 +44,9 @@ const HOSTED_URL: &[&str] = &[
 const PROXIED_URL: &[&str] = &[
     "https://docs.rs/",
     "https://doc.rust-lang.org/",
+    "https://rust-analyzer.github.io/book/",
+    "https://rustc-dev-guide.rust-lang.org/",
+    "https://rust-lang.github.io/rustup/",
     "https://microsoft.github.io/windows-docs-rs/doc/",
     "https://en.wikipedia.org/",
     "https://minecraft.wiki/",

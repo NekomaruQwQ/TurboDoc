@@ -3,6 +3,7 @@ import BookOpenText from "@lucide/svelte/icons/book-open-text";
 import LibraryBig from "@lucide/svelte/icons/library-big";
 
 import { createDocProvider } from ".";
+import { RUST_BOOK_SITES } from "./books";
 import {
     MINECRAFT_WIKI_SITE,
     RUST_BOOK_SITE,
@@ -20,7 +21,7 @@ export const RustDocProvider = createDocProvider({
         placeholder: "Search Rust documentation sites",
         invalidText: "No Rust documentation site matches that name.",
     },
-    sites: [RUST_BOOK_SITE],
+    sites: RUST_BOOK_SITES,
 });
 
 /** Minecraft Wiki as an independent provider and persistence namespace. */

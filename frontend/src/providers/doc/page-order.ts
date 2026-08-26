@@ -18,12 +18,14 @@ export type ResolveDocPage = (input: string) => ResolvedDocPage | null;
 export function normalizePinnedPages(
     siteId: string,
     homeIdentity: string,
-    pages: readonly string[],
+    pages: unknown,
     resolvePage: ResolveDocPage): string[] {
+    if (!Array.isArray(pages)) return [];
     const identities = new Set<string>();
     const normalized: string[] = [];
 
     for (const page of pages) {
+        if (typeof page !== "string") continue;
         const target = resolvePage(page);
         if (!target || target.siteId !== siteId ||
             target.identity === homeIdentity ||

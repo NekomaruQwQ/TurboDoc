@@ -144,6 +144,26 @@ mod tests {
         assert_eq!(result.bytes, original);
     }
 
+    /// Book HTML shares the proxy, not Rustdoc's theme-storage contract.
+    #[test]
+    fn leaves_official_books_outside_rustdoc_injection() {
+        for url in [
+            "https://doc.rust-lang.org/stable/cargo/reference/build-scripts.html",
+            "https://doc.rust-lang.org/nomicon/ffi.html",
+            "https://doc.rust-lang.org/stable/reference/types.html",
+            "https://doc.rust-lang.org/stable/rustdoc/write-documentation.html",
+            "https://doc.rust-lang.org/nightly/unstable-book/language-features/coroutines.html",
+            "https://rust-analyzer.github.io/book/installation.html",
+            "https://rustc-dev-guide.rust-lang.org/building/how-to-build-and-run.html",
+            "https://rust-lang.github.io/rustup/concepts/index.html",
+        ] {
+            let original = format!("<html><head>{ANCHOR}</head></html>").into_bytes();
+            let result = dark_mode(url, "text/html", original.clone());
+            assert!(!result.modified, "book must not receive Rustdoc injection: {url}");
+            assert_eq!(result.bytes, original);
+        }
+    }
+
     #[test]
     fn leaves_wiki_html_unmodified() {
         let original = format!("<html><head>{ANCHOR}</head></html>").into_bytes();

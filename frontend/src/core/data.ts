@@ -216,10 +216,9 @@ export interface Item {
     /** List of documentation pages for this item. */
     pages: Page[],
 
-    /** Persist a manually chosen order for the item's pinned pages.
-     *  Providers without this callback keep the Explorer's `sortKey` order.
-     *  Callers pass page URLs because they are globally unique identities. */
-    reorderPages?(orderedUrls: string[]): void,
+    /** Optional provider-composed blocks. Without a layout, every page keeps
+     *  its `sortKey` position, including unpinned Rust symbol previews. */
+    pageLayout?: PageLayout,
 
     /** List of external links for this item. */
     links?: ItemLink[],
@@ -230,6 +229,62 @@ export interface Item {
     /** For items that represent a package (or crate, module, etc.), this field
      *  contains the view model of the version menu. **/
     versions?: ItemVersions,
+}
+
+/** A flat presentation block, independent of collections or book chapters. */
+export interface PageBlock {
+    /** Unique within this layout, including separate spans of one heading. */
+    id: string,
+    /** Omit for an untitled span; ancestry is presented flat, not as a tree. */
+    titlePath?: readonly string[],
+    /** Ordered references into Item.pages; each page appears exactly once. */
+    pageUrls: readonly string[],
+    /** Enables a pinned-page drop zone, including when it is empty. */
+    reorderable?: boolean,
+    /** Accessible drop-zone wording supplied by the provider. */
+    accessibleName?: string,
+    /** Optional inline name editor; absence makes the heading read-only. */
+    rename?: PageBlockNameAction,
+    /** Optional removal with provider-owned consequences and wording. */
+    remove?: {
+        /** Menu and confirmation-button label. */
+        label: string,
+        /** When present, require confirmation before invoking the action. */
+        confirmation?: string,
+        /** Apply removal against current provider state. */
+        invoke(): void,
+    },
+}
+
+/** Complete pinned-page order submitted atomically after cross-block drops. */
+export interface PageBlockOrder {
+    /** ID of one reorderable block, including empty blocks. */
+    id: string,
+    /** Every current pinned URL must occur in exactly one block. */
+    pageUrls: readonly string[],
+}
+
+/** Provider-owned name validation and persistence, shared by create/rename. */
+export interface PageBlockNameAction {
+    /** User-facing action, such as "Add collection". */
+    label: string,
+    /** Current name when renaming; empty when creating. */
+    value: string,
+    /** Guidance for the inline field. */
+    placeholder: string,
+    /** Reject invalid/stale input without mutation, or return the new block
+     *  ID so the Explorer can restore focus after alphabetical relocation. */
+    invoke(name: string): { blockId: string } | { error: string },
+}
+
+/** Provider-composed flat page list with capability-driven editing. */
+export interface PageLayout {
+    /** Exact presentation order; headers have no collapse state. */
+    blocks: PageBlock[],
+    /** Validate a complete snapshot before persisting any page movement. */
+    reorder?(blocks: readonly PageBlockOrder[]): void,
+    /** Optional full-width action displayed after every block. */
+    create?: PageBlockNameAction,
 }
 
 export interface ItemLink {
