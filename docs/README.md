@@ -364,6 +364,8 @@ are explicit configuration. Each site supplies structural URL ownership,
 optional alias normalization and page-identity policy, a page-name resolver,
 and an exclusive page-organization policy. The factory validates provider IDs, catalog IDs, homes, and ownership
 once before returning closure-backed routing and rendering callbacks.
+The site-array order is authoritative for Explorer groups and item-search
+results; moving an item between groups preserves its relative catalog order.
 
 `frontend/src/providers/doc/providers.ts` uses the factory for `rust-doc`,
 `minecraft-wiki`, and `wikipedia`. Each has its own TOML persistence namespace,

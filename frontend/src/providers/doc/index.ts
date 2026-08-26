@@ -259,9 +259,9 @@ function render(
     config: DocProviderConfig,
     runtime: DocProviderRuntime): ProviderOutput {
     const currentTarget = runtime.resolvePage(ctx.currentUrl);
-    const items = Object.fromEntries(runtime.sites.map(site => [
+    const items = Object.fromEntries(runtime.sites.map((site, siteOrder) => [
         site.id,
-        renderSite(ctx, site, currentTarget, runtime),
+        renderSite(ctx, site, siteOrder, currentTarget, runtime),
     ]));
 
     return {
@@ -283,6 +283,7 @@ function render(
 function renderSite(
     ctx: DocProviderContext,
     site: DocSiteConfig,
+    siteOrder: number,
     currentTarget: DocPageTarget | null,
     runtime: DocProviderRuntime): Item {
     const home = getSiteHome(runtime, site.id);
@@ -349,7 +350,9 @@ function renderSite(
     return {
         id: site.id,
         name: site.name,
-        sortKey: site.name,
+        // Explorer groups and search share lexicographic sort keys, so encode
+        // the provider-owned catalog position with enough padding for growth.
+        sortKey: siteOrder.toString().padStart(8, "0"),
         pages,
         pageLayout: site.organization.type === "provider-sections"
             ? createSectionLayout(pages, site.organization.resolvePagePlacement)

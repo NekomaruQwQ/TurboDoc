@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { tick } from "svelte";
     import Check from "@lucide/svelte/icons/check";
     import Plus from "@lucide/svelte/icons/plus";
 
@@ -13,6 +14,14 @@
 
     let inputMode = $state(false);
     let inputText = $state("");
+    let inputElement: HTMLInputElement | undefined = $state();
+
+    /** Enter creation mode and focus its conditionally rendered input. */
+    async function beginCreatingGroup(): Promise<void> {
+        inputMode = true;
+        await tick();
+        inputElement?.focus();
+    }
 
     function createGroup(name: string) {
         if (!name || name in store.data.groups) return;
@@ -37,6 +46,7 @@
 <div class="create-group">
     {#if inputMode}
         <Input
+            bind:ref={inputElement}
             bind:value={inputText}
             placeholder="Group name..."
             class="explorer-create-group-input"
@@ -57,7 +67,7 @@
         <Button
             variant="ghost"
             class="explorer-create-group-action"
-            onclick={() => inputMode = true}>
+            onclick={beginCreatingGroup}>
             <Plus />
             <span>Add Group</span>
         </Button>

@@ -11,6 +11,8 @@ import {
     RUST_BOOK_SITE,
     WIKIPEDIA_SITE,
 } from "./sites";
+import { BOOK_CATALOG } from "./book-catalog";
+import { RustDocProvider } from "./providers";
 
 /** Multi-site fixture exercises the factory independently of registry layout. */
 const DOC_PROVIDER_CONFIG = {
@@ -140,6 +142,16 @@ describe("createDocProvider", () => {
 });
 
 describe("factory-created Doc provider rendering", () => {
+    test("uses configured catalog order for Explorer and search sorting", () => {
+        const { ctx } = context(RUST_BOOK_SITE.homeUrl);
+        const orderedItems = Object.values(RustDocProvider.render(ctx).items)
+            .sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+
+        expect(orderedItems.map(item => item.id))
+            .toEqual(BOOK_CATALOG.map(book => book.id));
+        expect(orderedItems.at(0)?.id).toBe("rust-book");
+    });
+
     test("passes canonical URLs to the site naming callback while retaining Home", () => {
         const namedUrls: string[] = [];
         const provider = createDocProvider({
