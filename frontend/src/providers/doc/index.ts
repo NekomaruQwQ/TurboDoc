@@ -68,9 +68,6 @@ export interface DocProviderConfig {
     /** Site whose canonical home becomes the provider landing page. */
     readonly homeSiteId: string;
 
-    /** Whether the Explorer exposes named groups for configured sites. */
-    readonly enableItemGrouping: boolean;
-
     /** Provider-specific Explorer search wording. */
     readonly search: DocProviderSearchConfig;
 
@@ -141,7 +138,6 @@ export function createDocProvider(
         name: stableConfig.name,
         icon: stableConfig.icon,
         homeUrl: home.url,
-        enableItemGrouping: stableConfig.enableItemGrouping,
         renderItemNameAsCode: false,
         renderPageNameAsCode: false,
         ownsUrl: url => runtime.resolvePage(url) !== null,

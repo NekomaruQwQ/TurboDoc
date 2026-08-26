@@ -20,7 +20,6 @@ function provider(
         name: id,
         icon: { type: "monochrome-svg", src: "test.svg" },
         homeUrl: ownedOrigin,
-        enableItemGrouping: false,
         renderItemNameAsCode: false,
         renderPageNameAsCode: false,
         ownsUrl,

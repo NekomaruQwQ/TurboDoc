@@ -65,7 +65,6 @@ const RustProvider: Provider<RustProviderData> = {
         src: new URL("./rust.svg", import.meta.url).href,
     },
     homeUrl: "https://docs.rs/",
-    enableItemGrouping: true,
     renderItemNameAsCode: true,
     renderPageNameAsCode: true,
     ownsUrl: url => parseUrl(url) !== null,

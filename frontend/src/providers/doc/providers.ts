@@ -16,7 +16,6 @@ export const RustDocProvider = createDocProvider({
     name: "Rust Docs",
     icon: { type: "lucide", icon: BookOpenText },
     homeSiteId: RUST_BOOK_SITE.id,
-    enableItemGrouping: false,
     search: {
         placeholder: "Search Rust documentation sites",
         invalidText: "No Rust documentation site matches that name.",
@@ -30,7 +29,6 @@ export const MinecraftWikiProvider = createDocProvider({
     name: "Minecraft Wiki",
     icon: { type: "lucide", icon: Blocks },
     homeSiteId: MINECRAFT_WIKI_SITE.id,
-    enableItemGrouping: false,
     search: {
         placeholder: "Search Minecraft Wiki",
         invalidText: "No Minecraft Wiki site matches that name.",
@@ -44,7 +42,6 @@ export const WikipediaProvider = createDocProvider({
     name: "Wikipedia",
     icon: { type: "lucide", icon: LibraryBig },
     homeSiteId: WIKIPEDIA_SITE.id,
-    enableItemGrouping: false,
     search: {
         placeholder: "Search Wikipedia",
         invalidText: "No Wikipedia site matches that name.",

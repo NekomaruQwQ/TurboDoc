@@ -30,8 +30,8 @@ export const providerDataSchema = z.object({
     // update mechanism for this field.
     data: z.unknown(),
 
-    // Definition of item groups under this provider. For providers that
-    // do not support grouping, this field is an empty object.
+    // Definition of app-owned item groups under this provider. Every provider
+    // supports grouping through the shared Explorer UI.
     //
     // The app manages item grouping for each provider and providers only
     // need to provide a flat list of items in `Provider.render()`.
@@ -108,9 +108,6 @@ export interface ProviderInfo {
 
     /** Landing page opened when the user explicitly switches to this provider. */
     readonly homeUrl: string,
-
-    /** Whether to enable item grouping for this provider. */
-    readonly enableItemGrouping: boolean,
 
     /** Whether to render item names in <code> tags (monospace font). */
     readonly renderItemNameAsCode: boolean,

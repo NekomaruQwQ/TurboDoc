@@ -18,7 +18,6 @@ const DOC_PROVIDER_CONFIG = {
     name: "Test Docs",
     icon: { type: "lucide", icon: BookOpenText },
     homeSiteId: WIKIPEDIA_SITE.id,
-    enableItemGrouping: true,
     search: {
         placeholder: "Search documentation sites",
         invalidText: "No configured site matches that name.",

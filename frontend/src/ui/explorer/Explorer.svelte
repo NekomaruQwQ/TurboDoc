@@ -12,7 +12,6 @@
         recordItemAccess,
     } from "@/core/uiState.svelte";
 
-    import ExplorerItem from "@/ui/explorer/ExplorerItem.svelte";
     import ExplorerGroup from "@/ui/explorer/ExplorerGroup.svelte";
     import ExplorerCreateGroupComponent from "@/ui/explorer/ExplorerCreateGroupComponent.svelte";
     import ExplorerSearch from "@/ui/explorer/ExplorerSearch.svelte";
@@ -155,8 +154,7 @@
 
         // Both collapsibles must be open before the complete card and selected
         // page can supply stable bounds for the single constrained scroll.
-        if (provider.enableItemGrouping)
-            expandGroup(provider.id, findItemGroupName(activeItemId));
+        expandGroup(provider.id, findItemGroupName(activeItemId));
         expandItems(provider.id, [activeItemId]);
         await tick();
         if (generation !== revealGeneration) return;
@@ -264,20 +262,14 @@
             {/if}
         {/each}
 
-        {#if provider.enableItemGrouping}
-            <!-- The empty name is the data model's stable identity for items
-                 not assigned to a persisted group. -->
-            <ExplorerGroup groupName="" providerOutput={output} />
-            {#each store.data.groupOrder.filter(g => g in store.data.groups) as groupName (groupName)}
-                <ExplorerGroup {groupName} providerOutput={output} />
-            {/each}
-            <div class="group-spacer"></div>
-            <ExplorerCreateGroupComponent />
-        {:else}
-            {#each Object.entries(output.items) as [itemId, item] (itemId)}
-                <ExplorerItem {item} itemGroupName="" />
-            {/each}
-        {/if}
+        <!-- Grouping belongs to the Explorer for every provider. The empty
+             name identifies items not assigned to a persisted group. -->
+        <ExplorerGroup groupName="" providerOutput={output} />
+        {#each store.data.groupOrder.filter(g => g in store.data.groups) as groupName (groupName)}
+            <ExplorerGroup {groupName} providerOutput={output} />
+        {/each}
+        <div class="group-spacer"></div>
+        <ExplorerCreateGroupComponent />
     </div>
 </div>
 

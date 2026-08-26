@@ -262,7 +262,7 @@ ExplorerItem (shadcn-svelte Collapsible.Root, backed by Bits UI)
 ### Component Responsibilities
 
 - **NavBar** (`frontend/src/ui/NavBar.svelte`): Fixed 44px workbench rail that renders every provider in registry order. Provider buttons expose accessible names, use a current-color provider-owned mark, and identify the active provider with the primary edge marker. Selection intent returns to `App.svelte`; the NavBar neither owns persistence nor performs navigation.
-- **Explorer** (`frontend/src/ui/explorer/Explorer.svelte`): Receives the active provider, latest reported navigation ID, and optional fractional center range as props; owns per-provider data via `ProviderDataStore` (Svelte 5 `$state` class), constructs `ProviderContext`, calls `provider.render()` inside a `$derived`, and wires up the optional `provider.setupEffects(ctx)` hook inside a `$effect` so any inner `$effect`s the provider creates are bound to this component's lifecycle. The search occupies the fixed top row while the crate/group region owns the only scroll viewport. A recognized reported navigation expands the containing group and item, waits for their clipping animations, then calculates one scroll position: card centering is the preference, while placing the complete selected page row inside the center range is the constraint. Recreated implicitly when `provider.id` changes (the `$derived` `ProviderDataStore` reinitializes with the new ID).
+- **Explorer** (`frontend/src/ui/explorer/Explorer.svelte`): Receives the active provider, latest reported navigation ID, and optional fractional center range as props; owns per-provider data via `ProviderDataStore` (Svelte 5 `$state` class), constructs `ProviderContext`, calls `provider.render()` inside a `$derived`, and wires up the optional `provider.setupEffects(ctx)` hook inside a `$effect` so any inner `$effect`s the provider creates are bound to this component's lifecycle. The search occupies the fixed top row while the crate/group region owns the only scroll viewport. A recognized reported navigation expands the containing group and item, waits for their clipping animations, then calculates one scroll position: card centering is the preference, while placing the complete selected page row inside the center range is the constraint. `App.svelte` keys the Explorer subtree by `provider.id`, recreating provider descendants so initialization-time context consumers cannot retain the previous provider's data store.
 - **ExplorerSearch** (`ExplorerSearch.svelte`): Accessible Bits UI combobox pinned above the scrolling crate/group region; shows at most five case-insensitive prefix matches, or the five most recently accessed items for empty input; dispatches provider-owned select/add actions and opens the existing Import dialog
 - **ExplorerGroup** (`ExplorerGroup.svelte`): Owns the shared collapsible state and renders filtered/sorted items; the empty group name identifies derived ungrouped membership
 - **ExplorerGroupHeader** (`ExplorerGroupHeader.svelte`): Shared chevron trigger and expand/collapse-all menu; persisted named groups additionally support rename, move, and deletion
@@ -359,7 +359,7 @@ the [Rust trademark policy](https://rustfoundation.org/policy/rust-trademark-pol
 
 `createDocProvider(config)` in `frontend/src/providers/doc/index.ts` compiles a
 code-owned site catalog into an isolated `Provider<DocProviderData>`. Provider
-metadata, landing site, grouping capability, search wording, and ordered sites
+metadata, landing site, search wording, and ordered sites
 are explicit configuration. Each site supplies structural URL ownership,
 optional alias normalization and page-identity policy, a page-name resolver,
 and an exclusive page-organization policy. The factory validates provider IDs, catalog IDs, homes, and ownership
@@ -739,6 +739,11 @@ ProviderData ($state) ──► provider.render() inside $derived ──► rend
 - Bulk operations (Expand All / Collapse All) via imperative `expandItems()` / `collapseItems()` helpers
 
 **Group Management**
+- Grouping is app-owned and available for every provider, including single-item
+  Doc providers. Providers return flat items; the Explorer always renders the
+  Ungrouped section, named groups, and the trailing Add Group action.
+- Groups remain scoped to one provider and are independent of page collections
+  and provider-owned book sections inside items.
 - Groups stored as `Record<string, { items: string[] }>` with separate `groupOrder` array
 - Ungrouped items: those not listed in any group (filtered in ExplorerGroup)
 - Rename: atomic update of group key, groupOrder entry, and expandedGroups entry
@@ -943,6 +948,11 @@ TurboDoc/
 
 ## Change History
 
+- **2026-08**: Make item grouping standard Explorer functionality for every
+  provider. Remove the provider grouping opt-out, restore Add Group for Doc
+  providers, always expand the containing group during navigation reveals, and
+  recreate the Explorer subtree on provider changes so group controls bind to
+  the correct per-provider store.
 - **2026-08**: Separate neutral page-block presentation from user collections
   and provider-owned section spans. Add alphabetical Wiki collections with
   validated cross-zone pin movement and safe removal, retain original Rust

@@ -145,7 +145,13 @@
                 <section
                     class="explorer-pane"
                     aria-label="Documentation explorer">
-                    <Explorer {provider} {reportedNavigationId} />
+                    <!-- Provider descendants capture their app-owned data
+                         context during component initialization. Recreate the
+                         subtree at this ownership boundary so group controls
+                         cannot retain the previous provider's store. -->
+                    {#key provider.id}
+                        <Explorer {provider} {reportedNavigationId} />
+                    {/key}
                 </section>
             </aside>
         </Resizable.Pane>
