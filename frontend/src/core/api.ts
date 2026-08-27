@@ -27,29 +27,77 @@ async function responseError(operation: string, response: Response): Promise<Err
     );
 }
 
-/** Load one provider's persisted data through the Rust-owned REST resource.
- * Missing provider files are represented by the endpoint as a successful
- * empty object; protocol and server failures reject the promise. */
-export async function loadProviderData(providerId: string): Promise<unknown> {
-    const response = await fetch(apiResourceUrl(
-        `/api/data/${encodeURIComponent(providerId)}`,
-    ));
-    if (!response.ok) throw await responseError("Loading provider data", response);
-    return response.json();
+/** Persistence load result including whether the TOML resource existed. */
+export interface PersistedResource {
+    /** Parsed JSON representation; missing files are represented as `{}`. */
+    data: unknown;
+    /** True only when the backend read an existing file. */
+    exists: boolean;
 }
 
-/** Replace one provider's persisted data through the Rust-owned REST resource.
- * Protocol and server failures reject the promise so the owning store can
- * report them without treating a failed write as a successful response. */
-export async function saveProviderData(
-    providerId: string, data: object,
+/** Header used by the backend to distinguish a missing file from valid `{}`. */
+const RESOURCE_EXISTS_HEADER = "x-turbodoc-resource-exists";
+
+/** Parse required persistence metadata without treating a missing CORS-visible
+ * header as a missing file, which could otherwise authorize default writes. */
+export function parseResourceExistsHeader(value: string | null): boolean {
+    if (value === "true") return true;
+    if (value === "false") return false;
+    throw new Error(`Persistence response has invalid ${RESOURCE_EXISTS_HEADER} metadata.`);
+}
+
+/** Load one generic root-level data file such as Explorer UI state or legacy
+ * migration input. */
+export async function loadDataFile(dataId: string): Promise<PersistedResource> {
+    return loadResource(
+        `/api/data/${encodeURIComponent(dataId)}`,
+        "Loading data file");
+}
+
+/** Replace one generic root-level data file. */
+export async function saveDataFile(dataId: string, data: object): Promise<void> {
+    await saveResource(
+        `/api/data/${encodeURIComponent(dataId)}`,
+        data,
+        "Saving data file");
+}
+
+/** Load one independently persisted source from `<dataDir>/sources`. */
+export async function loadSourceData(sourceId: string): Promise<PersistedResource> {
+    return loadResource(
+        `/api/sources/${encodeURIComponent(sourceId)}`,
+        "Loading source data");
+}
+
+/** Replace one independently persisted source file. */
+export async function saveSourceData(sourceId: string, data: object): Promise<void> {
+    await saveResource(
+        `/api/sources/${encodeURIComponent(sourceId)}`,
+        data,
+        "Saving source data");
+}
+
+/** Load a JSON-over-HTTP persistence resource with existence metadata. */
+async function loadResource(path: string, operation: string): Promise<PersistedResource> {
+    const response = await fetch(apiResourceUrl(path));
+    if (!response.ok) throw await responseError(operation, response);
+    return {
+        data: await response.json(),
+        exists: parseResourceExistsHeader(
+            response.headers.get(RESOURCE_EXISTS_HEADER)),
+    };
+}
+
+/** Replace a JSON-over-HTTP persistence resource. */
+async function saveResource(
+    path: string,
+    data: object,
+    operation: string,
 ): Promise<void> {
-    const response = await fetch(apiResourceUrl(
-        `/api/data/${encodeURIComponent(providerId)}`,
-    ), {
+    const response = await fetch(apiResourceUrl(path), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
     });
-    if (!response.ok) throw await responseError("Saving provider data", response);
+    if (!response.ok) throw await responseError(operation, response);
 }

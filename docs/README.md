@@ -4,10 +4,13 @@
 
 TurboDoc is a universal documentation viewer with local caching and workspace management. The app displays documentation in an iframe with a sidebar explorer for managing items, versions, and pages.
 
-The frontend uses a **multi-provider architecture** where each documentation source (e.g., Rust crates) is implemented as a `Provider` plugin that returns a uniform view model.
+The frontend uses independently persisted **Sources** compiled by reusable
+**Adapters**. The navigation rail and Explorer compose those source views into
+UI-only **Topics**. See [M7-SourceAdapterTopics.md](M7-SourceAdapterTopics.md)
+for the complete architecture and `rust.toml` migration contract.
 
 **Key Features:**
-- Multi-provider documentation viewing (unified Rust plus configured Doc providers)
+- Topic-composed documentation viewing over independently persisted sources
 - Search and add crates from crates.io
 - Version selection with intelligent grouping
 - Pin/unpin documentation pages (VS Code-style tabs)
@@ -59,7 +62,7 @@ The frontend uses a **multi-provider architecture** where each documentation sou
 ### Feature Requirements
 
 #### Implemented
-- Provider NavBar with persisted active selection and provider-home navigation
+- Topic NavBar with persisted active selection and explicit landing sources
 - Prefix-search, open, and add Explorer crates through a non-exhaustive combobox
 - Display crate metadata (versions and links)
 - Version selection with intelligent grouping
@@ -71,16 +74,16 @@ The frontend uses a **multi-provider architecture** where each documentation sou
 - Automatic cross-crate navigation (native host callback)
 - Move items between groups via menu
 - Import crates from docs.rs URLs
-- Unified Rust provider (docs.rs + doc.rust-lang.org + windows-docs-rs)
-- Factory-created Rust Docs, Minecraft Wiki, and Wikipedia providers
-- Automatic cross-provider routing for accepted documentation navigation
-- Accessible pointer, touch, and keyboard ordering of Doc pinned pages
+- Rust Crate source (docs.rs + doc.rust-lang.org + windows-docs-rs)
+- Fifteen independently persisted Rust Book sources plus Wiki sources
+- Automatic cross-topic routing for accepted documentation navigation
+- Accessible pointer, touch, and keyboard ordering of WebAdapter pinned pages
 - User-defined page collections for Wikis, separate from outer item Groups
-- Provider-owned Rust book sections with previews in reading order
+- Adapter-owned Rust book sections with previews in reading order
 
 #### Remaining
 - Preset picker UI
-- Loading states and error handling
+- Shared loading/error presentation beyond source and workspace persistence
 - Keyboard shortcuts
 - Toast notifications
 
@@ -112,9 +115,9 @@ TurboDoc is an "enhanced tabbed browser with inactive tab resources released" �
 
 | **Component** | **Tech Stack** | **Role** | **Key Responsibilities** |
 |---|---|---|---|
-| **Host** | Rust (eframe/egui + wgpu/DX12 + WebView2) | **The Shell** | Native window management and an extensible startup/error surface. Intercepts configured upstream GETs in `WebResourceRequested` and routes them to `Server::fetch` (proxy + cache). Rust owns `/api/data/{provider_id}` and rejection of unknown `/api` paths; dev-only `/api/ready` passes through to Vite. Calls the narrow `window.__turboDoc__` frontend API, opens external URLs in the system browser, maps release assets from executable-adjacent `public/`, intercepts release APIs on a separate reserved origin with exact-origin CORS, and owns a dev-mode Vite child through a Job Object. |
-| **Backend** | Rust (rusqlite + reqwest + `http-cache-semantics`), in-process — no axum, no bound TCP listener of its own | **The Brain** | Provider data persistence (`/api/data/{provider_id}`) reading/writing TOML. Site-agnostic HTTP proxy with SQLite caching, upstream cache directives, conditional revalidation, stale-while-revalidate, LRU eviction, and an explicit downstream response-header allowlist that lets WebView2 cache reusable representations safely. Rustdoc dark-mode injection is applied at serve time. Called synchronously from the WebView2 UI thread via `Handle::block_on`. |
-| **Frontend** | Svelte 5 + Vite | **The Face** | UI rendering and provider-specific integrations. The Rust provider constructs and parses sparse-index metadata requests by default and uses the crates.io API only for explicit refreshes. Release mode uses Vite build artifacts through a WebView2 virtual-host mapping; dev mode uses Vite directly for HMR. |
+| **Host** | Rust (eframe/egui + wgpu/DX12 + WebView2) | **The Shell** | Native window management and startup/error surfaces. Intercepts configured upstream GETs for proxy/cache handling. Rust owns `/api/data/{data_id}`, `/api/sources/{source_id}`, and rejection of unknown `/api` paths; dev-only `/api/ready` passes through to Vite. Release assets use an executable-adjacent virtual-host mapping and persistence uses a separate exact-CORS API origin. |
+| **Backend** | Rust (rusqlite + reqwest + `http-cache-semantics`), in-process — no axum or bound listener | **The Brain** | Generic UI/migration TOML persistence plus one TOML file per source under `sources/`. Also provides the site-agnostic SQLite HTTP cache, conditional revalidation, stale-while-revalidate, LRU eviction, reviewed response-header forwarding, and serve-time Rustdoc dark-mode injection. |
+| **Frontend** | Svelte 5 + Vite | **The Face** | Compiles source definitions through adapters, derives source views, composes them into UI-only topics, and renders the generic Explorer. Rust crate metadata is lazy and remains source-owned. Release uses built Vite artifacts; dev uses Vite directly for HMR. |
 
 ### Request Flow
 
@@ -139,7 +142,7 @@ WebView2 iframe navigates
 
 **Crate metadata:**
 ```
-Rust provider needs metadata for a crate
+Rust Crate source needs metadata for a crate
   ├─ First item-menu opening:
   │    GET https://index.crates.io/{Cargo index path}
   │    └─ proxy follows upstream Cache-Control/ETag/Last-Modified normally
@@ -151,7 +154,7 @@ Workspace startup, import, and group expansion do not request metadata.
 The backend has no crate-specific endpoint, parser, or cache policy.
 ```
 
-**Frontend provider-data `fetch`:**
+**Frontend persistence `fetch`:**
 ```
 Frontend chooses the API destination
   ├─ dev: relative /api/... on the Vite origin
@@ -168,15 +171,15 @@ WebView2 request under /api
   └─ every other /api request
        │  host: server.dispatch_api(request)  → api::dispatch
        └─ api::dispatch routes by (method, path):
-            ├─ GET  /api/data/{provider_id}   → read TOML, return as JSON
-            ├─ PUT  /api/data/{provider_id}   → write JSON as TOML
+            ├─ GET|PUT /api/data/{data_id}       → root UI/migration TOML
+            ├─ GET|PUT /api/sources/{source_id}  → sources/<source_id>.toml
             ├─ known route + wrong method     → 405
             └─ unknown /api path              → 404
 ```
 
 Release responses, including errors, authorize only
 `https://turbodoc.example`; documentation iframes therefore cannot read
-provider data. The origin split is required because
+application data. The origin split is required because
 [WebView2 does not raise `WebResourceRequested` for URLs handled by virtual-host folder mapping](https://learn.microsoft.com/en-us/microsoft-edge/webview2/how-to/webresourcerequested#when-to-use-custom-vs-basic-approaches).
 
 In dev mode, Vite independently rejects every non-readiness `/api` path, so
@@ -197,12 +200,12 @@ Rust file server or reverse proxy is involved.
 - **Styling**: component-owned semantic CSS for application UI; Tailwind CSS v4
   provides OKLCH design tokens and styles the vendored shadcn-svelte primitives
 - **Icons**: `@lucide/svelte` (imported individually for tree-shaking) plus
-  provider-owned monochrome SVG marks rendered as current-color masks
+  topic-owned monochrome SVG marks rendered as current-color masks
 - **Utilities**: remeda (functional), semver, zod
 - **Drag and drop**: `svelte-dnd-action` (handle-scoped pointer, touch, and keyboard sorting)
 - **Backend**: Rust (rusqlite + reqwest + `http-cache-semantics`) — in-process, no HTTP listener. `server::start` opens the SQLite cache and returns a `Server` handle the host calls from the WebView2 callback via `runtime.block_on(...)`.
 - **Host**: Rust (eframe/egui + wgpu/DX12 + WebView2) — native startup/error UI, window management, release-folder mapping, WebView2 request interception, backend lifecycle, and optional Vite-child lifecycle. eframe owns the root winit window and WebView2 uses its HWND as the parent for a child controller. The host process owns no listener; only `--dev` binds a Vite port.
-- **Native boundary**: All webview→host application communication uses REST-style `fetch()` under `/api/*`; dev uses the Vite origin while release uses the unmapped `https://api.turbodoc.example` origin. WebView2 intercepts that namespace, answers release preflights, passes `/api/ready` through to Vite only in dev mode, dispatches `/api/data/{provider_id}` to Rust, and rejects every other path. `app.rs` builds host→webview calls to named functions under `window.__turboDoc__`, while the TurboDoc-agnostic WebView2 wrapper executes their source in FIFO order through `ExecuteScriptWithResult`; there is no WebView2 message protocol or generic event dispatcher.
+- **Native boundary**: All webview→host application communication uses REST-style `fetch()` under `/api/*`; dev uses the Vite origin while release uses the unmapped `https://api.turbodoc.example` origin. WebView2 intercepts that namespace, answers release preflights, passes `/api/ready` through to Vite only in dev mode, dispatches generic and per-source persistence routes to Rust, and rejects every other path. `app.rs` builds host→webview calls to named functions under `window.__turboDoc__`, while the TurboDoc-agnostic WebView2 wrapper executes their source in FIFO order through `ExecuteScriptWithResult`; there is no WebView2 message protocol or generic event dispatcher.
 
 ### Sidebar Layout
 
@@ -226,16 +229,16 @@ Rust file server or reverse proxy is involved.
 
 ```
 frontend/index.ts (entry point: mount(App, ...))
-└── App.svelte (owns persisted active `providerId`, native lifecycle functions,
-                provider-home navigation, initial-document loading state,
-                and the resizable workbench layout)
+└── App.svelte (owns active topic, migration gate, SourceStoreRegistry,
+                ExplorerWorkspaceStore, native lifecycle functions,
+                topic-home navigation, and the resizable workbench layout)
     ├── WorkbenchToolbar.svelte (product identity + read-only current URL)
     ├── documentation sidebar
-    │   ├── NavBar.svelte (registered provider buttons + active marker)
-    │   └── Explorer.svelte (receives the active provider, owns its
-    │       │                ProviderDataStore, derives its view model,
-    │       │                and wires up provider effects)
-    │       ├── ExplorerSearch.svelte (prefix matches, five-item MRU, Add/Import actions)
+    │   ├── NavBar.svelte (registered topic buttons + active marker)
+    │   └── Explorer.svelte (loads the active topic's independent stores,
+    │       │                renders ready SourceModels, composes ExplorerView,
+    │       │                and binds source effects)
+    │       ├── ExplorerSearch.svelte (composed prefix/MRU/source actions)
     │       │   └── InputActionDialog.svelte (existing Import dialog, externally triggered)
     │       ├── ExplorerGroup (groupName="", derived ungrouped membership)
     │       ├── ExplorerGroup[] (per persisted name in groupOrder)
@@ -254,202 +257,154 @@ ExplorerItem (shadcn-svelte Collapsible.Root, backed by Bits UI)
 │                     radio-style versions, actions)
 └── Collapsible.Content
     └── ExplorerPageList
-        └── ExplorerPage[] (provider-sorted or manually ordered pinned block)
+        └── ExplorerPage[] (adapter-sorted or manually ordered pinned block)
             ├── ExplorerPageName (text or symbol with color coding)
             └── Pin/unpin icon
 ```
 
 ### Component Responsibilities
 
-- **NavBar** (`frontend/src/ui/NavBar.svelte`): Fixed 44px workbench rail that renders every provider in registry order. Provider buttons expose accessible names, use a current-color provider-owned mark, and identify the active provider with the primary edge marker. Selection intent returns to `App.svelte`; the NavBar neither owns persistence nor performs navigation.
-- **Explorer** (`frontend/src/ui/explorer/Explorer.svelte`): Receives the active provider, latest reported navigation ID, and optional fractional center range as props; owns per-provider data via `ProviderDataStore` (Svelte 5 `$state` class), constructs `ProviderContext`, calls `provider.render()` inside a `$derived`, and wires up the optional `provider.setupEffects(ctx)` hook inside a `$effect` so any inner `$effect`s the provider creates are bound to this component's lifecycle. The search occupies the fixed top row while the crate/group region owns the only scroll viewport. A recognized reported navigation expands the containing group and item, waits for their clipping animations, then calculates one scroll position: card centering is the preference, while placing the complete selected page row inside the center range is the constraint. `App.svelte` keys the Explorer subtree by `provider.id`, recreating provider descendants so initialization-time context consumers cannot retain the previous provider's data store.
-- **ExplorerSearch** (`ExplorerSearch.svelte`): Accessible Bits UI combobox pinned above the scrolling crate/group region; shows at most five case-insensitive prefix matches, or the five most recently accessed items for empty input; dispatches provider-owned select/add actions and opens the existing Import dialog
+- **NavBar** (`frontend/src/ui/NavBar.svelte`): Fixed 44px workbench rail that renders topics in registry order. Buttons expose topic names and the active primary edge marker; `App.svelte` owns selection persistence and landing navigation.
+- **Explorer** (`frontend/src/ui/explorer/Explorer.svelte`): Receives the active UI topic and application-owned stores. It loads source stores concurrently, renders only ready source models, composes their views, installs ready-source effects for this keyed topic lifecycle, and exposes source-specific load/save retries. A recognized navigation expands and reveals the composite item while preserving keys belonging to unknown/loading/error sources during orphan cleanup.
+- **ExplorerSearch** (`ExplorerSearch.svelte`): Accessible Bits UI combobox pinned above the scrolling item/group region; shows at most five composed prefix matches or recent composite items and dispatches actions to the owning ready source.
 - **ExplorerGroup** (`ExplorerGroup.svelte`): Owns the shared collapsible state and renders filtered/sorted items; the empty group name identifies derived ungrouped membership
 - **ExplorerGroupHeader** (`ExplorerGroupHeader.svelte`): Shared chevron trigger and expand/collapse-all menu; persisted named groups additionally support rename, move, and deletion
 - **ExplorerCreateGroupComponent** (`ExplorerCreateGroupComponent.svelte`): Button that transforms to inline input for creating new groups
-- **ExplorerItem** (`ExplorerItem.svelte`): Collapsible card with a full-width name and item menu; expansion state via `itemExpanded(providerId, itemId)` accessor
+- **ExplorerItem** (`ExplorerItem.svelte`): Collapsible card with source-selected typography, a full-width name, and item menu; expansion state is topic-scoped and keyed by composite item ID.
 - **ExplorerItemMenu** (`ExplorerItemMenu.svelte`): Move to group submenu, external links, five direct radio-style version choices plus grouped overflow, and custom actions; opening it is the lazy metadata intent
-- **ExplorerPageList** (`ExplorerPageList.svelte`): Provider-current page list with symbol color coding and pinning buttons. Providers without manual ordering use `sortKey`; sortable items keep home and preview outside an accessible drag-handle zone and persist only finalized pinned-page permutations.
-- **InputActionDialog** (`InputActionDialog.svelte`): Generic dialog for `ProviderAction` of type `"input"` — provider supplies labels and an `invoke(value)` callback; the dialog owns the textarea/input UI and supports either its legacy button or an externally controlled trigger
+- **ExplorerPageList** (`ExplorerPageList.svelte`): Source-current page list with symbol colors and pinning. Adapters without manual ordering use `sortKey`; sortable layouts keep home/preview outside drag zones and persist only validated complete permutations.
+- **InputActionDialog** (`InputActionDialog.svelte`): Generic dialog for an `ExplorerInputAction`; a source supplies labels and `invoke(value)`, while the component owns the field and trigger UI.
 
 ### Identification Scheme
 
 | Entity | Global ID Format | Example |
 |--------|------------------|---------|
-| Provider | `<provider>` | `rust`, `rust-doc`, `minecraft-wiki` |
-| Group | `<provider>:<group_name>` | `rust:My Project` |
-| Item | `<provider>:<item_name>` | `rust:tokio`, `rust-doc:rust-book` |
+| Topic | `<topic_id>` | `rust-crates`, `rust-books` |
+| Source | `<source_id>` | `rust-crates`, `rust-book`, `wikipedia` |
+| Group | topic-local name | `My Project` |
+| Item | `<encoded_source_id>:<encoded_local_item_id>` | `rust-crates:tokio`, `rust-book:rust-book` |
 | Page (global) | Full URL | `https://docs.rs/tokio/latest/tokio/` |
 | Page (local) | `<semantic>` | `runtime/struct.Runtime` |
 
 - URLs always start with `https://` (protocol assumed, not stored in some contexts)
-- Provider guarantees item name uniqueness within itself
-- Group names are unique within a provider (used as keys in `groups` Record)
+- An adapter guarantees item ID uniqueness within one source view
+- Group names are unique within one topic (used as keys in `groups` Record)
 - Ungrouped items use empty string `""` as the group name
 
-### Provider System
+### Source, Adapter, and Topic System
 
-Providers register in `frontend/src/providers/index.ts` as a plain `Provider[]` array (default export) and implement the `Provider<T>` interface from `frontend/src/core/data.ts`. Every provider supplies its NavBar icon, canonical `homeUrl`, structural `ownsUrl(url)` predicate, and item/page typography preferences; only one provider is rendered at a time — see "Active Provider Selection" below. Each provider's `render()` returns a `ProviderOutput` containing:
-- `items: Record<string, Item>` — uniform view models with pages, links, actions, versions
-- `search?: ProviderSearch` — provider wording and callbacks for generic item matching, activation, creation, and the empty-input action
-- `actions?: ProviderAction[]` — provider-level UI (e.g., import dialog)
+The provider abstraction has been replaced by four deliberately separate layers:
 
-View models contain callbacks (e.g., `setPinned`, `pageLayout.reorder`, `setCurrentVersion`, `invoke`) that update provider data by directly mutating the `$state`-proxied store. Each `Page` also declares whether it owns the current navigation, so section fragments and provider-specific aliases do not leak into generic UI equality checks. View models are derived inside a `$derived` block — never memoized manually, never serialized. See `frontend/src/core/data.ts` for the full type definitions.
+1. `SourceDefinition<D, R>` pairs a stable source identity with the one
+   `Adapter<D, R>` that understands its data and rules.
+2. `Adapter.resolve(definition)` compiles one definition into a
+   `SourceModel<D>`, conceptually the source ViewModel.
+3. `SourceModel.render(context)` derives an ephemeral `SourceView` with
+   source-local items and callbacks.
+4. A UI-only `Topic` orders ready source models and
+   `composeTopicView` creates the generic `ExplorerView`.
 
-**Current:** `rust` (docs.rs + doc.rust-lang.org + windows-docs-rs),
-`rust-doc` (stable Rust Book), `minecraft-wiki`, and `wikipedia`.
-**Planned:** `rust.cargo`, `cpp.cppreference`, `cpp.msdocs`, etc.
+There is no shared `SourceData` schema. `D extends object` only guarantees an
+object persistence root; each adapter validates its own complete schema and
+owns its own `schemaVersion`.
+
+Definitions currently remain code-owned. The boundary is data-oriented so a
+later external definition loader does not need to change source models, topic
+composition, or the Explorer.
 
 **Data flow:**
-```
-[Disk/Storage]                         [Deserialization]         [Runtime]
-<providerId>.toml ──────────► ProviderDataStore.load() ────► ProviderOutput (View Model)
-localStorage (turbodoc:active-provider-id) ────────────────► active provider
-localStorage (turbodoc:current-url) ──► currentUrl.value ──────► current URL (createSubscriber)
-localStorage (turbodoc:expanded) ────► groupExpanded/itemExpanded ► expansion state
-localStorage (turbodoc:recent-items) ─► ExplorerSearch ─────────► five-item provider MRU
-http_cache SQLite (upstream RFC policy) ─► cache.svelte.ts ───► in-memory crate metadata $state
-```
 
-**Navigation flow:**
-```
-navigateTo(url) ──► DeferredNavigation.request(url)
-                         ├─ before `frontendShown()`: retain latest URL
-                         └─ after release: iframe.src = url
-                                                │
-                                                └─► host calls `documentNavigationStarted`
-                                                      with navigationId
-                                                            │
-                                                            ├─► persist currentUrl
-                                                            ├─► activate owning provider
-                                                            ├─► Explorer auto-reveal
-                                                            │     ├─ card + page satisfy center range: preserve scroll
-                                                            │     └─ otherwise: constrained card centering
-                                                            └─► correlate initial placeholder
+```text
+sources/<sourceId>.toml ──► SourceDataStore ──► SourceModel.render ──► SourceView
+                                      ready SourceView[] + Topic
+                                                   │
+                                                   ▼
+                                              ExplorerView
 
-FrameNavigationCompleted(navigationId) ──► matching initial load only
-                                              ├─ success: reveal iframe
-                                              └─ failure: show Retry state
+ui.explorer.toml ──► topic groups/order ───────────────────────────────┘
+localStorage ──────► active topic, current URL, expansion, topic MRU
+http_cache SQLite ─► lazy Rust crate metadata cache
 ```
 
-#### Unified Rust Provider
+Source stores are lazy but application-owned, so they survive UI-only topic
+switches. Every source loads, saves, reports errors, and retries independently.
+A topic composes only ready sources; one failed source cannot hide its ready
+siblings.
 
-The `rust` provider (`frontend/src/providers/rust/`) handles three documentation domains as a single provider. Originally planned as separate `rust.crate` and `rust.std` providers, merged for simplicity:
-- Both handle Rust documentation with identical page structure
-- Symbol parsing and color coding are the same
-- Simpler mental model for users (one "Rust" section in sidebar)
-- URL routing handled internally via `getBaseUrlForCrate()`
+**Current adapters:**
 
-Supported domains:
-- **docs.rs** — third-party crates: `https://docs.rs/{crate}/{version}/{path...}`
-- **doc.rust-lang.org** — std, core, alloc, proc_macro: `https://doc.rust-lang.org/{crate}/{path...}` (with optional `nightly|stable|1.x.y` version prefix)
-- **microsoft.github.io/windows-docs-rs** — `windows` crate only (no versioning in URL)
+1. `RustCrateAdapter` handles docs.rs, standard-library Rustdoc, and
+   windows-docs-rs. A genuinely missing source seeds `serde` and `tokio`;
+   an existing explicitly empty crate map stays empty.
+2. `RustBookAdapter` handles immutable checked-in book sections and user page
+   pins. Fifteen book definitions compile into fifteen independently persisted
+   source models.
+3. `WebAdapter` handles general HTTPS page sources with user-owned
+   collections. Minecraft Wiki and Wikipedia are separate definitions/files.
 
-`getBaseUrlForCrate()` in `url.ts` determines the base URL based on crate name. Other `windows-*` crates (e.g., `windows-sys`, `windows-core`) use docs.rs as usual — only the main `windows` crate uses the microsoft.github.io host.
+**Current topics:**
 
-**Cross-crate navigation:** When the iframe navigates to a URL handled by a different crate (e.g., a docs.rs page links to `doc.rust-lang.org/std/vec/struct.Vec.html`), the provider's `parseUrl()` recognizes both URL patterns and auto-imports the crate if not present.
+1. Rust Crates.
+2. Rust Books.
+3. Minecraft Wiki.
+4. Wikipedia.
 
-The Rust NavBar mark is the Rust Foundation's unmodified vector geometry from
-`https://www.rust-lang.org/static/images/rust-logo-blk.svg`, displayed through
-a current-color CSS mask. The mark is © Rust Foundation and licensed under
-[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); its use also follows
-the [Rust trademark policy](https://rustfoundation.org/policy/rust-trademark-policy/).
-
-#### Doc Provider Factory
-
-`createDocProvider(config)` in `frontend/src/providers/doc/index.ts` compiles a
-code-owned site catalog into an isolated `Provider<DocProviderData>`. Provider
-metadata, landing site, search wording, and ordered sites
-are explicit configuration. Each site supplies structural URL ownership,
-optional alias normalization and page-identity policy, a page-name resolver,
-and an exclusive page-organization policy. The factory validates provider IDs, catalog IDs, homes, and ownership
-once before returning closure-backed routing and rendering callbacks.
-The site-array order is authoritative for Explorer groups and item-search
-results; moving an item between groups preserves its relative catalog order.
-
-`frontend/src/providers/doc/providers.ts` uses the factory for `rust-doc`,
-`minecraft-wiki`, and `wikipedia`. Each has its own TOML persistence namespace,
-recent-item history, expansion state, NavBar destination, and site catalog.
-Adding another provider over an already hosted origin requires only another
-configuration and registry entry. A new origin must also be added explicitly
-to the Rust host's `HOSTED_URL` and `PROXIED_URL` security boundaries.
-
-Each configured site remains one item and one URL-ownership boundary; page
-organization never creates additional Explorer items. URL matching requires
-HTTPS without credentials and exact parsed origins and path boundaries.
-Normalized URLs are rechecked against the accepting site before use. Supported
-unversioned Rust book aliases normalize to their stable paths; the Unstable
-Book intentionally uses nightly only. Catalog items cannot be created or
-deleted. Fragments remain navigation targets while the default page identity
-ignores them, preventing duplicate pins for two sections of one article.
+Topic registry validation enforces unique topic IDs, exactly one topic per
+source, nonempty source lists, and a valid explicit landing source.
 
 #### Page Organization
 
-The shared `PageLayout` / `PageBlock` model contains ordered URL references,
-optional title paths, and optional edit capabilities. The renderer does not
-know whether a block represents a collection or a book section. Headers are
-muted, case-preserving and non-collapsible; only their action buttons hover.
-Items without a layout, including the original Rust crate provider, retain
-their `sortKey` order with previews naturally interleaved among pins.
+The shared `PageLayout` / `PageBlock` view model contains ordered URL
+references and capability-driven edit callbacks. The generic renderer does not
+know whether a block is a collection or a book section.
 
-Each Doc site selects exactly one policy:
+1. Wiki sources use `WebAdapter` collections: Home, loose pins, preview, then
+   alphabetically sorted user collections. Complete cross-block permutations
+   are validated before one state update.
+2. Rust book sources use `RustBookAdapter` sections: Home, unknown loose pages,
+   then checked-in outline spans in reading order. Users can pin pages but
+   cannot edit section structure.
+3. Rust crate items retain adapter-defined `sortKey` order and Rust symbol
+   presentation.
 
-1. **User collections** (Wikipedia and Minecraft Wiki): Home → loose pins →
-   untitled preview block → alphabetically sorted collections → Add collection.
-   A collection header offers rename/remove actions; renaming changes its sort
-   position. Removing a nonempty collection requires confirmation and appends
-   its pins to the loose list. `pinnedPages` remains authoritative; optional
-   `collections[name].pages` stores ordered subsets, including empty collections.
-   Invalid membership is ignored and ambiguous cross-collection claims become
-   loose. Unpinning forgets membership; repinning puts the page in loose pins.
-2. **Provider sections** (Rust books): Home, unknown loose pages, then populated
-   contiguous outline spans in source reading order. Known previews occupy
-   their proper span and rank, just like pins; an unknown preview follows the
-   loose pins. Nested ancestry is rendered as a flat `Chapter › Section` title.
-   Returning to a parent creates another span rather than regrouping pages out
-   of order. Naturally untitled spans retain their source position. Users may
-   pin/unpin pages but cannot edit or reorder sections or their contents.
+All page sources require credential-free HTTPS, apply exact structural
+ownership, normalize on private URL copies, and re-check ownership after
+normalization. Default page identity ignores fragments while persisted
+navigation retains the selected section.
 
-Collection pins use `svelte-dnd-action` handles for pointer, delayed-touch and
-keyboard movement within/between zones scoped to their owning item. Home and
-preview rows are not draggable. Source/target finalize events are coalesced,
-then the provider validates the complete block set and exact pin permutation
-against current state before one persistence update. Stale, partial, duplicate
-or foreign results are rejected; original fragment targets are preserved.
+#### Topic Selection and Routing
 
-Rust Docs includes Rust Book, Cargo Book, Nomicon, rust-analyzer Book, Rust By
-Example, Rust Reference, Edition Guide, rustc Book, rustdoc Book, Clippy Book,
-Style Guide, Unstable Book, Embedded Book, rustc-dev-guide and rustup Book.
-Checked-in outline snapshots contain only paths, titles, ancestry and provenance;
-they are not fetched during startup, navigation, tests or ordinary builds.
-Outline maps are compiled lazily per book and reused. To refresh all snapshots
-explicitly, run `bun scripts/refresh-book-outlines.ts` from `frontend/`. The
-importer validates every source before replacing the generated file.
+`App.svelte` restores the active topic from
+`turbodoc:active-topic-id`, falling back to the first registered topic.
+Explicitly selecting a different topic persists it and opens that topic's
+configured landing source. Startup restoration keeps the last accepted
+document URL.
 
-Page naming remains each site's `resolvePageName(URL)` callback, independent
-of outline placement. Rust Book names retain chapter numbers, for example
-`ch03-05-control-flow.html` → `03-05 Control Flow`; other books use appropriate
-slug/acronym rules, and Wiki names remain decoded canonical article titles.
-Home is always special, malformed percent escapes are safe, and no live
-document-title or naming-metadata request is required. See
-`docs/M6-PageOrganization.md` for implementation and verification notes.
+When the host accepts iframe navigation, the app finds the first source whose
+`matchUrl` accepts it and activates that source's topic without navigating
+again. Rust crate and Rust book matchers are deliberately disjoint on
+`doc.rust-lang.org`.
 
-#### Active Provider Selection
+Topic composition makes item IDs globally unique and reversible:
+`encode(sourceId) + ":" + encode(localItemId)`. Groups, expansion, and recent
+history use these composite keys. Cleanup removes an orphan only when its owner
+is ready; references owned by loading, failed, or unknown sources are preserved.
 
-The app shows exactly one provider at a time. `App.svelte` restores the active provider ID synchronously from the validated `turbodoc:active-provider-id` localStorage slot, falling back to the first registered provider and repairing the slot when the saved ID is missing or no longer registered. The NavBar renders all registered providers. Explicitly selecting a different provider persists its ID and navigates the document viewer to that provider's `homeUrl`; reselecting the active provider is a no-op. Startup restoration retains the last document URL rather than treating launch as an explicit switch.
+#### Persistence and Migration
 
-Switching providers does not delete other providers' data — `<providerId>.toml` files are independent and reappear unchanged when re-selected.
+Each source maps to `<dataDir>/sources/<sourceId>.toml`; Explorer groups map
+to root `<dataDir>/ui.explorer.toml`. Data is flat, with no `[state]` table.
+Serialized save queues snapshot, coalesce, order, retain, and retry writes.
 
-#### Cross-Provider Navigation
+The removable startup migration reads only legacy root `rust.toml`. It treats
+existing targets as independently authoritative, converts crate groups to
+composite keys, never reads old documentation TOML, and never changes/deletes
+the legacy file. Validation or write failure blocks new-store initialization
+and exposes Retry, preventing defaults from replacing data after a failed
+migration.
 
-When the native host accepts an iframe navigation, `App.svelte` asks the
-registered providers for the first structural `ownsUrl` match. A different
-owner becomes active and is persisted without issuing another navigation,
-because the viewer already accepted the target. Rust and Rust Docs ownership
-are deliberately disjoint on `doc.rust-lang.org`: Rust owns standard-library
-crate paths while Rust Docs owns only the configured book paths.
-
----
+See [M7-SourceAdapterTopics.md](M7-SourceAdapterTopics.md) for schemas,
+invariants, edge cases, extension steps, and the exact migration-removal path.
 
 ## Development Workflow
 
@@ -462,7 +417,7 @@ just run --data data     # Run the assembled release frontend
 just dev                 # Run Vite with HMR on port 5173
 ```
 
-Release mode is the CLI default and is unrelated to Cargo's `release` profile. `just release` happens to use the optimized Cargo profile because that is the project-wide build policy: it builds the host, runs `vite build`, removes the previous assembled `target/release/public`, and copies `frontend/dist` beside the executable. At runtime the host verifies `public/index.html`, maps that directory to `https://turbodoc.example` with WebView2's virtual-host API, and navigates to `/index.html`. Release provider-data requests target the separate, unmapped `https://api.turbodoc.example` origin so `WebResourceRequested` can dispatch them to Rust; exact-origin CORS and a narrow preflight policy expose the API only to the mapped frontend. No Job Object, child process, readiness polling, or bound port exists in this mode. Release and dev have distinct frontend origins, so their localStorage UI state is intentionally separate; provider TOML and SQLite cache state remain shared through `--data`.
+Release mode is the CLI default and is unrelated to Cargo's `release` profile. `just release` happens to use the optimized Cargo profile because that is the project-wide build policy: it builds the host, runs `vite build`, removes the previous assembled `target/release/public`, and copies `frontend/dist` beside the executable. At runtime the host verifies `public/index.html`, maps that directory to `https://turbodoc.example` with WebView2's virtual-host API, and navigates to `/index.html`. Release persistence requests target the separate, unmapped `https://api.turbodoc.example` origin so `WebResourceRequested` can dispatch them to Rust; exact-origin CORS and a narrow preflight policy expose the API only to the mapped frontend. No Job Object, child process, readiness polling, or bound port exists in this mode. Release and dev have distinct frontend origins, so localStorage UI state is intentionally separate; source TOML and SQLite cache state remain shared through `--data`.
 
 `--dev` activates the development-only module in `src/dev.rs`. It discovers the repository from Cargo's executable layout, creates a kill-on-close Job Object, starts Vite on the required `--port`, and monitors the child for its complete lifetime. Each launch receives a unique `TURBODOC_VITE_READY_TOKEN`; Vite owns `GET /api/ready` and returns that token only after its middleware stack is listening. The host polls for at most five seconds, rejects stale Vite processes, and navigates to the matching IPv4 loopback origin only after both Vite and WebView2 are ready. HMR's WebSocket talks to Vite directly on the same port—there is no `hmr.clientPort` override or reverse proxy.
 
@@ -539,7 +494,7 @@ A Windows Job Object (set up only by `src/dev.rs`) ensures the spawned Vite chil
 
 ### Spacing
 - 4px workbench gutters separate the rounded explorer and editor panels.
-- The NavBar is a fixed 44px rail; each provider receives a 44px square target.
+- The NavBar is a fixed 44px rail; each topic receives a 44px square target.
 - Tree rows use 24–28px heights, shallow indentation, and compact controls.
 - Depth comes from panel borders and surface contrast rather than per-item cards
   or heavy shadows.
@@ -548,7 +503,7 @@ A Windows Job Object (set up only by `src/dev.rs`) ensures the spawned Vite chil
 
 | Component | Icon | Usage |
 |-----------|------|-------|
-| Provider | Provider-owned monochrome SVG | NavBar destination; rendered as a current-color mask |
+| Topic | Topic-owned monochrome SVG or Lucide mark | NavBar destination; SVGs render as current-color masks |
 | External Link | `ExternalLink` | Item external links |
 | Pin | `Pin` | Pin/unpin button for pages |
 | Menu | `EllipsisVertical` | Item/group actions menu |
@@ -574,159 +529,141 @@ Design decisions that shaped the current architecture. Organized by area.
 
 ### Architecture
 
-**Dynamic Provider Dispatch**
-- Providers register themselves with a common `Provider` interface (dynamic dispatch)
-- Shared code only knows the interface, cannot access provider-specific internals
-- Adding a new provider is isolated work — no central type modifications
-- Separation of concerns is enforced by the type system, not just convention
+**Source-specific logic, data-oriented definitions**
 
-**API Response Caching**
-- One site-agnostic `http_cache` stores any intercepted upstream response that is storable under its actual HTTP headers. There are no URL-prefix TTL overrides or crate-specific tables.
-- WebView2 is the process-local L1 cache and SQLite is the persistent/offline L2. The proxy forwards an explicit allowlist of representation, freshness, validator, CORS, privacy, and timing fields; it recomputes `Content-Length` and blocks connection, cookie/authentication, reporting, unsupported range, encoding, digest, CSP, and frame-policy fields.
-- Cache entries persist the allowed upstream-derived response fields separately from `CachePolicy`. Fresh hits use the correctly aged response parts returned by `http-cache-semantics`; stale hits add downstream `Cache-Control: no-cache` so WebView2 must return after background revalidation.
-- Sparse-index files are the default crate source. The CDN currently provides explicit freshness plus validators, so normal proxy hits and background conditional revalidation apply without adaptation.
-- The crates.io API is requested only by the "Refresh Metadata" action. The frontend uses standard `fetch(..., { cache: "no-store" })`; the generic proxy recognizes the resulting request cache directive and bypasses reuse without knowing which site is being refreshed.
-- Each provider owns its upstream formats and within-session state. The Rust provider constructs Cargo index paths and parses both newline-delimited index entries and the richer API response in `metadata.ts`; its `$state` cache starts empty on each launch.
-- The index intentionally provides package-resolution fields rather than website presentation metadata. Default results therefore include versions and yanked state; Homepage and Repository links appear after an explicit API refresh.
+1. Shared UI depends only on `SourceView`/`ExplorerView`; it never imports
+   Rust crate, book, or Wiki persistence types.
+2. A definition directly names its adapter because its rule shape has meaning
+   only to that adapter.
+3. An adapter compiles one source at a time. This makes per-source loading,
+   search, errors, and persistence the natural unit.
+4. Topics are UI-only composition and do not leak into adapter generics or
+   source files.
+5. Concrete adapters own their full schema. The generic `D extends object`
+   constraint prevents primitive roots without pretending all source data has
+   common fields.
 
-**Data Model vs View Model**
+**Data model versus source view model**
 
-| Aspect | Data Model | View Model |
-|--------|------------|------------|
-| Purpose | Storage/serialization format | Runtime with behavior |
-| Provider data | `unknown` at app level | Uniform structure |
-| Type casting | Single point: deserialization | Already typed |
-| Location | Persisted (REST resource) | Derived in memory |
+| Aspect | Persisted source data | `SourceModel` | `SourceView` |
+|---|---|---|---|
+| Lifetime | Across sessions | Module/application runtime | Fresh reactive derivation |
+| Shape | Adapter-specific object | Compiled definition + behavior | Uniform Explorer-facing data |
+| Behavior | None | validate, match, render, effects | callbacks over reactive source state |
+| Serialized | TOML via JSON API | Never | Never |
 
-- Clean separation between what's stored and what's displayed
-- Provider-specific data stays opaque at app level — type safety at boundaries
-- View models contain callbacks — never serialized, derived fresh each render
-- Single point of type casting reduces runtime type errors
+**URL routing**
 
-**URL Routing**
-- URL routing (`parseUrl`, `buildUrl`) is provider-specific, not part of the `Provider` interface
-- No central dispatch; each provider handles its own URL patterns
-- rust.std version handling: stable/nightly for now; specific version selection (1.83.0, etc.) supported later
+Each model exposes `matchUrl(url)`. Page-oriented adapters compile exact
+HTTPS ownership and normalization; Rustdoc parsing stays in the Rust Crate
+adapter. `findTopicForUrl` checks topics/sources in registry order, making the
+rare overlap tie-breaker explicit and testable.
 
-**Import Mechanism**
-- No `importItem` method on the `Provider` interface — import UI varies too much between providers.
-- Instead, providers expose a `ProviderAction` with `type: "input"`: pure data (label, icon, dialog title/description, placeholder, multiline, callback). The Explorer renders the dialog via the generic `InputActionDialog.svelte`.
-- The Rust provider references that same input action from `ProviderSearch.emptyAction`, so empty search offers `Import…` without duplicating the bulk-import dialog or parser.
-- Earlier (React) iterations of this codebase used `type: "node"` carrying a `ReactNode` — the Svelte migration replaced that with the declarative `"input"` shape, eliminating the need for providers to ship UI components.
+**Actions and imports**
 
-**Migration & Compatibility**
-- On startup, if data files don't exist or don't match expected format, initialize with empty defaults
-- The Rust server's `/api/data/{providerId}` route accepts lowercase ASCII provider IDs up to 64 characters, with digits and `.`, `_`, or `-` allowed after the first character. Each validated ID maps to exactly one `<providerId>.toml` file.
+Source views contribute declarative Explorer actions. The Rust Crate source
+reuses one input action for empty-search Import and the Explorer action row.
+Generic components own dialogs and menus; sources provide text, icons, and
+callbacks rather than Svelte components.
 
-**Provider API Surface**
-- No `serialize`/`deserialize` methods — view model callbacks mutate `$state`-proxied data directly
-- No provider collapsing in the sidebar — exactly one provider is active at a time, chosen from the NavBar
-- Every provider declares an `icon` for the NavBar and a `homeUrl` opened on explicit selection
+**HTTP cache**
 
-**Thin-Callback Pattern**
-- All proxy and caching logic lives in the in-process backend (`src/server/`). WebView2 registers exact origin/path filters for `PROXIED_URL`, `/api`, and `/api/*` on the selected API origin, so unrelated assets, HMR, and external traffic never enters the callback. The callback routes `PROXIED_URL` GETs to `server.fetch`, answers release preflights, passes `/api/ready` through only in dev mode, dispatches the remaining `/api` namespace to Rust, and otherwise passes through.
-- Backend futures run through the tokio runtime via `Handle::block_on` from the WebView2 UI callback, avoiding a serialize/deserialize round trip or bound TCP listener.
-- No axum, no tower-http. The crate has no HTTP server of its own; only dev-mode Vite binds the network.
+The backend keeps one site-agnostic `http_cache` SQLite table governed by
+actual upstream HTTP headers. WebView2 is the process-local L1 and SQLite the
+persistent/offline L2. Sparse-index data is the normal Rust crate metadata
+source; the crates.io API is used only by explicit Refresh Metadata. See the M4
+cache/header documents for response policy and revalidation detail.
 
-**Architectural Constraints**
-- No URL Rewriting: the WebView still believes it is browsing `docs.rs` directly
-- No SSL Proxy: proxying happens after WebView2 intercepts the request intent
-- Interception by both URL prefix and path: docs are matched by `PROXIED_URL` (host+scheme), while API ownership is classified by exact `/api` segment boundaries. API filters are scoped to the selected API origin: the unmapped `https://api.turbodoc.example` origin in release mode or the configured IPv4 loopback origin in dev mode.
-- Runtime Frontend Mode: release mode is the default regardless of Cargo profile and resolves `public/` beside the running executable. `--dev` selects Vite and makes `--port`/`-p` required, with `TURBODOC_PORT` as its environment fallback.
-- Configurable Data Directory: `--data`/`-d` remains required in both modes, with `TURBODOC_DATA` as its environment fallback. The directory is consumed by `server::start` for cache and provider persistence.
+**Native boundary**
 
-**Dark Mode Injection (Serve-Time)**
-- Cache stores clean upstream content; dark mode injection applied at serve time
-- Technique: insert `<script>window.localStorage.setItem('rustdoc-theme', 'dark');</script>` after `<meta charset="UTF-8">` in rustdoc HTML responses
-- The transform is stable and deterministic, so injected HTML retains upstream freshness in WebView2. Its upstream strong `ETag` and body digests are dropped because the final bytes differ; `Content-Length` is recomputed.
-- Any future state-dependent theme transform or change to the injected bytes must first revise browser-cache invalidation.
-- Injection is restricted to Rustdoc URL shapes. The Rust Book and general Wiki HTML share the proxy/cache pipeline but are never given Rustdoc's theme storage key.
+WebView2 intercepts configured documentation origins plus exact `/api`
+segment boundaries. Documentation GETs go to the proxy; generic and per-source
+persistence goes to the Rust dispatcher; dev readiness stays Vite-owned.
+Release API requests use the unmapped `https://api.turbodoc.example` origin
+with exact frontend-origin CORS. There is no loopback backend listener, axum,
+WebView2 message protocol, or generic frontend event dispatcher.
 
 ### Data Model
 
-**Split Data Persistence**
-- Workspace persisted as **TOML** files under `$TURBODOC_DATA/` (parsed/serialized via the `toml` crate in `src/server/api/data.rs`); the HTTP wire format remains JSON, so the frontend sees no difference:
-  - `<providerId>.toml` — per-provider user data (groups, provider-specific data). Loaded lazily per-provider by `ProviderDataStore.load()` inside `Explorer.svelte`.
-- Transient UI state stored in **localStorage** as individual slots, not on the server. Two storage shapes managed by `frontend/src/core/localStorage.ts`:
-  - **Primitive** (`turbodoc:active-provider-id`, `turbodoc:current-url`, `turbodoc:recent-items`): active provider, current URL, and provider-keyed five-item MRU lists, simple get/set
-  - **Array** (`turbodoc:expanded`): flat string array of expanded item/group keys. Key format: `<providerId>:<itemId>` for items, `<providerId>:group:<groupId>` for groups. Membership-check hooks (`useGroupExpanded`, `useItemExpanded`) with selective re-rendering via mitt events — only hooks whose specific key changed re-render.
-  - Each slot is validated with Zod on load; invalid/missing data falls back to empty defaults (first registered provider, default URL `https://docs.rs/`, nothing expanded). See `frontend/src/core/localStorage.ts` and `frontend/src/core/uiState.svelte.ts`.
-- Sparse-index responses use the same RFC-aware `http_cache` SQLite table as documentation pages. Parsed crate metadata is provider-owned, within-session state in the Rust provider's module-level `$state` singleton.
-- Server-persisted via HTTP API (`/api/data/{providerId}` — one route per provider data file, plain JSON over `fetch`).
-- Provider-data save failures are non-fatal (log + return `{}`). Auto-save on every state change (no debouncing — files are small).
+**Split persistence**
 
-**Preview Page (Derived State)**
-- Preview state derived from `currentUrl` (localStorage) and per-item `pinnedPages`
-- A page is "preview" when the provider says the current page identity is NOT in `pinnedPages`
-- Preview pages render italic with outline pin icon (visible on hover)
-- Pinned pages render normal with filled pin icon
-- `Page.pinned = null` means pinning is disabled for that page (e.g., home page)
-- Doc page identity ignores fragments, while its persisted target retains the selected section
-- Doc `pinnedPages` array order is user-owned and changed only by a validated complete drag permutation
+1. `<dataDir>/sources/<sourceId>.toml` stores one adapter-specific, flat source
+   object.
+2. `<dataDir>/ui.explorer.toml` stores topic groups and group order using
+   composite item keys.
+3. `<dataDir>/rust.toml` is optional read-only migration input.
+4. `<dataDir>/cache.sqlite` stores generic HTTP cache entries.
+5. LocalStorage holds `activeTopicId`, `currentUrl`, topic-scoped composite
+   recent items, and topic/composite expansion keys.
 
-**Provider-Opaque Data**
-- `ProviderData.data` is `unknown` at app level — only the provider knows its shape
-- Single point of type casting at deserialization boundary
-- Enforced by the type system, not just convention
+Source and data IDs are validated as lowercase ASCII path-segment-safe keys of
+at most 64 bytes. Missing TOML is distinguished from valid empty data by an
+explicit response header. Parse/I/O/schema errors surface independently and do
+not substitute empty objects.
 
-**Eager Cleanup**
-- Orphaned UI state entries (expanded items/groups) are removed when content changes
-- Prevents stale references from accumulating across data mutations
+**Preview and page identity**
 
-**"latest" as Literal String**
-- Version selection stores the literal string `"latest"`, not a resolved version number
-- Preserves user intent: automatically picks up new releases without manual update
-- Resolved to actual version only when building URLs
+Preview state is derived from accepted `currentUrl` and a source's pins.
+Home pages use `pinned = null`; an unpinned current page is the preview.
+Default page identity ignores fragments, while persisted/navigation targets
+retain them. Collection reorders submit complete permutations and preserve the
+original accepted target spelling.
+
+**Source-aware cleanup**
+
+Explorer group references are removed only when the owning source is ready and
+no longer renders the item. Unknown, malformed, loading, and failed-source keys
+are retained because absence from a partial topic view is not proof of deletion.
+
+**`latest` remains intent**
+
+Rust crate versions may persist the literal `"latest"`. It is resolved while
+building a URL so future releases can remain the user's selected policy.
 
 ### State Management
 
-**View Model Derivation**
+**Reactive derivation**
 
+```text
+SourceDataStore.data ($state)
+          │
+          ├── SourceModel.render(context) inside topic derivation
+          │                              └── SourceView callbacks mutate data
+          └── SerializedSaveQueue snapshots/coalesces ordered PUTs
+
+ready SourceViews + Topic ──► composeTopicView ──► ExplorerView
 ```
-ProviderData ($state) ──► provider.render() inside $derived ──► render
-              │
-              └── direct mutation on the $state proxy
-```
 
-- `provider.render()` is a pure data-derivation function called inside a `$derived` block in `Explorer.svelte`. It re-runs whenever its dependencies (`ctx.data`, `ctx.currentUrl`, the `cache.svelte.ts` store) change — Svelte 5 tracks reads automatically.
-- Per-provider effects (URL sync and seeding) live in the optional `provider.setupEffects(ctx)` method, called once at host init. Implementations live in `*.svelte.ts` modules so their `$effect` runes bind to the host component's lifecycle. User-intent metadata requests are view-model callbacks rather than startup effects.
-- View models contain callbacks (closures over `$state`-mutating functions) — never serialized.
-- Direct mutation on `$state` proxies replaces Immer drafts — `ctx.data.crates[name] = …` is reactive.
-- `ProviderContext` is constructed once in `Explorer.svelte` with reactive getters over the `ProviderDataStore` (`@/core/providerData.svelte`).
+Source effects install only after validated data is ready and bind to the keyed
+Explorer lifecycle. The application-owned `SourceStoreRegistry` outlives that
+UI subtree, preserving loaded data and pending writes across topic switches.
+Crate metadata is a separate in-memory reactive cache loaded only after user
+intent.
 
-**Independent State Atoms**
-- `App.svelte` owns the active `providerId` ($state, restored synchronously from localStorage) and the directly invoked `documentNavigationStarted` function (writes `currentUrl` to localStorage). No server-persisted app-level state.
-- `currentUrl` is consumed through `ProviderContext` during view-model derivation; generic page UI renders provider-owned `Page.current` rather than comparing raw URLs.
-- Expansion state managed per-component via the `groupExpanded`/`itemExpanded` factories — each accessor reads/writes its own key in the `turbodoc:expanded` localStorage slot. mitt events filter by element so only the matching subscribers re-render.
-- Provider data is lazily loaded per-provider inside `Explorer.svelte` via `ProviderDataStore.load()`.
-- Each atom has independent auto-save — a change in one slice doesn't trigger writes to others.
+**Independent failure domains**
 
-**Directional Native Boundary**
-- Every webview→host application request uses REST-style `fetch()` under `/api/*`. Per-provider data CRUD uses `/api/data/{provider_id}`; WebView2 intercepts the path and routes it to the in-process `api::data` handlers (no network hop, no axum).
-- Host→webview lifecycle reports are direct calls built in `app.rs` against the typed `window.__turboDoc__` functions. The generic WebView2 wrapper executes only script strings in FIFO order through `ExecuteScriptWithResult`; JSON argument serialization prevents code injection, while completion results expose transport and JavaScript failures with their full source in native logs.
-- WebView2 messaging (`postMessage` / `WebMessageReceived`) and generic event dispatchers are intentionally absent; adding either would violate the direction contract.
-- UI state uses localStorage (`turbodoc:active-provider-id`, `turbodoc:current-url`, `turbodoc:expanded`, and `turbodoc:recent-items`) without crossing the native boundary.
-- Documentation and sparse-index caching use the proxy's `http_cache` SQLite (upstream freshness directives, conditional stale-while-revalidate, LRU eviction). The frontend fetches upstream metadata URLs directly and parses their bodies.
-- Persistence failures remain non-fatal and are logged rather than crashing the workbench.
+1. Every source has its own load state, save queue, error text, and Retry.
+2. Explorer UI state has a separate store/queue and Retry.
+3. Ready siblings remain renderable/searchable when one source fails.
+4. Persistence queues serialize writes, coalesce to the newest immutable JSON
+   snapshot, retain dirty state after failure, and use bounded backoff.
+5. The migration gate runs before either target store and exposes a retryable
+   blocking error so failed compatibility work cannot be overwritten.
 
-**Decomposed Root State (no AppContext class)**
-- `App.svelte` owns the active `providerId` ($state), restores and persists it through localStorage, and passes the derived `provider` object as a prop to `Explorer.svelte`. Explicit NavBar switches navigate to the selected provider's home page. There is no server-persisted `appData` — first paint does not wait on any network round-trip.
-- `navigateTo(url)` is a plain function exported from `@/core/context.svelte`. Before the host calls `frontendShown()` it retains only the latest requested URL; after release it imperatively writes `viewerRef.value.src`. Any module can call it without provider/consumer pairing, while startup effects cannot accidentally begin documentation loading under the hidden shell.
-- `viewerRef` (`{ value: HTMLIFrameElement | undefined }` with a `$state` field) lives in `@/core/context.svelte`. `App.svelte` writes to it via `bind:this={ctx.viewerRef.value}`; `navigateTo` in the same module reads it. No context entry needed because module-level `$state` is already a singleton.
-- `currentUrl` read via the `currentUrl.value` accessor — not part of root state.
-- Provider data loaded lazily per-provider inside `Explorer.svelte`.
+**Root and local state**
 
-**Graceful Degradation**
-- Stale proxy cache preferred over no data: if upstream refetch fails, the proxy serves the cached response
-- App fully functional without API metadata (loads with an empty in-memory cache and fetches sparse-index data on demand through the proxy)
-- Fetch errors are logged but non-fatal — the item menu retains the persisted current version and retry affordance even without metadata links or discovered choices
+`App.svelte` owns active topic selection, the source-store registry, Explorer
+workspace, migration gate, and native document lifecycle. `currentUrl`,
+expansion, and recent items are fine-grained reactive bridges over validated
+localStorage. The shared iframe reference and deferred `navigateTo(url)` gate
+remain in `core/context.svelte.ts`.
 
 ### UI Patterns
 
 **Callback-Based Data Flow**
 - UI components receive view model objects with callbacks, not raw state
 - Components don't call `appContext` directly — decoupled from global state
-- Provider-specific logic stays in `Provider.render()`, not in UI code
+- Adapter/source-specific logic stays in `SourceModel.render()`, not in UI code
 
 **ItemLink vs ItemAction Separation**
 - `ItemLink` opens URLs (rendered as anchor elements); `ItemAction` invokes callbacks (rendered as buttons)
@@ -734,19 +671,19 @@ ProviderData ($state) ──► provider.render() inside $derived ──► rend
 
 **Collapsible Items**
 - Items use Radix Collapsible directly (not part of shadcn's standard component set; bundled separately as `@radix-ui/react-collapsible`)
-- Expansion state managed per-component via `useItemExpanded(providerId, itemId)` hook from `frontend/src/core/uiState.svelte.ts`
-- Named and ungrouped groups share the same controlled Collapsible path and `groupExpanded(providerId, groupId)` accessor; ungrouped uses the data model's empty group ID
+- Expansion state uses `itemExpanded(topicId, compositeItemKey)` from `core/uiState.svelte.ts`
+- Named and ungrouped groups share the controlled Collapsible path and `groupExpanded(topicId, groupId)`; ungrouped uses the empty group ID
 - Default: collapsed (both items and groups)
 - Toggled by clicking item name (items) or group header (groups)
 - Bulk operations (Expand All / Collapse All) via imperative `expandItems()` / `collapseItems()` helpers
 
 **Group Management**
-- Grouping is app-owned and available for every provider, including single-item
-  Doc providers. Providers return flat items; the Explorer always renders the
+- Grouping is UI-owned and available for every topic, including single-source
+  Wiki topics. Source views return flat items; the Explorer always renders the
   Ungrouped section, named groups, and the trailing Add Group action.
-- Groups remain scoped to one provider and are independent of page collections
-  and provider-owned book sections inside items.
-- Groups stored as `Record<string, { items: string[] }>` with separate `groupOrder` array
+- Groups remain scoped to one topic and are independent of page collections
+  and adapter-owned book sections inside items.
+- Groups store composite item keys in `Record<string, { items: ItemKey[] }>` with a separate `groupOrder`
 - Ungrouped items: those not listed in any group (filtered in ExplorerGroup)
 - Rename: atomic update of group key, groupOrder entry, and expandedGroups entry
 - Delete: confirmation dialog, removes group key (items become ungrouped)
@@ -765,18 +702,18 @@ ProviderData ($state) ──► provider.render() inside $derived ──► rend
 - CSS-only interaction state avoids reactive pointer bookkeeping.
 
 **Auto-Import on Navigation**
-- When iframe navigates to an unknown crate, the provider auto-creates an entry
+- When iframe navigation reaches an unknown crate, the Rust Crate source creates an entry
 - Enables seamless cross-crate navigation (follow a link → crate appears in sidebar)
 - New crates default to `"latest"` version; user can pin pages or change version later
 
 **Auto-Reveal on Navigation**
-- Runs only for accepted WebView2 `navigated` reports, not incidental URL-storage or provider-data changes
+- Runs only for accepted WebView2 navigation reports, not incidental URL or source-data changes
 - Uses a parameterized fractional center range with a default of `[1/3, 2/3]` of the unobstructed, scrollable Explorer viewport below the pinned search
 - Always expands the containing group and crate before measuring their final layout
 - Leaves the Explorer untouched only when the crate card intersects the center range and the complete selected page row is inside it
 - Otherwise prefers centering the complete crate card on the range midpoint, then constrains that position so the selected page row finishes inside the range
 - Calculates and applies one final scroll position; physical content bounds are the only best-effort fallback, avoiding permanent blank scroll gutters
-- Falls back to the crate header as the constrained target when a provider recognizes the crate but exposes no corresponding page row
+- Falls back to the item header when a source recognizes the item but exposes no matching page row
 - Uses the navigation ID for latest-wins cancellation so redirects and rapid navigation cannot apply stale scrolling
 - Preserves keyboard focus and honors reduced-motion preference for programmatic scrolling
 
@@ -789,116 +726,61 @@ ProviderData ($state) ──► provider.render() inside $derived ──► rend
 
 ## File Structure
 
-```
+```text
 TurboDoc/
-├── .justfile                   # Task runner (just install, just build, just run, etc.)
-├── biome.json                  # Biome linter (formatter disabled)
-├── Cargo.toml                  # Rust host app
-│
-├── frontend/                   # Svelte 5 frontend (own package.json + tsconfig.json)
-│   ├── package.json            # Frontend dependencies (Svelte, bits-ui, paneforge, @lucide/svelte, etc.)
-│   ├── tsconfig.json           # Extends `@tsconfig/svelte`; `target: ES2022`, `types: ["bun"]`; `include: ["src"]`; paths: `@/*` → frontend/src/, `@/server/*` → server/src/, `@shadcn/*` → frontend/3rdparty/shadcn/
-│   ├── vite.config.ts          # Root: frontend/, aliases: `@/` → frontend/src/, `@/server/` → server/src/, `@shadcn/` → frontend/3rdparty/shadcn/
-│   ├── svelte.config.ts        # Svelte preprocessor + global warning suppression for a11y/state-ref rules
-│   ├── components.json         # shadcn-svelte CLI config (baseColor: zinc, framework: svelte)
-│   ├── index.html              # Entry HTML
-│   ├── index.ts                # Svelte entry point (`mount(App, ...)`); lives at the frontend root, not under src/
-│   ├── global.tailwind.css     # Tailwind imports, shadcn Zinc OKLCH palette (`:root` + `.dark`), and `@theme inline` token mapping
-│   ├── global.css              # Fonts, root viewport, One Dark symbols, scrollbars, selection, and Bits UI Collapsible animation
-│   │
-│   ├── 3rdparty/
-│   │   └── shadcn/             # Vendored shadcn-svelte primitives (Bits UI / paneforge)
-│   │       ├── components/ui/  # button, card, dialog, dropdown-menu, input, resizable, select, separator, collapsible
-│   │       └── lib/utils.ts    # cn() — clsx + tailwind-merge wrapper (used internally by vendored components only)
-│   │
-│   └── src/                    # All application TS/Svelte source (referenced via `@/*` alias)
+├── .justfile
+├── Cargo.toml
+├── frontend/
+│   ├── index.ts
+│   ├── vite.config.ts
+│   ├── scripts/
+│   │   ├── book-outline-import.ts
+│   │   └── refresh-book-outlines.ts
+│   └── src/
+│       ├── adapters/
+│       │   ├── rust-crate/       # Rustdoc items, URLs, metadata/cache, actions
+│       │   ├── rust-book/        # immutable checked-in section layout
+│       │   ├── web/              # user collection layout
+│       │   └── shared/           # safe page routing and pin ordering
+│       ├── sources/
+│       │   ├── rust-crates.ts
+│       │   ├── rust-books/       # catalog, definitions, outline snapshots
+│       │   ├── web-sources.ts
+│       │   └── page-names.ts
+│       ├── topics/
+│       │   ├── index.ts          # UI-only topic registry and validation
+│       │   └── rust.svg
+│       ├── migrations/
+│       │   └── rust-provider-v1.ts
 │       ├── core/
-│       │   ├── data.ts                 # Zod schemas + inferred types (ProviderData, Provider, Item, Page, IconProp, ProviderAction)
-│       │   ├── context.svelte.ts       # Provider context accessors plus the shared iframe reference and deferred `navigateTo(url)` gate
-│       │   ├── documentLifecycle.ts    # Initial iframe navigation gate + correlated placeholder state reducer
-│       │   ├── documentLifecycle.test.ts # Deferred-navigation and stale-completion unit tests
-│       │   ├── providerData.svelte.ts  # `ProviderDataStore` reactive class — `$state` data + load + autosave
-│       │   ├── api.ts                  # REST wrappers for Rust-owned `/api/*` resources
-│       │   ├── host.ts                 # Typed `window.__turboDoc__` host→webview function surface
-│       │   ├── itemSearch.ts           # Prefix index/matching + recent-item algorithms
-│       │   ├── itemSearch.test.ts      # Prefix, exact-match, limit, and MRU unit tests
-│       │   ├── localStorage.ts         # Typed localStorage abstraction (Zod validation, mitt events, primitive + array APIs)
-│       │   └── uiState.svelte.ts       # Reactive URL, expansion, and recent-item accessors over mitt+localStorage
-│       │
-│       ├── providers/
-│       │   ├── index.ts            # Provider registry (default-exported `Provider[]`)
-│       │   ├── doc/                 # Configurable flat-site provider template
-│       │   │   ├── index.ts        # `createDocProvider`, validated config contract, rendering
-│       │   │   ├── providers.ts    # Rust Docs, Minecraft Wiki, and Wikipedia instances
-│       │   │   ├── sites.ts        # Reusable site ownership, normalization, and naming policies
-│       │   │   └── page-order.ts   # Resolver-injected pin sanitization and reorder validation
-│       │   └── rust/               # Unified Rust provider
-│       │       ├── index.ts            # Provider implementation (render, URL handling, page parsing, getImportCratesAction inlined)
-│       │       ├── rust.svg            # CC BY Rust Foundation mark used by the NavBar
-│       │       ├── effects.svelte.ts   # Per-provider $effect setup (URL sync, seed crates)
-│       │       ├── cache.svelte.ts     # `$state` singleton + lazy sparse-index/API fetching
-│       │       ├── cache-core.ts       # Rune-independent deduplication and latest-wins request coordinator
-│       │       ├── cache-core.test.ts  # Lazy request lifecycle and race unit tests
-│       │       ├── metadata.ts         # Cargo index paths + sparse-index/API parsers
-│       │       ├── metadata.test.ts    # Metadata URL and parser unit tests
-│       │       ├── url.ts              # URL parsing/building (docs.rs, doc.rust-lang.org, windows-docs-rs)
-│       │       └── url.test.ts
-│       │
-│       ├── ui/
-│       │   ├── App.svelte          # Root: persisted active provider, home navigation, native lifecycle exports, Resizable layout
-│       │   ├── NavBar.svelte       # Fixed workbench navigation rail; currently renders provider destinations
-│       │   ├── common/
-│       │   │   └── Icon.svelte     # Lucide and current-color monochrome SVG renderer
-│       │   └── explorer/
-│       │       ├── Explorer.svelte                  # Active provider host: owns ProviderDataStore, derives view model, sets up effects
-│       │       ├── ExplorerGroup.svelte             # Group renderer (default + ungrouped variants)
-│       │       ├── ExplorerGroupHeader.svelte       # Group header (collapse, rename, dropdown menu)
-│       │       ├── ExplorerCreateGroupComponent.svelte # Add group button/input
-│       │       ├── ExplorerItem.svelte              # Collapsible item card with full-width name
-│       │       ├── ExplorerItemMenu.svelte          # Item menu (move, links, versions, actions)
-│       │       ├── version-menu.ts                  # Direct/overflow version partitioning
-│       │       ├── version-menu.test.ts             # Version ordering and fallback tests
-│       │       ├── ExplorerPageList.svelte          # Page list with symbol colors + pinning
-│       │       ├── reveal.ts                        # Parameterized center-range reveal geometry
-│       │       ├── reveal.test.ts                   # Card centering, page constraints, and bounds tests
-│       │       ├── ExplorerSearch.svelte            # Prefix/MRU combobox with Add and Import footer actions
-│       │       └── InputActionDialog.svelte         # Generic dialog for `"input"` ProviderAction
-│       │
-│       └── utils/
-│           ├── version-group.ts    # Semver version grouping
-│           └── version-group.test.ts
-│
-├── src/                        # Rust host + in-process backend
-│   ├── main.rs                 # Tokio runtime, clap args, frontend selection, backend start, app launch
-│   ├── dev.rs                  # Dev-only repo discovery, Job Object, Vite readiness + lifetime monitor
-│   ├── app.rs                  # Mode-aware startup, release mapping, native UI, request interception, frontend calls
-│   ├── startup.rs              # Shared elapsed-time probe and frontend-matched startup color
-│   ├── webview.rs              # Generic WebView2 wrapper: folder mapping, events, ordered script execution
-│   └── server/                 # In-process backend (no HTTP listener)
-│       ├── mod.rs              # `Server` handle (fetch + dispatch_api), AppState, http client + USER_AGENT
-│       ├── state.rs            # AppState (DB, http_client, revalidating dedup, data_dir)
-│       ├── db.rs               # `cache.sqlite` open + WAL + schema; drops legacy `crates_cache` table
+│       │   ├── source.ts         # Definition → Adapter → Model contracts
+│       │   ├── explorer.ts       # SourceView and composed ExplorerView types
+│       │   ├── topic.ts          # routing and ready-source composition
+│       │   ├── itemKey.ts        # canonical composite identities
+│       │   ├── sourceDataStore.svelte.ts
+│       │   ├── sourceStoreRegistry.ts
+│       │   ├── explorerWorkspaceStore.svelte.ts
+│       │   ├── serializedSaveQueue.ts
+│       │   ├── api.ts
+│       │   ├── context.svelte.ts
+│       │   ├── localStorage.ts
+│       │   └── uiState.svelte.ts
+│       └── ui/
+│           ├── App.svelte        # migration, app stores, active topic
+│           ├── NavBar.svelte     # topic rail
+│           └── explorer/         # generic composed Explorer components
+├── src/
+│   ├── app.rs                    # native host and request interception
+│   ├── main.rs
+│   └── server/
 │       ├── api/
-│       │   ├── mod.rs          # `dispatch(state, req)` — path-prefix routing + per-request access log
-│       │   └── data.rs         # GET/PUT /data/{file_name} (TOML on disk via `toml` crate)
-│       ├── proxy/
-│       │   ├── mod.rs          # Generic RFC-aware fetch, request cache bypass, response assembly
-│       │   ├── cache.rs        # `http_cache` body/policy/allowed-header storage + LRU eviction
-│       │   ├── headers.rs      # Explicit WebView2 response-header policy + scoped metadata CORS
-│       │   ├── inject.rs       # Stable rustdoc dark-mode <script> injection at serve time
-│       │   └── revalidate.rs   # Stale-while-revalidate background task + DashSet dedup
-│
-├── target/                     # Build output (Rust + runtime data)
-│   ├── release/public/         # `just release` assembly: Vite assets beside turbodoc.exe
-│   └── data/                       # Runtime data directory ($TURBODOC_DATA)
-│       ├── cache.sqlite            # SQLite database (unified http_cache, WAL mode)
-│       └── <id>.toml               # Per-provider user data
-│
+│       │   ├── mod.rs            # strict /api route classification
+│       │   └── data.rs           # root and sources/ TOML namespaces
+│       └── proxy/                # generic cached documentation proxy
 └── docs/
-    └── README.md               # This file
+    ├── README.md
+    └── M7-SourceAdapterTopics.md
 ```
-
----
 
 ## Open Questions & Assumptions
 
@@ -908,26 +790,28 @@ TurboDoc/
 2. **Semver compliance**: Confirmed — crates.io enforces semver, safe to rely on
 3. **Single preview page**: Each crate has at most one preview page at a time (derived from `currentUrl`)
 4. **No nested groups**: Groups contain items, not other groups (flat structure)
-5. **Item discriminated union**: `ProviderOutput.items` uses `Record<string, Item>` (uniform view model)
+5. **Source-local items**: each `SourceView` owns local string IDs; topic composition creates canonical `ItemKey` values
 
 ### Remaining Items
 
 1. **Preset picker UI**: Not yet built — switching presets requires manual workspace edit
-2. **Frontend loading/error states**: Native host startup has a spinner and diagnostic error surface; in-app operations still have no shared skeleton/error-boundary system
+2. **Shared operation feedback**: source/workspace loads and saves have scoped status/retry rows; other in-app operations still lack a shared toast/error-boundary system
 
 ### Known Limitations
 
-1. **URL `index.html` not normalized**: `buildUrl`/`parseUrl` in `frontend/src/providers/rust/url.ts` treat `tokio/runtime/` and `tokio/runtime/index.html` as distinct paths. Pin-matching uses the raw path as the key, so the same logical page can be pinned twice if the user reaches it from both forms. An earlier normalization attempt broke root-module detection (which compares against the `"crate/"` form in `rust/index.ts` and the import action) and produced an undefined-name bug for bare version-root URLs — was reverted.
+1. **Rustdoc `index.html` aliases**: `buildUrl`/`parseUrl` in `frontend/src/adapters/rust-crate/url.ts` still treat `tokio/runtime/` and `tokio/runtime/index.html` as distinct paths. Pin matching can therefore retain both spellings.
 
 ---
 
 ## Success Criteria
 
 ### Completed
-- [x] Multi-provider architecture with view model derivation
-- [x] Provider NavBar with persisted selection and provider-home navigation
+- [x] SourceDefinition → Adapter → SourceModel → SourceView architecture
+- [x] Topic NavBar with persisted selection and explicit landing sources
 - [x] Data/cache persistence via HTTP API
-- [x] Unified Rust provider (docs.rs + doc.rust-lang.org + windows-docs-rs)
+- [x] Rust Crate source (docs.rs + doc.rust-lang.org + windows-docs-rs)
+- [x] Fifteen independently persisted Rust Book sources
+- [x] General WebAdapter sources with user-owned collections
 - [x] Pin/unpin documentation pages with preview page system
 - [x] Version selection with semver grouping
 - [x] Named groups with full CRUD (create, rename, reorder, delete)
@@ -935,8 +819,9 @@ TurboDoc/
 - [x] Import crates from docs.rs URLs
 - [x] Symbol parsing with One Dark color coding
 - [x] Automatic cross-crate navigation via direct native lifecycle calls
-- [x] Provider-aware Explorer search with prefix matching, Add/Import actions, and host-reported recent crates
-- [x] Auto-save data and cache on every change
+- [x] Topic-composed Explorer search with source dispatch and composite recent items
+- [x] Serialized/coalescing per-source and Explorer UI persistence with retry
+- [x] Read-only `rust.toml` migration with independently authoritative targets
 - [x] HTTP proxy with SQLite cache and dark mode injection (v0.3)
 - [x] Rust host with native egui startup UI and WebView2 (eframe/wgpu + webview2-com)
 - [x] Release frontend from executable-adjacent Vite artifacts, with opt-in Vite dev mode
@@ -944,12 +829,17 @@ TurboDoc/
 ### Remaining
 - [ ] Shared frontend loading/error states
 - [ ] Keyboard shortcuts
-- [ ] Cross-provider navigation (partially done via unified rust provider)
+- [ ] Additional code- or file-defined sources/topics
 
 ---
 
 ## Change History
 
+- **2026-08**: Replace providers with per-source `SourceDefinition`, `Adapter`,
+  `SourceModel`, and `SourceView` layers. Add UI-only topics, composite item
+  identity, application-owned source stores, per-source TOML under `sources/`,
+  independent reliable saves/errors, RustBook/Web adapter separation, four
+  topic destinations, and a removable read-only `rust.toml` migration.
 - **2026-08**: Make item grouping standard Explorer functionality for every
   provider. Remove the provider grouping opt-out, restore Add Group for Doc
   providers, always expand the containing group during navigation reveals, and

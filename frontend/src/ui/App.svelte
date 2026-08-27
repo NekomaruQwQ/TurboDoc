@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { onDestroy } from "svelte";
+    import { onDestroy, onMount } from "svelte";
     import * as Resizable from "@shadcn/components/ui/resizable";
     import { Button } from "@shadcn/components/ui/button";
 
@@ -13,9 +13,12 @@
         type InitialDocumentLoadState,
         reduceInitialDocumentLoad,
     } from "@/core/documentLifecycle";
-    import type { Provider } from "@/core/data";
-    import { findProviderForUrl } from "@/core/providerRouting";
-    import providers from "@/providers";
+    import { ExplorerWorkspaceStore } from "@/core/explorerWorkspaceStore.svelte";
+    import { SourceStoreRegistry } from "@/core/sourceStoreRegistry";
+    import type { Topic } from "@/core/topic";
+    import { findTopicForUrl, getTopicHomeUrl } from "@/core/topic";
+    import { migrateRustProviderV1 } from "@/migrations/rust-provider-v1";
+    import topics from "@/topics";
 
     import WorkbenchToolbar from "./WorkbenchToolbar.svelte";
     import NavBar from "./NavBar.svelte";
@@ -31,7 +34,7 @@
     });
     /** Latest accepted WebView2 navigation report. Keeping this ephemeral
      * signal separate from the persisted URL prevents unrelated storage or
-     * provider updates from moving the Explorer. */
+     * source updates from moving the Explorer. */
     let reportedNavigationId = $state<string | null>(null);
     let releaseFrame: number | undefined;
 
@@ -45,8 +48,8 @@
         if (event.url === "https://docs.rs/-/storage-change-detection.html") return;
         storage.save("currentUrl", event.url);
         reportedNavigationId = event.navigationId;
-        const owningProvider = findProviderForUrl(providers, event.url);
-        if (owningProvider) activateProvider(owningProvider, false);
+        const owningTopic = findTopicForUrl(topics, event.url)?.topic;
+        if (owningTopic) activateTopic(owningTopic, false);
         documentLoad = reduceInitialDocumentLoad(documentLoad, {
             type: "started",
             url: event.url,
@@ -86,9 +89,46 @@
         ctx.navigateTo(url);
     }
 
+    const workspace = new ExplorerWorkspaceStore();
+    const sourceStores = new SourceStoreRegistry();
+    let migrationStatus = $state<"loading" | "ready" | "error">("loading");
+    let migrationError = $state<string | null>(null);
+    let migrationAttempt: Promise<void> | undefined;
+    let disposed = false;
+
+    /** Run the removable Rust-only compatibility bridge before any new store
+     * can initialize or persist its target resource. */
+    function initializeWorkspace(): void {
+        if (migrationAttempt || disposed) return;
+        migrationStatus = "loading";
+        migrationError = null;
+        migrationAttempt = (async () => {
+            try {
+                await migrateRustProviderV1();
+                if (disposed) return;
+                migrationStatus = "ready";
+                await workspace.load();
+            } catch (error) {
+                if (disposed) return;
+                console.error("Legacy Rust migration failed:", error);
+                migrationStatus = "error";
+                migrationError = error instanceof Error ? error.message : String(error);
+            }
+        })().finally(() => migrationAttempt = undefined);
+    }
+
+    onMount(initializeWorkspace);
+
     onDestroy(() => {
+        disposed = true;
         if (releaseFrame !== undefined) window.cancelAnimationFrame(releaseFrame);
+        sourceStores.dispose();
+        workspace.dispose();
     });
+
+    // Deep JSON snapshotting inside the store makes every nested group edit a
+    // dependency while the serialized queue prevents overlapping PUTs.
+    $effect(() => workspace.autoSave());
 
     // Documentation failure is local to the editor pane; unlike frontend
     // startup failure it must not hide the otherwise usable workbench.
@@ -102,32 +142,34 @@
         return () => window.clearTimeout(timeout);
     });
 
-    /** Restore only registered providers. Removed or corrupt IDs fall back to
-     * the registry default and are repaired immediately for the next launch. */
-    const storedProviderId = storage.load("activeProviderId");
-    const initialProviderId = providers.some(provider => provider.id === storedProviderId)
-        ? storedProviderId
-        : providers[0].id;
-    if (storedProviderId !== initialProviderId)
-        storage.save("activeProviderId", initialProviderId);
+    /** Restore only registered topics. Provider-era selection is deliberately
+     * ignored because the old IDs do not map one-to-one onto topics. */
+    const defaultTopic = topics[0];
+    if (!defaultTopic) throw new Error("TurboDoc requires at least one topic.");
+    const storedTopicId = storage.load("activeTopicId");
+    const initialTopicId = topics.some(topic => topic.id === storedTopicId)
+        ? storedTopicId
+        : defaultTopic.id;
+    if (storedTopicId !== initialTopicId)
+        storage.save("activeTopicId", initialTopicId);
 
-    let providerId = $state(initialProviderId);
-    let provider = $derived(providers.find(p => p.id === providerId) ?? providers[0]);
+    let topicId = $state(initialTopicId);
+    let topic = $derived(topics.find(candidate => candidate.id === topicId) ?? defaultTopic);
 
-    /** Persist a provider switch and optionally open its canonical landing
+    /** Persist a topic switch and optionally open its canonical landing
      * page. Navigation-reported switches keep the already accepted document. */
-    function activateProvider(
-        nextProvider: Provider,
+    function activateTopic(
+        nextTopic: Topic,
         navigateHome: boolean): void {
-        if (nextProvider.id === providerId) return;
-        providerId = nextProvider.id;
-        storage.save("activeProviderId", nextProvider.id);
-        if (navigateHome) ctx.navigateTo(nextProvider.homeUrl);
+        if (nextTopic.id === topicId) return;
+        topicId = nextTopic.id;
+        storage.save("activeTopicId", nextTopic.id);
+        if (navigateHome) ctx.navigateTo(getTopicHomeUrl(nextTopic));
     }
 
-    /** Open a provider selected directly from the navigation rail. */
-    function selectProvider(nextProvider: Provider): void {
-        activateProvider(nextProvider, true);
+    /** Open a topic selected directly from the navigation rail. */
+    function selectTopic(nextTopic: Topic): void {
+        activateTopic(nextTopic, true);
     }
 </script>
 
@@ -139,19 +181,50 @@
                 class="sidebar"
                 aria-label="Documentation sidebar">
                 <NavBar
-                    {providers}
-                    activeProviderId={provider.id}
-                    onProviderSelect={selectProvider} />
+                    {topics}
+                    activeTopicId={topic.id}
+                    onTopicSelect={selectTopic} />
                 <section
                     class="explorer-pane"
                     aria-label="Documentation explorer">
-                    <!-- Provider descendants capture their app-owned data
-                         context during component initialization. Recreate the
-                         subtree at this ownership boundary so group controls
-                         cannot retain the previous provider's store. -->
-                    {#key provider.id}
-                        <Explorer {provider} {reportedNavigationId} />
-                    {/key}
+                    {#if migrationStatus === "error"}
+                        <div class="workspace-status" role="alert">
+                            <span title={migrationError ?? undefined}>
+                                Rust data migration failed. The old file was left unchanged.
+                            </span>
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onclick={initializeWorkspace}>
+                                Retry
+                            </Button>
+                        </div>
+                    {:else if migrationStatus === "ready" && workspace.status === "ready"}
+                        <!-- Topic descendants capture UI grouping context at
+                             initialization, so recreate this subtree only at
+                             the topic ownership boundary. -->
+                        {#key topic.id}
+                            <Explorer
+                                {topic}
+                                {workspace}
+                                {sourceStores}
+                                {reportedNavigationId} />
+                        {/key}
+                    {:else if workspace.status === "error"}
+                        <div class="workspace-status" role="alert">
+                            <span>Explorer data failed to load.</span>
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onclick={() => workspace.retryLoad()}>
+                                Retry
+                            </Button>
+                        </div>
+                    {:else}
+                        <div class="workspace-status" role="status">
+                            Loading Explorer…
+                        </div>
+                    {/if}
                 </section>
             </aside>
         </Resizable.Pane>
@@ -244,6 +317,21 @@
         flex: 1 1 0%;
         flex-direction: column;
     }
+
+    .workspace-status {
+        display: flex;
+        min-height: 4rem;
+        align-items: center;
+        justify-content: center;
+        gap: 0.25rem;
+        padding: 0.75rem;
+        color: var(--color-muted-foreground);
+        font-size: 0.75rem;
+        line-height: 1rem;
+        text-align: center;
+    }
+
+    .workspace-status[role="alert"] { color: var(--color-destructive); }
 
     :global(.workbench-resize-handle) {
         width: 0.25rem;

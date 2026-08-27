@@ -1,9 +1,8 @@
-//! Shared state carried by every request handler.
+//! Shared state used by the in-process persistence and proxy handlers.
 //!
-//! `AppState` is the value passed to `Router::with_state` and extracted via
-//! `axum::extract::State`. Every field is `Arc`-shaped (or itself an `Arc`
-//! internally, like `reqwest::Client`) so the struct is cheap to clone, which
-//! axum does on every request.
+//! Every field is `Arc`-shaped (or internally reference-counted, like
+//! `reqwest::Client`) so background cache revalidation can cheaply retain the
+//! resources it needs without a network-server state wrapper.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -12,9 +11,12 @@ use dashmap::DashSet;
 
 use crate::server::db::Database;
 
+/// Cloneable resources shared by all in-process backend operations.
 #[derive(Clone)]
 pub struct AppState {
+    /// Persistent HTTP cache shared by proxy requests and revalidation tasks.
     pub db: Arc<Database>,
+    /// Configured runtime root for generic and per-source TOML resources.
     pub data_dir: Arc<PathBuf>,
     /// Async client shared by all proxy upstream requests. Built once with
     /// the canonical User-Agent and a manual-redirect policy so the proxy

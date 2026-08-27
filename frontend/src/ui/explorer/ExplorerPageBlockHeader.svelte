@@ -3,14 +3,14 @@
     import Pencil from "@lucide/svelte/icons/pencil";
     import Trash2 from "@lucide/svelte/icons/trash-2";
     import * as DropdownMenu from "@shadcn/components/ui/dropdown-menu";
-    import type { PageBlock, PageBlockNameAction } from "@/core/data";
+    import type { PageBlock, PageBlockNameAction } from "@/core/explorer";
 
     const { block, onrename, onremove }: {
         /** Neutral heading and optional editing capabilities. */
         block: PageBlock;
         /** The parent owns editing so renaming can relocate a keyed block. */
         onrename(action: PageBlockNameAction): void;
-        /** The parent presents any provider-owned removal confirmation. */
+        /** The parent presents any adapter-owned removal confirmation. */
         onremove(action: NonNullable<PageBlock["remove"]>): void;
     } = $props();
 

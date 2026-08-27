@@ -1,47 +1,47 @@
 <script lang="ts">
-    import type { Provider } from "@/core/data";
+    import type { Topic } from "@/core/topic";
 
     import Icon from "@/ui/common/Icon.svelte";
 
     let {
-        providers,
-        activeProviderId,
-        onProviderSelect,
+        topics,
+        activeTopicId,
+        onTopicSelect,
     }: {
-        /** Providers are rendered in registry order from top to bottom. */
-        providers: readonly Provider[],
-        /** Provider whose Explorer is currently visible. */
-        activeProviderId: string,
+        /** Topics are rendered in registry order from top to bottom. */
+        topics: readonly Topic[],
+        /** Topic whose Explorer is currently visible. */
+        activeTopicId: string,
         /** Report explicit selection intent to the workbench state owner. */
-        onProviderSelect(provider: Provider): void,
+        onTopicSelect(topic: Topic): void,
     } = $props();
 </script>
 
 <nav
     aria-label="Primary navigation"
-    class="provider-nav">
-    {#each providers as provider (provider.id)}
-        {@const active = provider.id === activeProviderId}
+    class="topic-nav">
+    {#each topics as topic (topic.id)}
+        {@const active = topic.id === activeTopicId}
         <button
             type="button"
-            aria-label={provider.name}
+            aria-label={topic.name}
             aria-current={active ? "page" : undefined}
-            title={provider.name}
-            class="provider-destination"
-            onclick={() => onProviderSelect(provider)}>
+            title={topic.name}
+            class="topic-destination"
+            onclick={() => onTopicSelect(topic)}>
             {#if active}
                 <span
                     aria-hidden="true"
                     class="active-marker">
                 </span>
             {/if}
-            <Icon icon={provider.icon} size="xl" />
+            <Icon icon={topic.icon} size="xl" />
         </button>
     {/each}
 </nav>
 
 <style>
-    .provider-nav {
+    .topic-nav {
         display: flex;
         width: 2.75rem;
         flex-shrink: 0;
@@ -51,7 +51,7 @@
         background-color: var(--color-workbench);
     }
 
-    .provider-destination {
+    .topic-destination {
         position: relative;
         display: flex;
         width: 100%;
@@ -66,16 +66,16 @@
         transition: color 150ms, background-color 150ms;
     }
 
-    .provider-destination[aria-current="page"] {
+    .topic-destination[aria-current="page"] {
         color: var(--color-foreground);
     }
 
-    .provider-destination:not([aria-current="page"]):hover {
+    .topic-destination:not([aria-current="page"]):hover {
         background-color: var(--color-workbench-hover);
         color: var(--color-foreground);
     }
 
-    .provider-destination:focus-visible {
+    .topic-destination:focus-visible {
         box-shadow: inset 0 0 0 2px color-mix(in oklab, var(--color-ring) 70%, transparent);
     }
 

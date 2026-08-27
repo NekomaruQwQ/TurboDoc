@@ -1,5 +1,5 @@
 <script lang="ts">
-    import type { ProviderAction } from "@/core/data";
+    import type { ExplorerInputAction } from "@/core/explorer";
 
     import { Button } from "@shadcn/components/ui/button";
     import { Input } from "@shadcn/components/ui/input";
@@ -7,7 +7,7 @@
 
     import Icon from "@/ui/common/Icon.svelte";
 
-    /** Generic dialog rendered for every `"input"` ProviderAction. The
+    /** Generic dialog rendered for every input Explorer action. The
      *  textarea/input is read on submit only — no `bind:value`, no
      *  per-keystroke reactivity. After submission the field clears. */
     let {
@@ -15,10 +15,10 @@
         open = $bindable(false),
         showTrigger = true,
     }: {
-        action: Extract<ProviderAction, { type: "input" }>;
+        action: ExplorerInputAction;
         /** Controlled open state used when another component owns the trigger. */
         open?: boolean;
-        /** Preserve the legacy provider-action button outside a combobox. */
+        /** Preserve the standalone action button outside a combobox. */
         showTrigger?: boolean;
     } = $props();
 

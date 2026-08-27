@@ -18,7 +18,12 @@
     import * as Dialog from "@shadcn/components/ui/dialog";
 
     import * as ctx from "@/core/context.svelte";
-    import type { Item, Page, PageBlock, PageBlockNameAction } from "@/core/data";
+    import type {
+        ExplorerItem,
+        Page,
+        PageBlock,
+        PageBlockNameAction,
+    } from "@/core/explorer";
     import ExplorerPageBlockHeader from "./ExplorerPageBlockHeader.svelte";
 
     /** Shape required by svelte-dnd-action; URLs are stable page identities. */
@@ -28,8 +33,7 @@
         isDndShadowItem?: boolean;
     };
 
-    const { item }: { item: Item } = $props();
-    const provider = ctx.getProviderInfo();
+    const { item }: { item: ExplorerItem } = $props();
     const navigateTo = ctx.navigateTo;
     const manuallyOrdered = $derived(item.pageLayout?.reorder !== undefined);
     const pageByUrl = $derived(new Map(item.pages.map(page => [page.url, page])));
@@ -46,7 +50,7 @@
     const flipDurationMs = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)")
         .matches ? 0 : 100;
 
-    // Only provider updates rebuild zones. Consider events stay local so two
+    // Only source-model updates rebuild zones. Consider events stay local so two
     // zones can exchange their temporary shadow without persisting partial data.
     $effect(() => {
         zones = Object.fromEntries((item.pageLayout?.blocks ?? [])
@@ -70,7 +74,7 @@
         dragging = event.detail.info.trigger !== TRIGGERS.DRAG_STOPPED;
     }
 
-    /** Commit only complete page records; the provider validates permutation. */
+    /** Commit only complete page records; the adapter validates permutation. */
     function finalizePageOrder(id: string, event: CustomEvent<DndEvent<DraggablePage>>): void {
         zones[id] = event.detail.items;
         if (event.detail.info.source === SOURCES.POINTER) dragging = false;
@@ -130,7 +134,7 @@
             `[data-block-id="${CSS.escape(result.blockId)}"] [data-block-actions]`)?.focus();
     }
 
-    /** Nonempty removal needs provider-supplied confirmation, not a UI guess. */
+    /** Nonempty removal needs adapter-supplied confirmation, not a UI guess. */
     function requestRemove(action: NonNullable<PageBlock["remove"]>): void {
         if (action.confirmation) {
             removeAction = action;
@@ -161,7 +165,7 @@
                         aria-label={block.accessibleName ?? `Pages for ${item.name}`}
                         use:dragHandleZone={{
                             items: zones[block.id] ?? [],
-                            type: `page-order:${provider.id}:${item.id}`,
+                            type: `page-order:${item.id}`,
                             flipDurationMs,
                             delayTouchStart: true,
                             dropTargetStyle: {},
@@ -280,7 +284,7 @@
             onclick={() => navigateTo(page.url)}
             aria-current={page.current ? "page" : undefined}
             class="page-link"
-            data-code-name={provider.renderPageNameAsCode}
+            data-code-name={item.presentation.renderPageNameAsCode}
             data-preview={page.pinned === false}>
             {#if page.name.type === "symbol"}
                 {#each page.name.path as ident, i (i)}

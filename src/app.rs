@@ -32,6 +32,8 @@ const RELEASE_FRONTEND_ORIGIN: &str = "https://turbodoc.example";
 /// WebView2 does not raise that event for URLs claimed by a virtual-host folder
 /// mapping, so release APIs cannot share [`RELEASE_FRONTEND_ORIGIN`].
 const RELEASE_API_ORIGIN: &str = "https://api.turbodoc.example";
+/// Persistence metadata JavaScript must read across the release origin split.
+const RESOURCE_EXISTS_HEADER: &str = "x-turbodoc-resource-exists";
 /// Explicit entry document because virtual-host mappings do not add directory
 /// index behavior.
 const RELEASE_FRONTEND_URL: &str = "https://turbodoc.example/index.html";
@@ -1003,9 +1005,10 @@ mod handler {
     /// - **Dev `/api/ready`**: passed through to Vite's readiness handler.
     /// - **Release API preflights**: answered with the narrow policy required
     ///   by the separate, unmapped API origin.
-    /// - **Every other `/api` request**: dispatched to Rust, where the data
-    ///   handler owns `/api/data/{provider_id}` and rejects unknown routes;
-    ///   release responses authorize only the mapped frontend origin.
+    /// - **Every other `/api` request**: dispatched to Rust, where persistence
+    ///   owns generic `/api/data/{data_id}` and per-source
+    ///   `/api/sources/{source_id}` routes and rejects unknown routes; release
+    ///   responses authorize only the mapped frontend origin.
     /// - **Everything else**: returns `None` so WebView2 falls through to
     ///   its default path (release asset mapping or Vite/HMR in dev mode,
     ///   plus navigations to external sites).
@@ -1052,7 +1055,7 @@ mod handler {
     /// Owner of a request inside the frontend's `/api` namespace.
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     enum ApiRequestHandler {
-        /// The in-process Rust dispatcher handles data routes and rejections.
+        /// The in-process Rust dispatcher handles persistence and rejections.
         Rust,
         /// The host answers a release-mode cross-origin preflight directly.
         ReleasePreflight,
@@ -1089,18 +1092,21 @@ mod handler {
     /// Authorize one release API response for the mapped frontend only.
     ///
     /// The exact origin deliberately prevents hosted documentation frames from
-    /// reading provider data even though their requests share this WebView2.
+    /// reading application data even though their requests share this WebView2.
     fn with_release_api_cors(mut response: WebResponse) -> WebResponse {
         response.headers_mut().insert(
             http::header::ACCESS_CONTROL_ALLOW_ORIGIN,
             http::HeaderValue::from_static(super::RELEASE_FRONTEND_ORIGIN));
+        response.headers_mut().insert(
+            http::header::ACCESS_CONTROL_EXPOSE_HEADERS,
+            http::HeaderValue::from_static(super::RESOURCE_EXISTS_HEADER));
         response.headers_mut().append(
             http::header::VARY,
             http::HeaderValue::from_static("Origin"));
         response
     }
 
-    /// Build the fixed preflight response for release-mode provider data.
+    /// Build the fixed preflight response for release-mode application data.
     fn release_api_preflight_response() -> WebResponse {
         let mut response = WebResponse::new(Vec::new());
         *response.status_mut() = http::StatusCode::NO_CONTENT;
@@ -1290,6 +1296,16 @@ mod handler {
         }
 
         #[test]
+        fn source_api_is_owned_by_rust() {
+            assert_eq!(
+                api_request_handler(
+                    FrontendKind::Dev,
+                    &http::Method::GET,
+                    "/api/sources/rust-crates"),
+                Some(ApiRequestHandler::Rust));
+        }
+
+        #[test]
         fn ready_api_is_owned_by_vite_in_dev_mode() {
             assert_eq!(
                 api_request_handler(
@@ -1352,6 +1368,8 @@ mod handler {
                         .to_str().expect("static method header should be text"),
                     response.headers()[http::header::ACCESS_CONTROL_ALLOW_HEADERS]
                         .to_str().expect("static allowed-header value should be text"),
+                    response.headers()[http::header::ACCESS_CONTROL_EXPOSE_HEADERS]
+                        .to_str().expect("static exposed-header value should be text"),
                     response.headers()[http::header::ACCESS_CONTROL_MAX_AGE]
                         .to_str().expect("static max-age header should be text")),
                 (
@@ -1359,6 +1377,7 @@ mod handler {
                     "https://turbodoc.example",
                     "GET, PUT, OPTIONS",
                     "Content-Type",
+                    "x-turbodoc-resource-exists",
                     "600"));
         }
 
@@ -1375,11 +1394,14 @@ mod handler {
                     response.status(),
                     response.body().as_slice(),
                     response.headers()[http::header::ACCESS_CONTROL_ALLOW_ORIGIN]
-                        .to_str().expect("static origin header should be text")),
+                        .to_str().expect("static origin header should be text"),
+                    response.headers()[http::header::ACCESS_CONTROL_EXPOSE_HEADERS]
+                        .to_str().expect("static exposed-header value should be text")),
                 (
                     http::StatusCode::NOT_FOUND,
                     b"not found".as_slice(),
-                    "https://turbodoc.example"));
+                    "https://turbodoc.example",
+                    "x-turbodoc-resource-exists"));
         }
     }
 }

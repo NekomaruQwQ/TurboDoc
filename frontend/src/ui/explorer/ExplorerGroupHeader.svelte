@@ -19,6 +19,7 @@
     import * as Collapsible from "@shadcn/components/ui/collapsible";
 
     import * as ctx from "@/core/context.svelte";
+    import type { ItemKey } from "@/core/itemKey";
     import { expandItems, collapseItems, removeGroup, renameGroup } from "@/core/uiState.svelte";
 
     let {
@@ -29,13 +30,13 @@
         /** Empty for the synthetic ungrouped group. */
         groupName: string,
         /** Current rendered membership used by the bulk expansion actions. */
-        itemIds: string[],
+        itemIds: ItemKey[],
         /** Controlled state owned by the surrounding Collapsible root. */
         expanded: boolean,
     } = $props();
 
-    const provider = ctx.getProviderInfo();
-    const store = ctx.getProviderData();
+    const topic = ctx.getTopic();
+    const topicData = ctx.getExplorerWorkspace().topicData(topic.id);
 
     let deleteOpen = $state(false);
     let renaming = $state(false);
@@ -44,14 +45,14 @@
     const isUngrouped = $derived(groupName === "");
     const displayName = $derived(isUngrouped ? "Ungrouped" : groupName);
     const isFirst =
-        $derived(store.data.groupOrder[0] === groupName);
+        $derived(topicData.groupOrder[0] === groupName);
     const isLast =
-        $derived(store.data.groupOrder[store.data.groupOrder.length - 1] === groupName);
+        $derived(topicData.groupOrder[topicData.groupOrder.length - 1] === groupName);
     const otherGroups =
         $derived(
-            store.data
+            topicData
                 .groupOrder
-                .filter(name => name in store.data.groups)
+                .filter(name => name in topicData.groups)
                 .filter(name => name !== groupName));
 
     function startRename(currentName: string) {
@@ -63,57 +64,58 @@
         renaming = false;
         const newName = renameValue.trim();
         if (!newName || newName === originalName) return;
-        const group = store.data.groups[originalName] ?? { items: [] };
-        delete store.data.groups[originalName];
-        store.data.groups[newName] = group;
-        const idx = store.data.groupOrder.indexOf(originalName);
-        if (idx >= 0) store.data.groupOrder[idx] = newName;
-        renameGroup(provider.id, originalName, newName);
+        if (newName in topicData.groups) return;
+        const group = topicData.groups[originalName] ?? { items: [] };
+        delete topicData.groups[originalName];
+        topicData.groups[newName] = group;
+        const idx = topicData.groupOrder.indexOf(originalName);
+        if (idx >= 0) topicData.groupOrder[idx] = newName;
+        renameGroup(topic.id, originalName, newName);
     }
 
     function deleteGroup(groupName: string) {
-        delete store.data.groups[groupName];
-        store.data.groupOrder = store.data.groupOrder.filter(n => n !== groupName);
-        removeGroup(provider.id, groupName);
+        delete topicData.groups[groupName];
+        topicData.groupOrder = topicData.groupOrder.filter(n => n !== groupName);
+        removeGroup(topic.id, groupName);
     }
 
     function expandAll() {
-        expandItems(provider.id, itemIds);
+        expandItems(topic.id, itemIds);
     }
 
     function collapseAll() {
-        collapseItems(provider.id, itemIds);
+        collapseItems(topic.id, itemIds);
     }
 
     function moveToTop(groupName: string) {
-        const filtered = store.data.groupOrder.filter(n => n !== groupName);
-        store.data.groupOrder = [groupName, ...filtered];
+        const filtered = topicData.groupOrder.filter(n => n !== groupName);
+        topicData.groupOrder = [groupName, ...filtered];
     }
 
     function moveUp(groupName: string) {
-        const i = store.data.groupOrder.indexOf(groupName);
-        const prev = store.data.groupOrder[i - 1];
+        const i = topicData.groupOrder.indexOf(groupName);
+        const prev = topicData.groupOrder[i - 1];
         if (i > 0 && prev !== undefined) {
-            store.data.groupOrder[i - 1] = groupName;
-            store.data.groupOrder[i] = prev;
+            topicData.groupOrder[i - 1] = groupName;
+            topicData.groupOrder[i] = prev;
         }
     }
 
     function moveDown(groupName: string) {
-        const i = store.data.groupOrder.indexOf(groupName);
-        const next = store.data.groupOrder[i + 1];
+        const i = topicData.groupOrder.indexOf(groupName);
+        const next = topicData.groupOrder[i + 1];
         if (i >= 0 && next !== undefined) {
-            store.data.groupOrder[i + 1] = groupName;
-            store.data.groupOrder[i] = next;
+            topicData.groupOrder[i + 1] = groupName;
+            topicData.groupOrder[i] = next;
         }
     }
 
     function moveUnder(sourceName: string, targetName: string) {
-        const filtered = store.data.groupOrder.filter(n => n !== sourceName);
+        const filtered = topicData.groupOrder.filter(n => n !== sourceName);
         const idx = filtered.indexOf(targetName);
         if (idx < 0) return;
         filtered.splice(idx + 1, 0, sourceName);
-        store.data.groupOrder = filtered;
+        topicData.groupOrder = filtered;
     }
 </script>
 
@@ -204,7 +206,7 @@
                     <ArrowDown />
                     <span>Move Down</span>
                 </DropdownMenu.Item>
-                {#if store.data.groupOrder.length > 1}
+                {#if topicData.groupOrder.length > 1}
                     <DropdownMenu.Sub>
                         <DropdownMenu.SubTrigger>
                             <LogIn />

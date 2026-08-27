@@ -6,8 +6,10 @@ import z from "zod";
 // ============================================================================
 
 const STORAGE = {
-    activeProviderId: {
-        key: "turbodoc:active-provider-id",
+    activeTopicId: {
+        // Deliberately new: provider-era selection is not migrated because
+        // providers do not map one-to-one onto UI-only topics.
+        key: "turbodoc:active-topic-id",
         type: "value" as const,
         schema: z.string().default(""),
     },
@@ -17,12 +19,12 @@ const STORAGE = {
         schema: z.string().default("https://docs.rs/"),
     },
     expanded: {
-        key: "turbodoc:expanded",
+        key: "turbodoc:expanded-v2",
         type: "array" as const,
         schema: z.array(z.string()).default([]),
     },
     recentItems: {
-        key: "turbodoc:recent-items",
+        key: "turbodoc:recent-items-v2",
         type: "value" as const,
         schema: z.record(z.string(), z.array(z.string()).max(5)).default({}),
     },
@@ -44,7 +46,7 @@ type StorageTypeOf<K extends StorageKey> =
 // ============================================================================
 
 type StorageEvents = {
-    activeProviderId: { value: string },
+    activeTopicId: { value: string },
     currentUrl: { value: string },
     expanded: { element: string, present: boolean },
     recentItems: { value: Record<string, string[]> },
@@ -147,8 +149,9 @@ export function removeAll(key: ArrayKey, elements: string[]): void {
     const removed: string[] = [];
     // Iterate backwards to avoid index shifting.
     for (let i = arr.length - 1; i >= 0; i--) {
-        if (toRemove.has(arr[i]!)) {
-            removed.push(arr[i]!);
+        const element = arr[i];
+        if (element !== undefined && toRemove.has(element)) {
+            removed.push(element);
             arr.splice(i, 1);
         }
     }

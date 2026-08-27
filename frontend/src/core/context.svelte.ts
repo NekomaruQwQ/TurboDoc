@@ -1,8 +1,8 @@
 import { createContext } from "svelte";
 
-import type { Provider } from "@/core/data";
 import { DeferredNavigation } from "@/core/documentLifecycle";
-import type { ProviderDataStore } from "@/core/providerData.svelte";
+import type { ExplorerWorkspaceStore } from "@/core/explorerWorkspaceStore.svelte";
+import type { Topic } from "@/core/topic";
 
 export const viewerRef =
     new class { value = $state<HTMLIFrameElement>() };
@@ -24,19 +24,24 @@ export function releaseViewerNavigation(initialUrl: string) {
     if (releasedUrl && viewerRef.value) viewerRef.value.src = releasedUrl;
 }
 
-export interface ProviderContext {
-    info: () => Provider;
-    data: () => ProviderDataStore;
+/** Topic-scoped context consumed by generic Explorer descendants. */
+export interface ExplorerContext {
+    /** Active UI-only topic. */
+    topic: () => Topic;
+    /** Application-owned Explorer grouping workspace. */
+    workspace: () => ExplorerWorkspaceStore;
 }
 
-const [getProvider, setProvider] = createContext<ProviderContext>();
+const [getExplorer, setExplorer] = createContext<ExplorerContext>();
 
-export { setProvider };
+export { setExplorer };
 
-export function getProviderInfo(): Provider {
-    return getProvider().info();
+/** Return the active Explorer topic. */
+export function getTopic(): Topic {
+    return getExplorer().topic();
 }
 
-export function getProviderData(): ProviderDataStore {
-    return getProvider().data();
+/** Return the shared UI-only Explorer workspace store. */
+export function getExplorerWorkspace(): ExplorerWorkspaceStore {
+    return getExplorer().workspace();
 }

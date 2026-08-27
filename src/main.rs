@@ -74,7 +74,7 @@ mod main {
     #[derive(Parser)]
     #[command(version, about)]
     struct Args {
-        /// Runtime data directory (caches, presets, per-provider data).
+        /// Runtime data directory (cache, UI state, and per-source data).
         /// Falls back to the `TURBODOC_DATA` environment variable.
         #[arg(short = 'd', long = "data", env = "TURBODOC_DATA")]
         data_dir: PathBuf,

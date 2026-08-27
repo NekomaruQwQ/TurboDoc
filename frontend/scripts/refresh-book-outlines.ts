@@ -1,5 +1,5 @@
-import { BOOK_CATALOG } from "../src/providers/doc/book-catalog";
-import type { BookOutlineSnapshot } from "../src/providers/doc/book-outline";
+import { BOOK_CATALOG } from "../src/sources/rust-books/catalog";
+import type { BookOutlineSnapshot } from "../src/sources/rust-books/outline";
 import { parseBookOutline } from "./book-outline-import";
 
 /** Explicit maintenance operation: no application/build import invokes this.
@@ -15,7 +15,7 @@ async function refreshBookOutlines(): Promise<void> {
         snapshots[book.id] = { sourceUrl, retrievedAt: new Date().toISOString(), entries };
         console.log(`${book.id}: ${entries.length} pages`);
     }
-    const output = new URL("../src/providers/doc/book-outlines.generated.json", import.meta.url);
+    const output = new URL("../src/sources/rust-books/outlines.generated.json", import.meta.url);
     await Bun.write(output, `${JSON.stringify(snapshots, null, 2)}\n`);
     console.log(`Updated ${BOOK_CATALOG.length} book outlines.`);
 }

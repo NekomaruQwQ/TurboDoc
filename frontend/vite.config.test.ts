@@ -10,8 +10,10 @@ describe("classifyViteApiRequest", () => {
         expect(classifyViteApiRequest("POST", "/api/ready")).toBe("method-not-allowed");
     });
 
-    test("rejects Rust-owned data routes on direct Vite requests", () => {
+    test("rejects Rust-owned persistence routes on direct Vite requests", () => {
         expect(classifyViteApiRequest("GET", "/api/data/rust")).toBe("not-found");
+        expect(classifyViteApiRequest("GET", "/api/sources/rust-crates"))
+            .toBe("not-found");
     });
 
     test("rejects unknown API routes", () => {

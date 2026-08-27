@@ -9,8 +9,8 @@
     import * as ctx from "@/core/context.svelte";
     import { expandGroup } from "@/core/uiState.svelte";
 
-    const provider = ctx.getProviderInfo();
-    const store = ctx.getProviderData();
+    const topic = ctx.getTopic();
+    const topicData = ctx.getExplorerWorkspace().topicData(topic.id);
 
     let inputMode = $state(false);
     let inputText = $state("");
@@ -24,11 +24,11 @@
     }
 
     function createGroup(name: string) {
-        if (!name || name in store.data.groups) return;
-        store.data.groups[name] = { items: [] };
-        store.data.groupOrder.push(name);
+        if (!name || name in topicData.groups) return;
+        topicData.groups[name] = { items: [] };
+        topicData.groupOrder.push(name);
         // Auto-expand newly created group.
-        expandGroup(provider.id, name);
+        expandGroup(topic.id, name);
     }
 
     function ok() {

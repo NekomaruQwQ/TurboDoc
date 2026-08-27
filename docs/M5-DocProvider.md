@@ -1,5 +1,9 @@
 # M5: General Documentation Provider
 
+> Historical note: [M7-SourceAdapterTopics.md](M7-SourceAdapterTopics.md)
+> supersedes this provider architecture. The former Doc provider is now split
+> into independently persisted Rust Book sources and WebAdapter sources.
+
 ## Summary
 
 TurboDoc's second provider renders a small, code-owned catalog of general

@@ -1,4 +1,4 @@
-import type { BookOutlineEntry } from "../src/providers/doc/book-outline";
+import type { BookOutlineEntry } from "../src/sources/rust-books/outline";
 
 /** Decode the small entity vocabulary emitted by mdBook's TOC renderer. */
 function decodeTitle(text: string): string {

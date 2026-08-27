@@ -2,7 +2,7 @@
     import ChevronDown from "@lucide/svelte/icons/chevron-down";
     import ChevronRight from "@lucide/svelte/icons/chevron-right";
 
-    import type { Item } from "@/core/data";
+    import type { ExplorerItem } from "@/core/explorer";
 
     import * as Collapsible from "@shadcn/components/ui/collapsible";
 
@@ -12,10 +12,10 @@
     import ExplorerItemMenu from "@/ui/explorer/ExplorerItemMenu.svelte";
     import ExplorerPageList from "@/ui/explorer/ExplorerPageList.svelte";
 
-    let { item, itemGroupName }: { item: Item; itemGroupName: string } = $props();
+    let { item, itemGroupName }: { item: ExplorerItem; itemGroupName: string } = $props();
 
-    const provider = ctx.getProviderInfo();
-    const expanded = $derived(itemExpanded(provider.id, item.id));
+    const topic = ctx.getTopic();
+    const expanded = $derived(itemExpanded(topic.id, item.id));
 </script>
 
 <Collapsible.Root
@@ -37,7 +37,7 @@
             {/if}
             <span
                 class="item-name"
-                data-code-name={provider.renderItemNameAsCode}>
+                data-code-name={item.presentation.renderItemNameAsCode}>
                 {item.name}
             </span>
         </Collapsible.Trigger>

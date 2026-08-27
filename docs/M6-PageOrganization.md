@@ -1,5 +1,9 @@
 # Page organization and the Rust bookshelf
 
+> Historical note: the page-layout algorithms remain relevant, but
+> [M7-SourceAdapterTopics.md](M7-SourceAdapterTopics.md) supersedes the provider
+> terminology, ownership boundaries, and persistence layout in this document.
+
 ## Approved design
 
 1. Explorer items remain source/URL ownership boundaries. Outer item Groups

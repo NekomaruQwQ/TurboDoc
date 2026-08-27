@@ -6,7 +6,8 @@
     import LogIn from "@lucide/svelte/icons/log-in";
     import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
 
-    import type { Item, ItemAction, ItemVersions, ProviderData } from "@/core/data";
+    import type { ExplorerItem, ItemAction, ItemVersions } from "@/core/explorer";
+    import type { ExplorerTopicData } from "@/core/explorerWorkspaceStore.svelte";
     import * as DropdownMenu from "@shadcn/components/ui/dropdown-menu";
     import Icon from "@/ui/common/Icon.svelte";
     import {
@@ -16,17 +17,18 @@
 
     import * as ctx from "@/core/context.svelte";
 
-    let { item, itemGroupName }: { item: Item; itemGroupName: string } = $props();
+    let { item, itemGroupName }: { item: ExplorerItem; itemGroupName: string } = $props();
 
     const navigate = ctx.navigateTo;
-    const store = ctx.getProviderData();
+    const topic = ctx.getTopic();
+    const topicData = ctx.getExplorerWorkspace().topicData(topic.id);
     const versionChoices = $derived(
         item.versions?.status === "ready"
             ? buildVersionMenuChoices(item.versions)
             : null);
 
     /** Opening the menu is the first point where its version choices become
-     * visible, so it is also the provider-neutral lazy-loading intent. */
+     * visible, so it is also the adapter-neutral lazy-loading intent. */
     function handleMenuOpenChange(open: boolean) {
         if (open) item.versions?.ensureLoaded?.();
     }
@@ -40,18 +42,23 @@
             disabled: targetGroupName === itemGroupName || undefined,
             invoke() {
                 if (targetGroupName === itemGroupName) return;
-                applyMove(store.data as ProviderData, item.id, itemGroupName, targetGroupName);
+                applyMove(topicData, item.id, itemGroupName, targetGroupName);
             },
         };
     }
 
     const moveToUngroupedAction = $derived(buildMoveAction("", "Ungrouped"));
     const moveActions = $derived(
-        store.data.groupOrder
-            .filter(name => name in store.data.groups)
+        topicData.groupOrder
+            .filter(name => name in topicData.groups)
             .map(name => buildMoveAction(name)));
 
-    function applyMove(draft: ProviderData, itemId: string, sourceGroup: string, targetGroup: string) {
+    function applyMove(
+        draft: ExplorerTopicData,
+        itemId: ExplorerItem["id"],
+        sourceGroup: string,
+        targetGroup: string,
+    ) {
         // Mirror the React version's two-phase validate/then-mutate pattern:
         // collect both source-side and target-side mutations, abort on any
         // missing group, then apply all at once. Keeps move operations atomic.

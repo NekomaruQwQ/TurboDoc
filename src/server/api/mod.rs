@@ -34,18 +34,20 @@ pub async fn dispatch(state: &AppState, req: WebRequest) -> http::Response<Vec<u
     response
 }
 
-/// Route a classified request to provider storage or a protocol error.
+/// Route a classified request to persistence storage or a protocol error.
 async fn route(
     state: &AppState,
     method: &http::Method,
     path: &str,
-    body: &[u8],
-) -> http::Response<Vec<u8>> {
+    body: &[u8]) -> http::Response<Vec<u8>> {
     match classify_route(method, path) {
-        ApiRoute::GetData(provider_id) => data::get(state, provider_id).await,
-        ApiRoute::PutData(provider_id) => data::put(state, provider_id, body).await,
+        ApiRoute::GetData(data_id) => data::get_data(state, data_id).await,
+        ApiRoute::PutData(data_id) => data::put_data(state, data_id, body).await,
+        ApiRoute::GetSource(source_id) => data::get_source(state, source_id).await,
+        ApiRoute::PutSource(source_id) => data::put_source(state, source_id, body).await,
         ApiRoute::MethodNotAllowed => method_not_allowed(),
-        ApiRoute::InvalidProviderId => text_error(400, "invalid provider id"),
+        ApiRoute::InvalidDataId => text_error(400, "invalid data id"),
+        ApiRoute::InvalidSourceId => text_error(400, "invalid source id"),
         ApiRoute::NotFound => text_error(404, "not found"),
     }
 }
@@ -53,44 +55,57 @@ async fn route(
 /// Classified Rust API route with its validated dynamic data.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ApiRoute<'a> {
-    /// Provider data read carrying a filesystem-safe provider ID.
+    /// Generic data read carrying a filesystem-safe ID.
     GetData(&'a str),
-    /// Provider data write carrying a filesystem-safe provider ID.
+    /// Generic data write carrying a filesystem-safe ID.
     PutData(&'a str),
-    /// Data route requested with a method other than GET or PUT.
+    /// Per-source read carrying a filesystem-safe source ID.
+    GetSource(&'a str),
+    /// Per-source write carrying a filesystem-safe source ID.
+    PutSource(&'a str),
+    /// Known persistence route requested with a method other than GET or PUT.
     MethodNotAllowed,
-    /// Data-shaped route whose provider ID violates the identifier contract.
-    InvalidProviderId,
+    /// Data-shaped route whose ID violates the identifier contract.
+    InvalidDataId,
+    /// Source-shaped route whose ID violates the identifier contract.
+    InvalidSourceId,
     /// Any API path not implemented by Rust.
     NotFound,
 }
 
-/// Classify a Rust-owned API request and validate its provider identifier.
+/// Classify a Rust-owned API request and validate its resource identifier.
 fn classify_route<'a>(method: &http::Method, path: &'a str) -> ApiRoute<'a> {
-    let Some(provider_id) = path.strip_prefix("/api/data/") else {
-        return ApiRoute::NotFound;
-    };
-    if !is_valid_provider_id(provider_id) {
-        return ApiRoute::InvalidProviderId;
+    let (resource_id, read, write, invalid) =
+        if let Some(data_id) = path.strip_prefix("/api/data/") {
+            (data_id, ApiRoute::GetData(data_id), ApiRoute::PutData(data_id),
+                ApiRoute::InvalidDataId)
+        } else if let Some(source_id) = path.strip_prefix("/api/sources/") {
+            (source_id, ApiRoute::GetSource(source_id), ApiRoute::PutSource(source_id),
+                ApiRoute::InvalidSourceId)
+        } else {
+            return ApiRoute::NotFound;
+        };
+    if !is_valid_resource_id(resource_id) {
+        return invalid;
     }
     match *method {
-        http::Method::GET => ApiRoute::GetData(provider_id),
-        http::Method::PUT => ApiRoute::PutData(provider_id),
+        http::Method::GET => read,
+        http::Method::PUT => write,
         _ => ApiRoute::MethodNotAllowed,
     }
 }
 
-/// Whether a provider ID is one safe path segment and a clear stable key.
+/// Whether a persistence ID is one safe path segment and a clear stable key.
 ///
-/// Provider IDs begin with a lowercase ASCII letter or digit, contain at most
+/// Persistence IDs begin with a lowercase ASCII letter or digit, contain at most
 /// 64 characters, and may additionally contain `.`, `_`, or `-` after the
 /// first character. Rejecting percent escapes and separators keeps the file
 /// mapping independent from URL-decoding and path-normalization behavior.
-fn is_valid_provider_id(provider_id: &str) -> bool {
-    let Some(first) = provider_id.bytes().next() else { return false; };
-    provider_id.len() <= 64 &&
+fn is_valid_resource_id(resource_id: &str) -> bool {
+    let Some(first) = resource_id.bytes().next() else { return false; };
+    resource_id.len() <= 64 &&
         (first.is_ascii_lowercase() || first.is_ascii_digit()) &&
-        provider_id.bytes().skip(1).all(|byte|
+        resource_id.bytes().skip(1).all(|byte|
             byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'.' | b'_' | b'-'))
 }
 
@@ -103,7 +118,7 @@ fn text_error(status: u16, message: &str) -> http::Response<Vec<u8>> {
         .expect("valid error response")
 }
 
-/// Build the data endpoint's method rejection with its required method list.
+/// Build the persistence endpoints' rejection with their required method list.
 fn method_not_allowed() -> http::Response<Vec<u8>> {
     let mut response = text_error(405, "method not allowed");
     response
@@ -121,14 +136,14 @@ mod tests {
     use super::ApiRoute;
 
     #[test]
-    fn data_get_accepts_provider_identifier() {
+    fn data_get_accepts_resource_identifier() {
         assert_eq!(
             classify_route(&Method::GET, "/api/data/rust"),
             ApiRoute::GetData("rust"));
     }
 
     #[test]
-    fn data_put_accepts_namespaced_provider_identifier() {
+    fn data_put_accepts_namespaced_resource_identifier() {
         assert_eq!(
             classify_route(&Method::PUT, "/api/data/cpp.cppreference"),
             ApiRoute::PutData("cpp.cppreference"));
@@ -148,45 +163,80 @@ mod tests {
     }
 
     #[test]
-    fn data_route_rejects_empty_provider_identifier() {
+    fn data_route_rejects_empty_resource_identifier() {
         assert_eq!(
             classify_route(&Method::GET, "/api/data/"),
-            ApiRoute::InvalidProviderId);
+            ApiRoute::InvalidDataId);
     }
 
     #[test]
     fn data_route_rejects_path_separator() {
         assert_eq!(
             classify_route(&Method::GET, "/api/data/rust/extra"),
-            ApiRoute::InvalidProviderId);
+            ApiRoute::InvalidDataId);
     }
 
     #[test]
     fn data_route_rejects_percent_escape() {
         assert_eq!(
             classify_route(&Method::GET, "/api/data/rust%2Fextra"),
-            ApiRoute::InvalidProviderId);
+            ApiRoute::InvalidDataId);
     }
 
     #[test]
-    fn data_route_rejects_uppercase_provider_identifier() {
+    fn data_route_rejects_uppercase_resource_identifier() {
         assert_eq!(
             classify_route(&Method::GET, "/api/data/Rust"),
-            ApiRoute::InvalidProviderId);
+            ApiRoute::InvalidDataId);
     }
 
     #[test]
-    fn data_route_rejects_overlong_provider_identifier() {
+    fn data_route_rejects_overlong_resource_identifier() {
         let path = format!("/api/data/{}", "a".repeat(65));
         assert_eq!(
             classify_route(&Method::GET, &path),
-            ApiRoute::InvalidProviderId);
+            ApiRoute::InvalidDataId);
     }
 
     #[test]
     fn data_prefix_trap_is_not_a_route() {
         assert_eq!(
             classify_route(&Method::GET, "/api/database"),
+            ApiRoute::NotFound);
+    }
+
+    #[test]
+    fn source_get_accepts_source_identifier() {
+        assert_eq!(
+            classify_route(&Method::GET, "/api/sources/rust-crates"),
+            ApiRoute::GetSource("rust-crates"));
+    }
+
+    #[test]
+    fn source_put_accepts_source_identifier() {
+        assert_eq!(
+            classify_route(&Method::PUT, "/api/sources/rust-book"),
+            ApiRoute::PutSource("rust-book"));
+    }
+
+    #[test]
+    fn source_route_rejects_path_separator() {
+        assert_eq!(
+            classify_route(&Method::GET, "/api/sources/rust/extra"),
+            ApiRoute::InvalidSourceId);
+    }
+
+    #[test]
+    fn source_route_rejects_uppercase_identifier() {
+        assert_eq!(
+            classify_route(&Method::GET, "/api/sources/Rust"),
+            ApiRoute::InvalidSourceId);
+    }
+
+    #[test]
+    fn source_prefix_trap_is_not_a_route() {
+        assert_eq!(
+            classify_route(&Method::GET, "/api/source/rust"),
             ApiRoute::NotFound);
     }
 

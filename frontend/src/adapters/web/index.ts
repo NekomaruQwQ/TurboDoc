@@ -1,0 +1,96 @@
+import * as z from "zod";
+
+import type { Adapter, SourceDefinition, SourceModel } from "@/core/source";
+import {
+    createPageSourceRuntime,
+    readNormalizedPinnedPages,
+    renderPageSource,
+    type PageSourceData,
+    type PageSourceRules,
+} from "@/adapters/shared/page-source";
+import {
+    createCollectionLayout,
+    normalizePageCollections,
+    type PageCollections,
+} from "@/adapters/web/page-collections";
+
+/** Flat persisted state owned by one general web source. */
+export interface WebSourceData extends PageSourceData {
+    /** Ordered canonical pinned pages for this web source only. */
+    pinnedPages: string[];
+    /** Optional user-created ordered page subsets. */
+    collections?: PageCollections;
+}
+
+/** Data-only URL and naming rules consumed by the general web adapter. */
+export type WebRules = PageSourceRules;
+
+const webSourceDataSchema = z.object({
+    schemaVersion: z.literal(1),
+    pinnedPages: z.array(z.string()),
+    collections: z.record(z.string(), z.object({
+        pages: z.array(z.string()),
+    })).optional(),
+});
+
+/** General adapter for user-pinned web pages and user-owned collections. */
+export const WebAdapter: Adapter<WebSourceData, WebRules> = {
+    resolve(definition): SourceModel<WebSourceData> {
+        const runtime = createPageSourceRuntime(definition.id, definition.rules);
+        return {
+            id: definition.id,
+            name: definition.name,
+            homeUrl: runtime.home.url,
+            presentation: {
+                renderItemNameAsCode: false,
+                renderPageNameAsCode: false,
+            },
+            initializeData(raw, exists) {
+                return {
+                    data: exists
+                        ? webSourceDataSchema.parse(raw)
+                        : { schemaVersion: 1, pinnedPages: [] },
+                    persist: false,
+                };
+            },
+            matchUrl: url => runtime.resolvePage(url) !== null,
+            render(context) {
+                const readPinnedPages = () =>
+                    readNormalizedPinnedPages(runtime, context.data.pinnedPages);
+                const writePinnedPages = (pages: readonly string[]) => {
+                    context.data.pinnedPages = readNormalizedPinnedPages(runtime, pages);
+                    context.data.collections = normalizePageCollections(
+                        context.data.pinnedPages,
+                        context.data.collections,
+                        runtime.resolvePage);
+                };
+                return renderPageSource(
+                    context,
+                    definition.id,
+                    definition.name,
+                    runtime,
+                    {
+                        readPinnedPages,
+                        writePinnedPages: (_current, pages) => writePinnedPages(pages),
+                        createLayout: (_current, pages) =>
+                            createCollectionLayout(pages, () => {
+                                const pinnedPages = readPinnedPages();
+                                return {
+                                    pinnedPages,
+                                    collections: normalizePageCollections(
+                                        pinnedPages,
+                                        context.data.collections,
+                                        runtime.resolvePage),
+                                };
+                            }, state => {
+                                context.data.pinnedPages = state.pinnedPages;
+                                context.data.collections = state.collections;
+                            }, runtime.resolvePage),
+                    });
+            },
+        };
+    },
+};
+
+/** Exact definition type accepted by the web adapter. */
+export type WebSourceDefinition = SourceDefinition<WebSourceData, WebRules>;

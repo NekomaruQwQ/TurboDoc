@@ -1,9 +1,14 @@
 <script lang="ts">
-    import { onDestroy, tick } from "svelte";
+    import { onDestroy, tick, untrack } from "svelte";
+    import { Button } from "@shadcn/components/ui/button";
 
-    import type { Provider, ProviderContext, ProviderData } from "@/core/data";
     import * as ctx from "@/core/context.svelte";
-    import { ProviderDataStore } from "@/core/providerData.svelte";
+    import type { ExplorerWorkspaceStore } from "@/core/explorerWorkspaceStore.svelte";
+    import { parseItemKey, type ItemKey } from "@/core/itemKey";
+    import type { SourceDataStore } from "@/core/sourceDataStore.svelte";
+    import type { SourceStoreRegistry } from "@/core/sourceStoreRegistry";
+    import type { SourceModel, SourceModelContext } from "@/core/source";
+    import { composeTopicView, type ReadySourceView, type Topic } from "@/core/topic";
     import {
         currentUrl,
         expandGroup,
@@ -23,19 +28,56 @@
     } from "@/ui/explorer/reveal";
 
     let {
-        provider,
+        topic,
+        workspace,
+        sourceStores,
         reportedNavigationId,
         centerRange = DEFAULT_EXPLORER_CENTER_RANGE,
     }: {
-        provider: Provider,
-        /** Latest accepted host navigation. Unlike `currentUrl`, this changes
-         * only when WebView2 reports navigation user-visible to the app. */
-        reportedNavigationId: string | null,
+        /** UI-only topic whose ready sources are composed here. */
+        topic: Topic;
+        /** App-owned group workspace shared across topic switches. */
+        workspace: ExplorerWorkspaceStore;
+        /** App-owned lazy source stores that outlive this keyed topic view. */
+        sourceStores: SourceStoreRegistry;
+        /** Latest accepted host navigation, separate from persisted URL. */
+        reportedNavigationId: string | null;
         /** Fractional viewport band used to stabilize and constrain reveals. */
-        centerRange?: Readonly<ExplorerCenterRange>,
+        centerRange?: Readonly<ExplorerCenterRange>;
     } = $props();
 
-    // Ignore subpixel layout noise that cannot produce a visible movement.
+    /** One compiled source, its independent store, and its reactive context. */
+    interface SourceRuntime {
+        /** Runtime model produced by Adapter.resolve. */
+        model: SourceModel;
+        /** Independently loaded and persisted source state. */
+        store: SourceDataStore;
+        /** Stable context passed to source render/effect methods. */
+        context: SourceModelContext<object>;
+    }
+
+    // App keys this component by topic, so these source runtimes intentionally
+    // capture the component instance's initial immutable topic membership.
+    const topicData = untrack(() => workspace.topicData(topic.id));
+    const runtimes: SourceRuntime[] = untrack(() => topic.sources.map(model => {
+        const store = sourceStores.get(model);
+        return {
+            model,
+            store,
+            context: {
+                get data() { return store.data; },
+                get currentUrl() { return currentUrl.value; },
+                navigateTo: ctx.navigateTo,
+            },
+        };
+    }));
+
+    ctx.setExplorer({
+        topic: () => topic,
+        workspace: () => workspace,
+    });
+
+    // Ignore subpixel layout noise that cannot produce visible movement.
     const SCROLL_EPSILON_PX = 0.5;
     let scrollViewport: HTMLDivElement;
     let revealGeneration = 0;
@@ -44,51 +86,44 @@
     let handledNavigationKey: string | null = null;
     let programmaticScrollMayBeActive = false;
 
-    const store = $derived(new ProviderDataStore(provider.id));
-    ctx.setProvider({
-        info: () => provider,
-        data: () => store,
+    // Every source starts concurrently and can become usable independently.
+    $effect(() => {
+        for (const runtime of runtimes) void runtime.store.load();
     });
 
-    const providerContext: ProviderContext = {
-        get data() { return store.data.data; },
-        set data(next) { store.data.data = next; },
-        get currentUrl() { return currentUrl.value; },
-        navigateTo: ctx.navigateTo,
-    };
+    // Deep reads across stores feed independent serialized save queues.
+    $effect(() => {
+        for (const runtime of runtimes) runtime.store.autoSave();
+    });
 
-    // -- Lifecycle effects --
+    // Source effects bind only after validated data is ready. This outer effect
+    // recreates child effects when readiness changes, avoiding partially loaded
+    // source state without allowing one failure to block siblings.
+    $effect(() => {
+        for (const runtime of runtimes) {
+            if (runtime.store.status === "ready")
+                runtime.model.setupEffects?.(runtime.context);
+        }
+    });
 
-    // Initial load. Idempotent — `store.load()` short-circuits after the
-    // first call.
-    $effect(() => { store.load(); });
+    /** Render only validated ready sources; loading/error sources stay absent
+     * from item composition and search until explicitly recovered. */
+    const readySources = $derived.by((): ReadySourceView[] =>
+        runtimes.flatMap(runtime => runtime.store.status === "ready"
+            ? [{ model: runtime.model, view: runtime.model.render(runtime.context) }]
+            : []));
+    const output = $derived(composeTopicView(topic, readySources));
+    const recentItemIds = $derived(recentlyAccessedItemIds(topic.id));
 
-    // Auto-save. Reads `store.data` deeply via JSON.stringify, so any
-    // mutation in the proxy graph re-runs this effect.
-    $effect(() => { store.autoSave(); });
-
-    // Provider-specific effects (e.g. URL sync and initial seeding). Defined
-    // in a `*.svelte.ts` module so its inner `$effect` calls bind to this
-    // host component's lifecycle.
-    $effect(() => provider.setupEffects?.(providerContext));
-
-    // -- Derived view model --
-
-    const output = $derived(provider.render(providerContext));
-    const recentItemIds = $derived(recentlyAccessedItemIds(provider.id));
-
-    // Record navigation-derived access only after the provider can resolve the
-    // active URL to an item currently present in its output. Search clicks do
-    // not write history directly; the accepted host navigation remains the
-    // source of truth and repeated effects become storage no-ops.
+    // Host-accepted navigation remains the only source of MRU truth.
     $effect(() => {
         const activeItemId = output.search?.activeItemId;
         if (activeItemId && activeItemId in output.items)
-            recordItemAccess(provider.id, activeItemId);
+            recordItemAccess(topic.id, activeItemId);
     });
 
-    /** Return the rendered container for a provider item without interpolating
-     * the provider-owned ID into a CSS selector. */
+    /** Return the rendered container for a composite item without interpolating
+     * user/source-owned IDs into a CSS selector. */
     function findItemElement(itemId: string): HTMLElement | null {
         const items = scrollViewport.querySelectorAll<HTMLElement>(
             "[data-explorer-item-id]");
@@ -96,18 +131,15 @@
             element => element.dataset.explorerItemId === itemId) ?? null;
     }
 
-    /** Resolve persisted group membership; an absent match means the stable
-     * synthetic Ungrouped section identified by the empty string. */
-    function findItemGroupName(itemId: string): string {
-        for (const [groupName, group] of Object.entries(store.data.groups)) {
+    /** Resolve persisted group membership; no match means Ungrouped. */
+    function findItemGroupName(itemId: ItemKey): string {
+        for (const [groupName, group] of Object.entries(topicData.groups)) {
             if (group.items.includes(itemId)) return groupName;
         }
         return "";
     }
 
-    /** Wait until the browser has created and completed the group/item opening
-     * animations that determine the card's final bounds. Cancelled animations
-     * are harmless: the caller checks its navigation generation afterward. */
+    /** Wait for group/item opening animations that determine final bounds. */
     async function waitForRevealLayout(card: HTMLElement): Promise<void> {
         await new Promise<void>(resolve =>
             window.requestAnimationFrame(() => resolve()));
@@ -122,17 +154,14 @@
         await Promise.allSettled(animations.map(animation => animation.finished));
     }
 
-    /** Stop an older smooth reveal at its current position before evaluating a
-     * newer navigation. Without this, the browser can keep moving toward a
-     * stale page even when the replacement page was visible when reported. */
+    /** Stop an older smooth reveal before evaluating newer navigation. */
     function cancelProgrammaticScroll(): void {
         if (!programmaticScrollMayBeActive) return;
         scrollViewport.scrollTo({ top: scrollViewport.scrollTop, behavior: "auto" });
         programmaticScrollMayBeActive = false;
     }
 
-    /** Apply one calculated reveal position, remembering that smooth movement
-     * may still be active so the next navigation can explicitly interrupt it. */
+    /** Apply one calculated reveal position. */
     function scrollToRevealPosition(scrollTop: number): void {
         const behavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches
             ? "auto"
@@ -141,29 +170,24 @@
         scrollViewport.scrollTo({ top: scrollTop, behavior });
     }
 
-    /** Reveal the active page for one reported navigation. The operation is
-     * latest-wins because canonicalization and rapid iframe navigation can
-     * supersede it while Svelte or the collapse animations are settling. */
+    /** Reveal one navigation using latest-wins cancellation. */
     async function revealActivePage(
         navigationKey: string,
-        activeItemId: string,
+        activeItemId: ItemKey,
         generation: number,
     ): Promise<void> {
         await tick();
         if (generation !== revealGeneration) return;
 
-        // Both collapsibles must be open before the complete card and selected
-        // page can supply stable bounds for the single constrained scroll.
-        expandGroup(provider.id, findItemGroupName(activeItemId));
-        expandItems(provider.id, [activeItemId]);
+        expandGroup(topic.id, findItemGroupName(activeItemId));
+        expandItems(topic.id, [activeItemId]);
         await tick();
         if (generation !== revealGeneration) return;
 
         const itemElement = findItemElement(activeItemId);
         const itemHeader = itemElement?.querySelector<HTMLElement>(
             "[data-explorer-item-header]");
-        const page = itemElement?.querySelector<HTMLElement>(
-            '[aria-current="page"]');
+        const page = itemElement?.querySelector<HTMLElement>('[aria-current="page"]');
         const target = page ?? itemHeader;
         if (!itemElement || !target) {
             handledNavigationKey = navigationKey;
@@ -186,12 +210,10 @@
         handledNavigationKey = navigationKey;
     }
 
-    // Auto-reveal is gated by the explicit host report rather than `currentUrl`
-    // alone, so loading data, refreshing metadata, and storage synchronization
-    // cannot unexpectedly move the Explorer.
+    // Only explicit host reports move the Explorer; data/source updates do not.
     $effect(() => {
         if (!reportedNavigationId) return;
-        const navigationKey = `${provider.id}:${reportedNavigationId}`;
+        const navigationKey = `${topic.id}:${reportedNavigationId}`;
         if (navigationKey !== observedNavigationKey) {
             observedNavigationKey = navigationKey;
             cancelProgrammaticScroll();
@@ -199,8 +221,7 @@
         }
 
         const activeItemId = output.search?.activeItemId;
-        if (!activeItemId ||
-            !(activeItemId in output.items)) return;
+        if (!activeItemId || !(activeItemId in output.items)) return;
         if (navigationKey === handledNavigationKey ||
             navigationKey === startedNavigationKey) return;
 
@@ -213,35 +234,29 @@
             });
     });
 
-    // Prevent detached component work from applying a late scroll after a
-    // provider switch or workbench teardown.
+    // Prune only items owned by ready sources. Unknown/loading/error source
+    // references are preserved because absence from the composed view is not
+    // evidence that their data was deleted.
+    $effect(() => {
+        const validIds = new Set(Object.keys(output.items));
+        const readySourceIds = new Set(readySources.map(source => source.model.id));
+        for (const group of Object.values(topicData.groups)) {
+            const next = group.items.filter(itemId => {
+                const parsed = parseItemKey(itemId);
+                return !parsed || !readySourceIds.has(parsed.sourceId) || validIds.has(itemId);
+            });
+            if (next.length !== group.items.length) group.items = next;
+        }
+    });
+
     onDestroy(() => {
         revealGeneration++;
         cancelProgrammaticScroll();
-    });
-
-    // -- Eager orphan cleanup --
-    // Items can disappear (e.g. crate deleted) while their IDs still
-    // linger in `groups[*].items`. Drop dangling IDs after each render.
-    //
-    // Critical: only assign back when the filtered array actually
-    // shrinks. Always writing (even when the filter is a no-op) flips
-    // the `$state` proxy and invalidates `output`, which would re-run
-    // this effect indefinitely.
-    $effect(() => {
-        const validIds = new Set(Object.keys(output.items));
-        const groups = (store.data as ProviderData).groups;
-        for (const group of Object.values(groups)) {
-            const next = group.items.filter(id => validIds.has(id));
-            if (next.length !== group.items.length) group.items = next;
-        }
     });
 </script>
 
 <div class="explorer">
     {#if output.search}
-        <!-- Search owns a fixed row so crate navigation and manual scrolling
-             use only the unobstructed list viewport below it. -->
         <div class="search-region">
             <ExplorerSearch
                 items={output.items}
@@ -254,19 +269,41 @@
         bind:this={scrollViewport}
         class="explorer-viewport"
         data-has-search={Boolean(output.search)}>
-        <!-- Provider-level actions (e.g. "Import"). Only the "input" variant
-             renders a dialog; "menu" is reserved for future inline menu items. -->
-        {#each output.actions ?? [] as action, i (i)}
+        {#each runtimes.filter(runtime =>
+            runtime.store.status === "error" || runtime.store.saveError) as runtime (runtime.model.id)}
+            <div class="source-status" role="alert">
+                <span class="source-status-message">
+                    {runtime.model.name}: {runtime.store.error ?? runtime.store.saveError}
+                </span>
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    onclick={() => runtime.store.status === "error"
+                        ? runtime.store.retryLoad()
+                        : runtime.store.retrySave()}>
+                    Retry
+                </Button>
+            </div>
+        {/each}
+
+        {#if workspace.saveError}
+            <div class="source-status" role="alert">
+                <span class="source-status-message">Explorer groups: {workspace.saveError}</span>
+                <Button variant="ghost" size="sm" onclick={() => workspace.retrySave()}>
+                    Retry
+                </Button>
+            </div>
+        {/if}
+
+        {#each output.actions as action, index (index)}
             {#if action.type === "input"}
                 <InputActionDialog {action} />
             {/if}
         {/each}
 
-        <!-- Grouping belongs to the Explorer for every provider. The empty
-             name identifies items not assigned to a persisted group. -->
-        <ExplorerGroup groupName="" providerOutput={output} />
-        {#each store.data.groupOrder.filter(g => g in store.data.groups) as groupName (groupName)}
-            <ExplorerGroup {groupName} providerOutput={output} />
+        <ExplorerGroup groupName="" explorerView={output} />
+        {#each topicData.groupOrder.filter(name => name in topicData.groups) as groupName (groupName)}
+            <ExplorerGroup {groupName} explorerView={output} />
         {/each}
         <div class="group-spacer"></div>
         <ExplorerCreateGroupComponent />
@@ -295,8 +332,25 @@
         padding: 0.375rem;
     }
 
-    .explorer-viewport[data-has-search="true"] {
-        padding-top: 0;
+    .explorer-viewport[data-has-search="true"] { padding-top: 0; }
+
+    .source-status {
+        display: flex;
+        min-height: 1.75rem;
+        align-items: center;
+        gap: 0.25rem;
+        border-radius: var(--radius-sm);
+        padding-left: 0.5rem;
+        color: var(--color-destructive);
+        font-size: 0.75rem;
+    }
+
+    .source-status-message {
+        min-width: 0;
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
     .group-spacer {

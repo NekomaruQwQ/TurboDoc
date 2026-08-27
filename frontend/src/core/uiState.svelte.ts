@@ -1,5 +1,6 @@
 import { createSubscriber } from "svelte/reactivity";
 import * as storage from "@/core/localStorage";
+import { isItemKey, type ItemKey } from "@/core/itemKey";
 import { recordRecentItemId } from "@/core/itemSearch";
 
 // ============================================================================
@@ -38,7 +39,7 @@ export const currentUrl = {
     },
 };
 
-// -- recentItems: provider-keyed MRU item identifiers ------------------------
+// -- recentItems: topic-keyed composite item identifiers ---------------------
 
 let recentItemsCache = storage.load("recentItems");
 const subscribeRecentItems = createSubscriber(update => {
@@ -50,22 +51,22 @@ const subscribeRecentItems = createSubscriber(update => {
     return () => storage.off("recentItems", handler);
 });
 
-/** Read the five most recently accessed item IDs for one provider. The result
+/** Read the five most recently accessed item keys for one topic. The result
  *  is reactive when called inside a Svelte component or derived expression. */
-export function recentlyAccessedItemIds(providerId: string): readonly string[] {
+export function recentlyAccessedItemIds(topicId: string): readonly ItemKey[] {
     subscribeRecentItems();
-    return recentItemsCache[providerId] ?? [];
+    return (recentItemsCache[topicId] ?? []).filter(isItemKey);
 }
 
-/** Record an accepted provider item navigation. Repeated access moves the item
+/** Record an accepted topic item navigation. Repeated access moves the item
  *  to the front; a no-op canonical list performs no localStorage write. */
-export function recordItemAccess(providerId: string, itemId: string): void {
-    const previous = recentItemsCache[providerId] ?? [];
+export function recordItemAccess(topicId: string, itemId: ItemKey): void {
+    const previous = recentItemsCache[topicId] ?? [];
     const next = recordRecentItemId(previous, itemId);
     if (next === previous) return;
     storage.save("recentItems", {
         ...recentItemsCache,
-        [providerId]: [...next],
+        [topicId]: [...next],
     });
 }
 
@@ -99,14 +100,14 @@ function expanded(key: string) {
 }
 
 /** Expansion state for a named or ungrouped group.
- *  Key format: `<providerId>:group:<groupId>`. */
-export const groupExpanded = (providerId: string, groupId: string) =>
-    expanded(`${providerId}:group:${groupId}`);
+ *  Key format: `<topicId>:group:<groupId>`. */
+export const groupExpanded = (topicId: string, groupId: string) =>
+    expanded(`${topicId}:group:${groupId}`);
 
 /** Expansion state for an item.
- *  Key format: `<providerId>:<itemId>`. */
-export const itemExpanded = (providerId: string, itemId: string) =>
-    expanded(`${providerId}:${itemId}`);
+ *  Key format: `<topicId>:item:<compositeItemKey>`. */
+export const itemExpanded = (topicId: string, itemId: ItemKey) =>
+    expanded(`${topicId}:item:${itemId}`);
 
 // ============================================================================
 // Imperative helpers (non-reactive)
@@ -118,29 +119,29 @@ export const itemExpanded = (providerId: string, itemId: string) =>
 // ============================================================================
 
 /** Expand a single group. */
-export function expandGroup(providerId: string, groupId: string): void {
-    storage.add("expanded", `${providerId}:group:${groupId}`);
+export function expandGroup(topicId: string, groupId: string): void {
+    storage.add("expanded", `${topicId}:group:${groupId}`);
 }
 
 /** Expand multiple items in one write. */
-export function expandItems(providerId: string, itemIds: string[]): void {
-    storage.addAll("expanded", itemIds.map(id => `${providerId}:${id}`));
+export function expandItems(topicId: string, itemIds: ItemKey[]): void {
+    storage.addAll("expanded", itemIds.map(id => `${topicId}:item:${id}`));
 }
 
 /** Collapse multiple items in one write. */
-export function collapseItems(providerId: string, itemIds: string[]): void {
-    storage.removeAll("expanded", itemIds.map(id => `${providerId}:${id}`));
+export function collapseItems(topicId: string, itemIds: ItemKey[]): void {
+    storage.removeAll("expanded", itemIds.map(id => `${topicId}:item:${id}`));
 }
 
 /** Remove a deleted group's expansion state. */
-export function removeGroup(providerId: string, groupId: string): void {
-    storage.remove("expanded", `${providerId}:group:${groupId}`);
+export function removeGroup(topicId: string, groupId: string): void {
+    storage.remove("expanded", `${topicId}:group:${groupId}`);
 }
 
 /** Transfer a group's expansion state from old name to new name. */
-export function renameGroup(providerId: string, oldName: string, newName: string): void {
-    const oldKey = `${providerId}:group:${oldName}`;
-    const newKey = `${providerId}:group:${newName}`;
+export function renameGroup(topicId: string, oldName: string, newName: string): void {
+    const oldKey = `${topicId}:group:${oldName}`;
+    const newKey = `${topicId}:group:${newName}`;
     if (storage.has("expanded", oldKey)) {
         storage.remove("expanded", oldKey);
         storage.add("expanded", newKey);

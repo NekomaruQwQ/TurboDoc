@@ -1,4 +1,4 @@
-import type { ItemVersions } from "@/core/data";
+import type { ItemVersions } from "@/core/explorer";
 
 /** Number of recommended version choices kept at the crate menu's first level. */
 export const DIRECT_VERSION_COUNT = 5;
@@ -8,13 +8,13 @@ export interface VersionMenuChoices {
     /** Preferred choices shown directly in the crate menu. */
     direct: string[];
 
-    /** Remaining choices, retaining the provider's compatibility groups. */
+    /** Remaining choices, retaining the source's compatibility groups. */
     overflowGroups: string[][];
 }
 
 /** Partition version choices without losing an exceptional current selection.
  *
- * Recommended choices lead the direct list. If a provider supplies fewer than
+ * Recommended choices lead the direct list. If a source supplies fewer than
  * five, its full history fills the remaining slots. The overflow preserves
  * compatibility-group order, removes duplicates, and retains current or
  * recommended aliases that do not occur in the normal history. */
@@ -33,7 +33,7 @@ export function buildVersionMenuChoices(
     const seen = new Set(direct);
     const overflowGroups: string[][] = [];
 
-    // Current and recommended aliases may be absent from the provider's
+    // Current and recommended aliases may be absent from the source's
     // ordinary history, notably for yanked releases and non-semver URLs.
     const exceptional = unique([...recommended, versions.current])
         .filter(version => !seen.has(version) && !allValues.has(version));

@@ -1,32 +1,44 @@
-import type { Item } from "@/core/data";
-
 /** Maximum number of item rows shown by either search or recent history. */
 export const ITEM_SEARCH_RESULT_LIMIT = 5;
 
+/** Minimal view shape needed by rune-independent search algorithms. */
+export interface SearchableItem {
+    /** User-facing item name. */
+    name: string;
+    /** Stable topic-composed ordering key. */
+    sortKey: string;
+}
+
 /** One item prepared for repeated case-insensitive prefix comparisons. */
-export interface IndexedItem {
-    /** Provider-local item identifier. */
-    id: string,
+export interface IndexedItem<
+    T extends SearchableItem = SearchableItem,
+    K extends string = string,
+> {
+    /** Topic-global composite item identifier. */
+    id: K,
 
     /** Uniform item view model rendered elsewhere in the Explorer. */
-    item: Item,
+    item: T,
 
     /** Lower-cased item name cached outside the per-keystroke hot path. */
     normalizedName: string,
 }
 
-/** Immutable lookup structures rebuilt only when provider items change. */
-export interface ItemSearchIndex {
-    /** Items in deterministic provider-defined order. */
-    sorted: readonly IndexedItem[],
+/** Immutable lookup structures rebuilt only when composed topic items change. */
+export interface ItemSearchIndex<
+    T extends SearchableItem = SearchableItem,
+    K extends string = string,
+> {
+    /** Items in deterministic topic/source-defined order. */
+    sorted: readonly IndexedItem<T, K>[],
 
     /** Item lookup used to preserve MRU order for an empty search. */
-    byId: ReadonlyMap<string, IndexedItem>,
+    byId: ReadonlyMap<K, IndexedItem<T, K>>,
 }
 
 /** Normalize surrounding whitespace and case for matching while leaving the
  *  visible input untouched. Locale-independent casing keeps ASCII-like
- *  provider identifiers deterministic across user environments. */
+ *  source identifiers deterministic across user environments. */
 export function normalizeItemSearchText(searchText: string): string {
     return searchText.trim().toLowerCase();
 }
@@ -34,9 +46,13 @@ export function normalizeItemSearchText(searchText: string): string {
 /** Build the stable, normalized item index consumed by the combobox.
  *  `sortKey` is the same ordering contract used by normal Explorer groups;
  *  `id` breaks rare ties without relying on object insertion order. */
-export function buildItemSearchIndex(items: Record<string, Item>): ItemSearchIndex {
-    const sorted = Object.entries(items)
-        .map(([id, item]): IndexedItem => ({
+export function buildItemSearchIndex<
+    T extends SearchableItem,
+    K extends string = string,
+>(items: Record<K, T>): ItemSearchIndex<T, K> {
+    const entries = Object.entries(items) as [K, T][];
+    const sorted = entries
+        .map(([id, item]): IndexedItem<T, K> => ({
             id,
             item,
             normalizedName: normalizeItemSearchText(item.name),
@@ -52,13 +68,13 @@ export function buildItemSearchIndex(items: Record<string, Item>): ItemSearchInd
 
 /** Find at most five case-insensitive prefix matches. Empty input deliberately
  *  returns no name matches because the combobox uses its MRU path instead. */
-export function findPrefixItems(
-    index: ItemSearchIndex,
-    searchText: string): readonly IndexedItem[] {
+export function findPrefixItems<T extends SearchableItem, K extends string>(
+    index: ItemSearchIndex<T, K>,
+    searchText: string): readonly IndexedItem<T, K>[] {
     const normalizedText = normalizeItemSearchText(searchText);
     if (!normalizedText) return [];
 
-    const matches: IndexedItem[] = [];
+    const matches: IndexedItem<T, K>[] = [];
     for (const entry of index.sorted) {
         if (!entry.normalizedName.startsWith(normalizedText)) continue;
         matches.push(entry);
@@ -69,9 +85,9 @@ export function findPrefixItems(
 
 /** Resolve an exact case-insensitive match so an existing item never receives
  *  a duplicate Add action. */
-export function findExactItem(
-    index: ItemSearchIndex,
-    searchText: string): IndexedItem | undefined {
+export function findExactItem<T extends SearchableItem, K extends string>(
+    index: ItemSearchIndex<T, K>,
+    searchText: string): IndexedItem<T, K> | undefined {
     const normalizedText = normalizeItemSearchText(searchText);
     if (!normalizedText) return undefined;
     return index.sorted.find(entry => entry.normalizedName === normalizedText);
@@ -80,11 +96,11 @@ export function findExactItem(
 /** Resolve recent IDs without re-sorting them. Deleted, duplicate, or otherwise
  *  stale IDs are skipped, and the visible list remains bounded even if stored
  *  data came from a newer or corrupted client. */
-export function resolveRecentItems(
-    index: ItemSearchIndex,
-    recentItemIds: readonly string[]): readonly IndexedItem[] {
-    const items: IndexedItem[] = [];
-    const seen = new Set<string>();
+export function resolveRecentItems<T extends SearchableItem, K extends string>(
+    index: ItemSearchIndex<T, K>,
+    recentItemIds: readonly K[]): readonly IndexedItem<T, K>[] {
+    const items: IndexedItem<T, K>[] = [];
+    const seen = new Set<K>();
     for (const id of recentItemIds) {
         if (seen.has(id)) continue;
         const entry = index.byId.get(id);

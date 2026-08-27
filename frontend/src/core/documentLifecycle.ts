@@ -1,6 +1,6 @@
 /** Defers iframe writes until the native host has exposed the app shell.
  *
- * Requests made before `release()` are coalesced so provider normalization
+ * Requests made before `release()` are coalesced so source normalization
  * effects cannot start the iframe during the hidden top-level navigation.
  * After release, callers receive URLs immediately and apply them to the
  * current iframe element. */

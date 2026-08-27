@@ -1,5 +1,5 @@
 <script lang="ts">
-    import type { IconProp } from "@/core/data";
+    import type { IconProp } from "@/core/explorer";
 
     type IconSize = "xs" | "sm" | "default" | "lg" | "xl";
 

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { Item } from "@/core/data";
+import type { SearchableItem } from "@/core/itemSearch";
 import {
     buildItemSearchIndex,
     findExactItem,
@@ -10,12 +10,10 @@ import {
 } from "@/core/itemSearch";
 
 /** Construct the smallest valid item needed by the rune-independent helpers. */
-function createItem(name: string, sortKey = name): Item {
+function createItem(name: string, sortKey = name): SearchableItem {
     return {
-        id: name,
         name,
         sortKey,
-        pages: [],
     };
 }
 

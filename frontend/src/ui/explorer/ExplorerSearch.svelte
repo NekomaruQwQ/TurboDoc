@@ -4,8 +4,11 @@
     import LoaderCircle from "@lucide/svelte/icons/loader-circle";
     import Search from "@lucide/svelte/icons/search";
 
-    import type { Item, ProviderSearch } from "@/core/data";
-    import * as ctx from "@/core/context.svelte";
+    import type {
+        ExplorerInputAction,
+        ExplorerItem,
+        ExplorerSearchModel,
+    } from "@/core/explorer";
     import {
         buildItemSearchIndex,
         findExactItem,
@@ -13,33 +16,33 @@
         normalizeItemSearchText,
         resolveRecentItems,
     } from "@/core/itemSearch";
+    import { isItemKey, type ItemKey } from "@/core/itemKey";
 
     import Icon from "@/ui/common/Icon.svelte";
     import InputActionDialog from "@/ui/explorer/InputActionDialog.svelte";
 
-    const ADD_ACTION_VALUE = "action:add";
-    const IMPORT_ACTION_VALUE = "action:import";
+    const ADD_ACTION_VALUE_PREFIX = "action:add:";
+    const EMPTY_ACTION_VALUE_PREFIX = "action:empty:";
     const ITEM_VALUE_PREFIX = "item:";
     const SEARCH_ERROR_ID = "explorer-search-error";
-    const provider = ctx.getProviderInfo();
-
     let {
         items,
         search,
         recentItemIds,
     }: {
-        /** Every item currently rendered by the active provider. */
-        items: Record<string, Item>,
-        /** Provider-owned activation and free-form action behavior. */
-        search: ProviderSearch,
-        /** Provider-local MRU IDs, newest first. */
-        recentItemIds: readonly string[],
+        /** Every item currently composed by the active topic. */
+        items: Record<ItemKey, ExplorerItem>,
+        /** Topic-composed activation and free-form source actions. */
+        search: ExplorerSearchModel,
+        /** Topic-local composite MRU keys, newest first. */
+        recentItemIds: readonly ItemKey[],
     } = $props();
 
     let open = $state(false);
     let selectedValue = $state("");
     let inputValue = $state("");
     let importDialogOpen = $state(false);
+    let dialogAction = $state<ExplorerInputAction>();
     let pendingSearchText = $state<string | null>(null);
     let addError = $state<string | null>(null);
 
@@ -49,13 +52,13 @@
     const visibleItems = $derived(normalizedSearchText
         ? findPrefixItems(index, inputValue)
         : resolveRecentItems(index, recentItemIds));
-    const addAction = $derived(normalizedSearchText && !exactItem
-        ? search.getAddAction(inputValue.trim())
-        : null);
+    const addActions = $derived(normalizedSearchText && !exactItem
+        ? search.getAddActions(inputValue.trim())
+        : []);
 
     /** Namespace item IDs away from fixed action values without restricting
-     * the provider's identifier alphabet. */
-    function itemValue(itemId: string): string {
+     * each source's identifier alphabet. */
+    function itemValue(itemId: ItemKey): string {
         return `${ITEM_VALUE_PREFIX}${itemId}`;
     }
 
@@ -77,26 +80,28 @@
         addError = null;
     }
 
-    /** Convert arbitrary provider rejections into concise inline feedback. */
+    /** Convert arbitrary source rejections into concise inline feedback. */
     function getActionErrorMessage(error: unknown): string {
         return error instanceof Error ? error.message : "Could not add this item.";
     }
 
-    /** Dispatch tagged combobox values to provider callbacks. Async add
+    /** Dispatch tagged combobox values to source callbacks. Async add
      * actions retain the submitted text, reject duplicate activation, and
-     * only reset after the provider confirms success. */
+     * only reset after the source confirms success. */
     async function handleValueChange(value: string): Promise<void> {
         if (!value) return;
 
         if (value.startsWith(ITEM_VALUE_PREFIX)) {
             const itemId = value.slice(ITEM_VALUE_PREFIX.length);
+            if (!isItemKey(itemId) || !(itemId in items)) return;
             search.selectItem(itemId);
             await resetCombobox();
             return;
         }
 
-        if (value === ADD_ACTION_VALUE) {
-            const action = addAction;
+        if (value.startsWith(ADD_ACTION_VALUE_PREFIX)) {
+            const index = Number(value.slice(ADD_ACTION_VALUE_PREFIX.length));
+            const action = Number.isInteger(index) ? addActions[index] : undefined;
             if (!action || pendingSearchText) return;
             const submittedText = inputValue.trim();
             pendingSearchText = submittedText;
@@ -116,8 +121,12 @@
             return;
         }
 
-        if (value === IMPORT_ACTION_VALUE && search.emptyAction) {
+        if (value.startsWith(EMPTY_ACTION_VALUE_PREFIX)) {
+            const index = Number(value.slice(EMPTY_ACTION_VALUE_PREFIX.length));
+            const action = Number.isInteger(index) ? search.emptyActions[index] : undefined;
+            if (!action) return;
             await resetCombobox();
+            dialogAction = action;
             importDialogOpen = true;
         }
     }
@@ -143,7 +152,6 @@
             disabled={pendingSearchText !== null}
             placeholder={search.placeholder}
             class="explorer-search-input"
-            data-code-name={provider.renderItemNameAsCode}
             onfocus={() => open = true}
             onclick={() => open = true}
             oninput={handleInput} />
@@ -166,7 +174,7 @@
                         value={itemValue(entry.id)}
                         label={entry.item.name}
                         class="explorer-search-item"
-                        data-code-name={provider.renderItemNameAsCode}>
+                        data-code-name={entry.item.presentation.renderItemNameAsCode}>
                         <span class="option-name">{entry.item.name}</span>
                     </Combobox.Item>
                 {/each}
@@ -179,13 +187,14 @@
                         data-tone="error">
                         {addError}
                     </p>
-                {:else if normalizedSearchText && visibleItems.length === 0 && !addAction}
+                {:else if normalizedSearchText && visibleItems.length === 0 && addActions.length === 0}
                     <p role="status" class="search-feedback" data-tone="muted">
                         {search.invalidText}
                     </p>
                 {/if}
 
-                {#if pendingSearchText || addAction || (!normalizedSearchText && search.emptyAction)}
+                {#if pendingSearchText || addActions.length > 0 ||
+                    (!normalizedSearchText && search.emptyActions.length > 0)}
                     {#if visibleItems.length > 0}
                         <Combobox.Separator class="explorer-search-separator" />
                     {/if}
@@ -197,25 +206,29 @@
                                 aria-hidden="true"
                                 class="explorer-search-spinner" />
                             <span class="pending-message">
-                                Checking crate <code class="pending-term">{pendingSearchText}</code>…
+                                Adding <code class="pending-term">{pendingSearchText}</code>…
                             </span>
                         </div>
-                    {:else if addAction}
-                        <Combobox.Item
-                            value={ADD_ACTION_VALUE}
-                            label={addAction.name}
-                            class="explorer-search-action">
-                            <Icon icon={addAction.icon} size="sm" />
-                            <span class="option-name">{addAction.name}</span>
-                        </Combobox.Item>
-                    {:else if search.emptyAction}
-                        <Combobox.Item
-                            value={IMPORT_ACTION_VALUE}
-                            label={`${search.emptyAction.name}…`}
-                            class="explorer-search-action">
-                            <Icon icon={search.emptyAction.icon} size="sm" />
-                            <span>{search.emptyAction.name}…</span>
-                        </Combobox.Item>
+                    {:else if addActions.length > 0}
+                        {#each addActions as action, index (index)}
+                            <Combobox.Item
+                                value={`${ADD_ACTION_VALUE_PREFIX}${index}`}
+                                label={action.name}
+                                class="explorer-search-action">
+                                <Icon icon={action.icon} size="sm" />
+                                <span class="option-name">{action.name}</span>
+                            </Combobox.Item>
+                        {/each}
+                    {:else}
+                        {#each search.emptyActions as action, index (index)}
+                            <Combobox.Item
+                                value={`${EMPTY_ACTION_VALUE_PREFIX}${index}`}
+                                label={`${action.name}…`}
+                                class="explorer-search-action">
+                                <Icon icon={action.icon} size="sm" />
+                                <span>{action.name}…</span>
+                            </Combobox.Item>
+                        {/each}
                     {/if}
                 {/if}
             </Combobox.Viewport>
@@ -223,9 +236,9 @@
     </Combobox.Portal>
 </Combobox.Root>
 
-{#if search.emptyAction}
+{#if dialogAction}
     <InputActionDialog
-        action={search.emptyAction}
+        action={dialogAction}
         bind:open={importDialogOpen}
         showTrigger={false} />
 {/if}
