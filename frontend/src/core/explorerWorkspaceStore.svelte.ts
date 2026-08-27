@@ -14,7 +14,8 @@ const explorerTopicDataSchema = z.object({
     groupOrder: z.array(z.string()),
 });
 
-const explorerWorkspaceDataSchema = z.object({
+/** Complete schema shared by the workspace store and compatibility migrations. */
+export const explorerWorkspaceDataSchema = z.object({
     schemaVersion: z.literal(1),
     topics: z.record(z.string(), explorerTopicDataSchema),
 });

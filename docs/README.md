@@ -7,7 +7,7 @@ TurboDoc is a universal documentation viewer with local caching and workspace ma
 The frontend uses independently persisted **Sources** compiled by reusable
 **Adapters**. The navigation rail and Explorer compose those source views into
 UI-only **Topics**. See [M7-SourceAdapterTopics.md](M7-SourceAdapterTopics.md)
-for the complete architecture and `rust.toml` migration contract.
+for the complete architecture and legacy Rust provider migration contract.
 
 **Key Features:**
 - Topic-composed documentation viewing over independently persisted sources
@@ -396,12 +396,13 @@ Each source maps to `<dataDir>/sources/<sourceId>.toml`; Explorer groups map
 to root `<dataDir>/ui.explorer.toml`. Data is flat, with no `[state]` table.
 Serialized save queues snapshot, coalesce, order, retain, and retry writes.
 
-The removable startup migration reads only legacy root `rust.toml`. It treats
-existing targets as independently authoritative, converts crate groups to
-composite keys, never reads old documentation TOML, and never changes/deletes
-the legacy file. Validation or write failure blocks new-store initialization
-and exposes Retry, preventing defaults from replacing data after a failed
-migration.
+The removable startup migration reads legacy root `rust.toml` plus either
+`rust-docs.toml` or the historical `rust-doc.toml`. It treats source files and
+topic records as independently authoritative, splits Rust Docs pins across the
+book sources, converts both providers' groups to composite keys, and never
+changes or deletes legacy files. Validation or write failure blocks new-store
+initialization and exposes Retry, preventing defaults from replacing data after
+a failed migration.
 
 See [M7-SourceAdapterTopics.md](M7-SourceAdapterTopics.md) for schemas,
 invariants, edge cases, extension steps, and the exact migration-removal path.
@@ -591,9 +592,12 @@ WebView2 message protocol, or generic frontend event dispatcher.
    object.
 2. `<dataDir>/ui.explorer.toml` stores topic groups and group order using
    composite item keys.
-3. `<dataDir>/rust.toml` is optional read-only migration input.
-4. `<dataDir>/cache.sqlite` stores generic HTTP cache entries.
-5. localStorage holds `activeTopicId`, `currentUrl`, topic-scoped composite
+3. `<dataDir>/rust.toml` is optional read-only Rust Crates migration input.
+4. `<dataDir>/rust-docs.toml` or historical `<dataDir>/rust-doc.toml` is
+   optional read-only Rust Docs migration input; simultaneous files are an
+   ambiguity error.
+5. `<dataDir>/cache.sqlite` stores generic HTTP cache entries.
+6. localStorage holds `activeTopicId`, `currentUrl`, topic-scoped composite
    recent items, and topic/composite expansion keys.
 
 Source and data IDs are validated as lowercase ASCII path-segment-safe keys of
@@ -766,7 +770,7 @@ TurboDoc/
 │       │   ├── index.ts          # UI-only topic registry and validation
 │       │   └── rust.svg
 │       ├── migrations/
-│       │   └── rust-provider-v1.ts
+│       │   └── rust-providers-v1.ts
 │       ├── core/
 │       │   ├── source.ts         # Definition → Adapter → Model contracts
 │       │   ├── explorer.ts       # SourceView and composed ExplorerView types
@@ -836,7 +840,7 @@ TurboDoc/
 - [x] Automatic cross-crate navigation via direct native lifecycle calls
 - [x] Topic-composed Explorer search with source dispatch and composite recent items
 - [x] Serialized/coalescing per-source and Explorer UI persistence with retry
-- [x] Read-only `rust.toml` migration with independently authoritative targets
+- [x] Read-only legacy Rust provider migration with per-source/topic authority
 - [x] HTTP proxy with SQLite cache and dark mode injection (v0.3)
 - [x] Rust host with native egui startup UI and WebView2 (eframe/wgpu + webview2-com)
 - [x] Release frontend from executable-adjacent Vite artifacts, with opt-in Vite dev mode
@@ -861,7 +865,8 @@ TurboDoc/
   `SourceModel`, and `SourceView` layers. Add UI-only topics, composite item
   identity, application-owned source stores, per-source TOML under `sources/`,
   independent reliable saves/errors, RustBook/Web adapter separation, four
-  topic destinations, and a removable read-only `rust.toml` migration.
+  topic destinations, and a removable read-only migration for the legacy Rust
+  Crates and Rust Docs provider files.
 - **2026-08**: Make item grouping standard Explorer functionality for every
   provider. Remove the provider grouping opt-out, restore Add Group for Doc
   providers, always expand the containing group during navigation reveals, and

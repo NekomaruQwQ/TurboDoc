@@ -21,7 +21,7 @@
         initializeUiState,
         setActiveTopicId,
     } from "@/core/uiState.svelte";
-    import { migrateRustProviderV1 } from "@/migrations/rust-provider-v1";
+    import { migrateRustProvidersV1 } from "@/migrations/rust-providers-v1";
     import topics from "@/topics";
 
     import WorkbenchToolbar from "./WorkbenchToolbar.svelte";
@@ -104,7 +104,7 @@
     let migrationAttempt: Promise<void> | undefined;
     let disposed = false;
 
-    /** Run the removable Rust-only compatibility bridge before any new store
+    /** Run the removable legacy Rust compatibility bridge before any new store
      * can initialize or persist its target resource. */
     function initializeWorkspace(): void {
         if (migrationAttempt || disposed) return;
@@ -112,7 +112,7 @@
         migrationError = null;
         migrationAttempt = (async () => {
             try {
-                await migrateRustProviderV1();
+                await migrateRustProvidersV1();
                 if (disposed) return;
                 await workspace.load();
                 if (disposed) return;
@@ -121,7 +121,7 @@
                 migrationStatus = "ready";
             } catch (error) {
                 if (disposed) return;
-                console.error("Legacy Rust migration failed:", error);
+                console.error("Legacy Rust providers migration failed:", error);
                 migrationStatus = "error";
                 migrationError = error instanceof Error ? error.message : String(error);
             }
@@ -190,7 +190,7 @@
                     {#if migrationStatus === "error"}
                         <div class="workspace-status" role="alert">
                             <span title={migrationError ?? undefined}>
-                                Rust data migration failed. The old file was left unchanged.
+                                Rust data migration failed. The old files were left unchanged.
                             </span>
                             <Button
                                 variant="ghost"
