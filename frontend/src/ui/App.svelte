@@ -3,7 +3,6 @@
     import * as Resizable from "@shadcn/components/ui/resizable";
     import { Button } from "@shadcn/components/ui/button";
 
-    import * as storage from "@/core/localStorage";
     import * as ctx from "@/core/context.svelte";
     import type {
         DocumentNavigationCompleted,
@@ -17,6 +16,11 @@
     import { SourceStoreRegistry } from "@/core/sourceStoreRegistry";
     import type { Topic } from "@/core/topic";
     import { findTopicForUrl, getTopicHomeUrl } from "@/core/topic";
+    import {
+        currentUrl,
+        initializeUiState,
+        setActiveTopicId,
+    } from "@/core/uiState.svelte";
     import { migrateRustProviderV1 } from "@/migrations/rust-provider-v1";
     import topics from "@/topics";
 
@@ -24,9 +28,13 @@
     import NavBar from "./NavBar.svelte";
     import Explorer from "./explorer/Explorer.svelte";
 
+    const defaultTopic = topics[0];
+    if (!defaultTopic) throw new Error("TurboDoc requires at least one topic.");
+    const initialUiState = initializeUiState(topics);
+
     /** Captured once at mount and released only after the native host exposes
      * the workbench. Subsequent navigation goes through `ctx.navigateTo()`. */
-    const initialUrl = storage.load("currentUrl");
+    const initialUrl = initialUiState.currentUrl;
     const DOCUMENT_LOAD_TIMEOUT_MS = 30_000;
     let documentLoad = $state<InitialDocumentLoadState>({
         status: "waiting",
@@ -46,7 +54,7 @@
         // Filter the stray `storage-change-detection` ping fired when
         // localStorage values change in another browsing context.
         if (event.url === "https://docs.rs/-/storage-change-detection.html") return;
-        storage.save("currentUrl", event.url);
+        currentUrl.value = event.url;
         reportedNavigationId = event.navigationId;
         const owningTopic = findTopicForUrl(topics, event.url)?.topic;
         if (owningTopic) activateTopic(owningTopic, false);
@@ -106,8 +114,11 @@
             try {
                 await migrateRustProviderV1();
                 if (disposed) return;
-                migrationStatus = "ready";
                 await workspace.load();
+                if (disposed) return;
+                if (workspace.status === "ready")
+                    workspace.reconcileTopics(topics.map(topic => topic.id));
+                migrationStatus = "ready";
             } catch (error) {
                 if (disposed) return;
                 console.error("Legacy Rust migration failed:", error);
@@ -142,18 +153,7 @@
         return () => window.clearTimeout(timeout);
     });
 
-    /** Restore only registered topics. Provider-era selection is deliberately
-     * ignored because the old IDs do not map one-to-one onto topics. */
-    const defaultTopic = topics[0];
-    if (!defaultTopic) throw new Error("TurboDoc requires at least one topic.");
-    const storedTopicId = storage.load("activeTopicId");
-    const initialTopicId = topics.some(topic => topic.id === storedTopicId)
-        ? storedTopicId
-        : defaultTopic.id;
-    if (storedTopicId !== initialTopicId)
-        storage.save("activeTopicId", initialTopicId);
-
-    let topicId = $state(initialTopicId);
+    let topicId = $state(initialUiState.activeTopicId);
     let topic = $derived(topics.find(candidate => candidate.id === topicId) ?? defaultTopic);
 
     /** Persist a topic switch and optionally open its canonical landing
@@ -163,7 +163,7 @@
         navigateHome: boolean): void {
         if (nextTopic.id === topicId) return;
         topicId = nextTopic.id;
-        storage.save("activeTopicId", nextTopic.id);
+        setActiveTopicId(nextTopic.id);
         if (navigateHome) ctx.navigateTo(getTopicHomeUrl(nextTopic));
     }
 

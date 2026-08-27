@@ -188,14 +188,17 @@ become one Explorer view.
 4. Add and empty-input actions are collected in topic source order.
 5. The first ready source reporting an active item wins; disjoint URL ownership
    should normally make that unique.
-6. Group cleanup removes an orphan only when its parsed owner is ready and the
-   item is absent. Keys for unknown, loading, or failed sources are preserved.
+6. Group cleanup removes malformed or unregistered-source identities
+   immediately, then removes an item owned by a ready source only when that
+   item is absent. Registered loading or failed sources are preserved.
 
 The navigation rail lists topics. Explicit topic selection opens the configured
 home source; an accepted iframe navigation activates the first topic containing
 a matching source without navigating again. Active topic, recent composite
-items, and expansion keys use new localStorage slots so provider-era UI keys do
-not collide with the new identity model.
+items, and expansion keys use registered localStorage slots. That registry owns
+the complete `turbodoc:` namespace: startup removes every unregistered slot and
+canonicalizes current values from topic/source ownership, so obsolete
+provider-era or versioned UI keys require no explicit migration list.
 
 ## 7. URL and page safety
 

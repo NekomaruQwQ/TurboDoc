@@ -4,7 +4,7 @@
 
     import * as ctx from "@/core/context.svelte";
     import type { ExplorerWorkspaceStore } from "@/core/explorerWorkspaceStore.svelte";
-    import { parseItemKey, type ItemKey } from "@/core/itemKey";
+    import type { ItemKey } from "@/core/itemKey";
     import type { SourceDataStore } from "@/core/sourceDataStore.svelte";
     import type { SourceStoreRegistry } from "@/core/sourceStoreRegistry";
     import type { SourceModel, SourceModelContext } from "@/core/source";
@@ -13,6 +13,7 @@
         currentUrl,
         expandGroup,
         expandItems,
+        reconcileTopicUiState,
         recentlyAccessedItemIds,
         recordItemAccess,
     } from "@/core/uiState.svelte";
@@ -234,19 +235,24 @@
             });
     });
 
-    // Prune only items owned by ready sources. Unknown/loading/error source
-    // references are preserved because absence from the composed view is not
-    // evidence that their data was deleted.
+    // Persistence owners receive the same readiness evidence and centralize
+    // their own cleanup rules; this view does not interpret stale identities.
     $effect(() => {
-        const validIds = new Set(Object.keys(output.items));
-        const readySourceIds = new Set(readySources.map(source => source.model.id));
-        for (const group of Object.values(topicData.groups)) {
-            const next = group.items.filter(itemId => {
-                const parsed = parseItemKey(itemId);
-                return !parsed || !readySourceIds.has(parsed.sourceId) || validIds.has(itemId);
-            });
-            if (next.length !== group.items.length) group.items = next;
-        }
+        const registeredSourceIds = topic.sources.map(source => source.id);
+        const readySourceIds = readySources.map(source => source.model.id);
+        const validItemIds = Object.keys(output.items) as ItemKey[];
+        const groupNames = Object.keys(topicData.groups);
+        workspace.reconcileTopicItems(topic.id, {
+            registeredSourceIds,
+            readySourceIds,
+            validItemIds,
+        });
+        reconcileTopicUiState({
+            topic,
+            readySourceIds,
+            validItemIds,
+            groupNames,
+        });
     });
 
     onDestroy(() => {

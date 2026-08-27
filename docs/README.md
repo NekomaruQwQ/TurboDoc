@@ -593,7 +593,7 @@ WebView2 message protocol, or generic frontend event dispatcher.
    composite item keys.
 3. `<dataDir>/rust.toml` is optional read-only migration input.
 4. `<dataDir>/cache.sqlite` stores generic HTTP cache entries.
-5. LocalStorage holds `activeTopicId`, `currentUrl`, topic-scoped composite
+5. localStorage holds `activeTopicId`, `currentUrl`, topic-scoped composite
    recent items, and topic/composite expansion keys.
 
 Source and data IDs are validated as lowercase ASCII path-segment-safe keys of
@@ -609,11 +609,26 @@ Default page identity ignores fragments, while persisted/navigation targets
 retain them. Collection reorders submit complete permutations and preserve the
 original accepted target spelling.
 
-**Source-aware cleanup**
+**Local UI-state ownership**
 
-Explorer group references are removed only when the owning source is ready and
-no longer renders the item. Unknown, malformed, loading, and failed-source keys
-are retained because absence from a partial topic view is not proof of deletion.
+The current storage-slot registry owns the complete `turbodoc:` localStorage
+namespace. Startup removes every namespaced key absent from that registry,
+canonicalizes the surviving slots from the current topic/source registry, and
+repairs corrupt values. Non-TurboDoc keys remain untouched; there is no
+historical stale-key list or broad `localStorage.clear()` operation.
+
+`uiState.svelte.ts` owns semantic localStorage reconciliation. Removed topics,
+removed sources, malformed identities, duplicates, and unknown URLs are pruned
+from current registry evidence. Once a source is ready, absent recent-item and
+expansion references are removed; registered loading and failed sources retain
+their references because a partial topic view cannot prove deletion.
+
+**Source-aware Explorer cleanup**
+
+`ExplorerWorkspaceStore` similarly removes retired topic/source records,
+canonicalizes group order, deduplicates group membership, and removes an absent
+item only when its owning source is ready. Explorer components supply readiness
+evidence but do not implement persistence cleanup policy.
 
 **`latest` remains intent**
 
@@ -653,10 +668,10 @@ intent.
 **Root and local state**
 
 `App.svelte` owns active topic selection, the source-store registry, Explorer
-workspace, migration gate, and native document lifecycle. `currentUrl`,
-expansion, and recent items are fine-grained reactive bridges over validated
-localStorage. The shared iframe reference and deferred `navigateTo(url)` gate
-remain in `core/context.svelte.ts`.
+workspace, migration gate, and native document lifecycle. `uiState.svelte.ts`
+initializes and reconciles validated localStorage before exposing `currentUrl`,
+expansion, and recent-item reactive bridges. The shared iframe reference and
+deferred `navigateTo(url)` gate remain in `core/context.svelte.ts`.
 
 ### UI Patterns
 
@@ -835,6 +850,13 @@ TurboDoc/
 
 ## Change History
 
+- **2026-08**: Centralize local UI-state reconciliation under
+  `uiState.svelte.ts`. Treat the registered `turbodoc:` slots as the complete
+  namespace allowlist, remove every other namespaced key at startup, repair and
+  canonicalize current slots from topic/source ownership, and prune item state
+  only when source readiness proves it stale. Move persisted topic/group/item
+  cleanup behind `ExplorerWorkspaceStore`, leaving components responsible only
+  for supplying current registry and readiness evidence.
 - **2026-08**: Replace providers with per-source `SourceDefinition`, `Adapter`,
   `SourceModel`, and `SourceView` layers. Add UI-only topics, composite item
   identity, application-owned source stores, per-source TOML under `sources/`,
