@@ -44,6 +44,8 @@
     --sidebar-border: oklch(0.92 0.004 286.32);
     --sidebar-ring: oklch(0.705 0.015 286.067);
     --workbench: oklch(0.965 0.003 264);
+    --workbench-chrome: oklch(0.965 0.003 264 / 70%);
+    --sidebar-chrome: oklch(0.985 0 0 / 80%);
     --editor: oklch(1 0 0);
     --workbench-hover: oklch(0.925 0.006 264);
     --workbench-selection: oklch(0.885 0.018 255);
@@ -85,6 +87,8 @@
     --sidebar-border: oklch(1 0 0 / 9%);
     --sidebar-ring: oklch(0.68 0.17 250);
     --workbench: oklch(0.17 0.008 264);
+    --workbench-chrome: oklch(0.17 0.008 264 / 54%);
+    --sidebar-chrome: oklch(0.205 0.008 264 / 72%);
     --editor: oklch(0.195 0.007 264);
     --workbench-hover: oklch(0.255 0.011 264);
     --workbench-selection: oklch(0.31 0.025 258);
@@ -100,11 +104,13 @@
     --color-sidebar-primary: var(--sidebar-primary);
     --color-sidebar-foreground: var(--sidebar-foreground);
     --color-sidebar: var(--sidebar);
+    --color-sidebar-chrome: var(--sidebar-chrome);
     --color-workbench-divider: var(--workbench-divider);
     --color-workbench-selection: var(--workbench-selection);
     --color-workbench-hover: var(--workbench-hover);
     --color-editor: var(--editor);
     --color-workbench: var(--workbench);
+    --color-workbench-chrome: var(--workbench-chrome);
     --color-chart-5: var(--chart-5);
     --color-chart-4: var(--chart-4);
     --color-chart-3: var(--chart-3);
@@ -141,10 +147,14 @@
     * {
         @apply border-border outline-ring/50;
     }
-    body {
-        @apply bg-workbench text-foreground;
-    }
     html {
         @apply font-sans;
+    }
+    html,
+    body {
+        background: transparent;
+    }
+    body {
+        @apply text-foreground;
     }
 }

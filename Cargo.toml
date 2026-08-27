@@ -30,6 +30,24 @@ webview2-com = "0.39.1"
 widestring = "1.2.1"
 win32job = "2.0.3"
 
+[dependencies.egui]
+version = "0.36.1"
+default-features = false
+features = ["bytemuck", "default_fonts"]
+
+[dependencies.egui-winit]
+version = "0.36.1"
+default-features = false
+features = ["accesskit", "clipboard"]
+
+[dependencies.egui-wgpu]
+version = "0.36.1"
+default-features = false
+features = ["winit"]
+
+[dependencies.pollster]
+version = "1.0.1"
+
 [dependencies.windows]
 version = "0.62.2"
 features = [
@@ -44,11 +62,6 @@ features = [
 version = "0.30.13"
 default-features = false
 features = ["rwh_06"]
-
-[dependencies.eframe]
-version = "0.36.1"
-default-features = false
-features = ["accesskit", "default_fonts", "wgpu_no_default_features"]
 
 [dependencies.wgpu]
 version = "30.0.0"

@@ -5,6 +5,10 @@ set shell := ["nu", "-c"]
 alias r := run
 alias i := install
 
+# List all available commands.
+list:
+    just --list
+
 # Run in development mode with repository-local data. This is the default
 # command if no command is specified.
 dev *args:

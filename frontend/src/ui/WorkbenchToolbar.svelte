@@ -36,7 +36,7 @@
         align-items: center;
         gap: 0.75rem;
         border-bottom: 1px solid var(--color-workbench-divider);
-        background-color: var(--color-background);
+        background-color: var(--color-workbench-chrome);
         padding-inline: 0.75rem;
     }
 

@@ -115,9 +115,32 @@ TurboDoc is an "enhanced tabbed browser with inactive tab resources released" �
 
 | **Component** | **Tech Stack** | **Role** | **Key Responsibilities** |
 |---|---|---|---|
-| **Host** | Rust (eframe/egui + wgpu/DX12 + WebView2) | **The Shell** | Native window management and startup/error surfaces. Intercepts configured upstream GETs for proxy/cache handling. Rust owns `/api/data/{data_id}`, `/api/sources/{source_id}`, and rejection of unknown `/api` paths; dev-only `/api/ready` passes through to Vite. Release assets use an executable-adjacent virtual-host mapping and persistence uses a separate exact-CORS API origin. |
+| **Host** | Rust (nkcore/winit + egui-wgpu/DX12 + WebView2) | **The Shell** | Two-window native lifecycle, Windows 11 Mica composition, and startup/error surfaces. Intercepts configured upstream GETs for proxy/cache handling. Rust owns `/api/data/{data_id}`, `/api/sources/{source_id}`, and rejection of unknown `/api` paths; dev-only `/api/ready` passes through to Vite. Release assets use an executable-adjacent virtual-host mapping and persistence uses a separate exact-CORS API origin. |
 | **Backend** | Rust (rusqlite + reqwest + `http-cache-semantics`), in-process — no axum or bound listener | **The Brain** | Generic UI/migration TOML persistence plus one TOML file per source under `sources/`. Also provides the site-agnostic SQLite HTTP cache, conditional revalidation, stale-while-revalidate, LRU eviction, reviewed response-header forwarding, and serve-time Rustdoc dark-mode injection. |
 | **Frontend** | Svelte 5 + Vite | **The Face** | Compiles source definitions through adapters, derives source views, composes them into UI-only topics, and renders the generic Explorer. Rust crate metadata is lazy and remains source-owned. Release uses built Vite artifacts; dev uses Vite directly for HMR. |
+
+### Native Backdrop Composition
+
+Mica is workbench chrome rather than document content. Native startup rendering
+is separated so the workbench does not need a transparent DX12 swapchain:
+
+1. The standard, initially hidden winit workbench keeps its native frame and
+   requests the Windows `MainWindow` system backdrop. It owns no wgpu surface.
+2. A separate fixed 560×320 winit splash owns the only egui-wgpu DX12 surface.
+   It stays opaque during initialization, navigation, and native failure states.
+3. WebView2 receives an alpha-zero default background in its controller options,
+   before the child window is created, so transparent frontend pixels compose
+   directly over the workbench backdrop without a white-flash transition.
+4. Svelte keeps the page root and pane gutters transparent, applies semantic
+   translucent tints to the toolbar and sidebar, and keeps the documentation
+   viewer, loading surface, popovers, and dialogs opaque for readability.
+
+After successful top-level navigation, the host prepares the WebView2 controller,
+shows and activates the Mica workbench, then hides the splash. A later fatal dev
+frontend error reverses that presentation so diagnostics remain available.
+
+This arrangement relies on Windows system policy for accessibility and fallback
+behavior; TurboDoc does not emulate Mica with a CSS blur or a captured wallpaper.
 
 ### Request Flow
 
@@ -204,7 +227,7 @@ Rust file server or reverse proxy is involved.
 - **Utilities**: remeda (functional), semver, zod
 - **Drag and drop**: `svelte-dnd-action` (handle-scoped pointer, touch, and keyboard sorting)
 - **Backend**: Rust (rusqlite + reqwest + `http-cache-semantics`) — in-process, no HTTP listener. `server::start` opens the SQLite cache and returns a `Server` handle the host calls from the WebView2 callback via `runtime.block_on(...)`.
-- **Host**: Rust (eframe/egui + wgpu/DX12 + WebView2) — native startup/error UI, window management, release-folder mapping, WebView2 request interception, backend lifecycle, and optional Vite-child lifecycle. eframe owns the root winit window and WebView2 uses its HWND as the parent for a child controller. The host process owns no listener; only `--dev` binds a Vite port.
+- **Host**: Rust (nkcore/winit + egui-winit + egui-wgpu/DX12 + WebView2) — native startup/error UI, window management, release-folder mapping, WebView2 request interception, backend lifecycle, and optional Vite-child lifecycle. nkcore adapts winit's application lifecycle to a stateful closure; the compact splash owns the sole wgpu surface, while WebView2 uses the independent Mica workbench HWND as its parent. The host process owns no listener; only `--dev` binds a Vite port.
 - **Native boundary**: All webview→host application communication uses REST-style `fetch()` under `/api/*`; dev uses the Vite origin while release uses the unmapped `https://api.turbodoc.example` origin. WebView2 intercepts that namespace, answers release preflights, passes `/api/ready` through to Vite only in dev mode, dispatches generic and per-source persistence routes to Rust, and rejects every other path. `app.rs` builds host→webview calls to named functions under `window.__turboDoc__`, while the TurboDoc-agnostic WebView2 wrapper executes their source in FIFO order through `ExecuteScriptWithResult`; there is no WebView2 message protocol or generic event dispatcher.
 
 ### Sidebar Layout
@@ -421,16 +444,16 @@ Release mode is the CLI default and is unrelated to Cargo's `release` profile. `
 
 `--dev` activates the development-only module in `src/dev.rs`. It discovers the repository from Cargo's executable layout, creates a kill-on-close Job Object, starts Vite on the required `--port`, and monitors the child for its complete lifetime. Each launch receives a unique `TURBODOC_VITE_READY_TOKEN`; Vite owns `GET /api/ready` and returns that token only after its middleware stack is listening. The host polls for at most five seconds, rejects stale Vite processes, and navigates to the matching IPv4 loopback origin only after both Vite and WebView2 are ready. HMR's WebSocket talks to Vite directly on the same port—there is no `hmr.clientPort` override or reverse proxy.
 
-Both modes share the native lifecycle after frontend readiness. egui immediately renders a spinner over the workbench color while WebView2 creates its environment and hidden child controller through completion callbacks. The initial Svelte render leaves the documentation iframe without a `src`; after successful top-level navigation the host reveals the controller and calls `window.__turboDoc__.frontendShown()`, and the frontend releases its latest queued documentation URL on the next animation frame. Startup and initial-navigation failures remain in the native egui surface with expandable, copyable details. Documentation failures stay inside the visible editor pane with a bounded spinner and Retry action. Browser-only execution is unsupported because the native lifecycle, REST interception, and documentation proxy are required application services.
+Both modes share the native lifecycle after frontend readiness. The opaque 560×320 egui splash immediately renders a spinner while WebView2 creates its environment and hidden child controller under the independently hidden Mica workbench. The initial Svelte render leaves the documentation iframe without a `src`; after successful top-level navigation the host reveals the controller and calls `window.__turboDoc__.frontendShown()`, the frontend releases its latest queued documentation URL on the next animation frame, then the host shows and activates the workbench and hides the splash. Startup and initial-navigation failures remain in the native splash with expandable, copyable details. Documentation failures stay inside the visible editor pane with a bounded spinner and Retry action. Browser-only execution is unsupported because the native lifecycle, REST interception, and documentation proxy are required application services.
 
-Initialization milestones log through `log::info` as `startup +… ms`. A shared monotonic origin makes concurrent dev-mode Vite and native paths directly comparable; release mode omits those Vite phases. Expensive backend, runtime, eframe/wgpu, WebView2-environment, and WebView2-controller operations report their individual phase durations. `WebView2 NavigationCompleted …; controller shown; document loading released` is the perceived-startup milestone because that is when the workbench becomes visible. The separate one-shot `initial document NavigationCompleted …` milestone measures time until the restored documentation becomes usable. Both completion handlers are application behavior rather than diagnostic instrumentation: the top-level handler preserves visibility-before-iframe ordering, while frame completion settles the editor placeholder.
+Initialization milestones log through `log::info` as `startup +… ms`. A shared monotonic origin makes concurrent dev-mode Vite and native paths directly comparable; release mode omits those Vite phases. Expensive backend, runtime, splash-wgpu, WebView2-environment, and WebView2-controller operations report their individual phase durations. `Mica workbench shown; native splash hidden` is the perceived-startup milestone. The earlier `WebView2 NavigationCompleted …; controller prepared; document loading released` event records browser readiness, and the separate one-shot `initial document NavigationCompleted …` milestone measures time until the restored documentation becomes usable. Both completion handlers are application behavior rather than diagnostic instrumentation: the top-level handler preserves controller-before-document-before-window presentation ordering, while frame completion settles the editor placeholder.
 
 #### Checking for Startup Regressions
 
 Measure both cold and warm dependency-optimization behavior:
 
 1. Close TurboDoc and remove only `frontend/node_modules/.vite`.
-2. Run `just dev`, then record the `startup +… ms` lines through both `WebView2 NavigationCompleted …; controller shown; document loading released` and `initial document NavigationCompleted …`. This is the cold-cache result and includes Vite dependency prebundling.
+2. Run `just dev`, then record the `startup +… ms` lines through both `Mica workbench shown; native splash hidden` and `initial document NavigationCompleted …`. This is the cold-cache result and includes Vite dependency prebundling.
 3. Close TurboDoc and run `just dev` again without changing dependencies, `bun.lock`, or Vite configuration. Record the same lines. Repeat once if needed; these are warm-cache results and represent normal development startup.
 4. Compare like with like against previous measurements. A slower `Vite ready on port …` phase points to Vite startup or dependency optimization. Slower WebView2 environment/controller phases point to native browser initialization. If those milestones remain stable but either the shell-visible or initial-document time grows, temporarily add targeted navigation lifecycle probes rather than keeping additional per-navigation telemetry in the normal runtime.
 
@@ -838,7 +861,7 @@ TurboDoc/
 - [x] Serialized/coalescing per-source and Explorer UI persistence with retry
 - [x] Read-only `rust.toml` migration with independently authoritative targets
 - [x] HTTP proxy with SQLite cache and dark mode injection (v0.3)
-- [x] Rust host with native egui startup UI and WebView2 (eframe/wgpu + webview2-com)
+- [x] Rust host with a native egui-wgpu splash and Mica WebView2 workbench (nkcore/winit + webview2-com)
 - [x] Release frontend from executable-adjacent Vite artifacts, with opt-in Vite dev mode
 
 ### Remaining
@@ -850,6 +873,13 @@ TurboDoc/
 
 ## Change History
 
+- **2026-08**: Split native presentation into a compact opaque egui-wgpu splash
+  and an independent WebView2 workbench with no wgpu surface. Drive both through
+  nkcore's closure-oriented winit event-loop wrapper, preserve clipboard and
+  AccessKit integration, and transition to the hidden workbench only after its
+  alpha-zero WebView2 controller and frontend are ready. Apply Windows 11 Mica
+  directly to the standard workbench frame, expose it through semantic
+  toolbar/sidebar tints, and retain a solid documentation canvas.
 - **2026-08**: Centralize local UI-state reconciliation under
   `uiState.svelte.ts`. Treat the registered `turbodoc:` slots as the complete
   namespace allowlist, remove every other namespaced key at startup, repair and

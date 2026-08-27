@@ -17,6 +17,8 @@
     width: 100vw;
     height: 100vh;
     overflow: hidden;
+    /* Preserve the WebView2 alpha path down to the native DWM backdrop. */
+    background: transparent;
 }
 
 button {

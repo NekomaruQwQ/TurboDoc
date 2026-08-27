@@ -164,9 +164,9 @@ impl WebView {
         .context("failed to start WebView2 controller creation")
     }
 
-    /// Configure the opaque startup color before WebView2 creates its child
-    /// window. Applying this after controller creation leaves a white-flash
-    /// race when the hidden controller is eventually revealed.
+    /// Configure transparency before WebView2 creates its child window. The
+    /// early option avoids a white-flash race and lets transparent frontend
+    /// pixels reveal the native backdrop as soon as the controller appears.
     fn create_controller_options(
         environment: &ICoreWebView2Environment10)
      -> anyhow::Result<ICoreWebView2ControllerOptions> {
@@ -177,16 +177,15 @@ impl WebView {
             controller_options
                 .cast::<ICoreWebView2ControllerOptions3>()
                 .context("failed to cast to ICoreWebView2ControllerOptions3")?;
-        let color = crate::startup::STARTUP_BACKGROUND;
         unsafe {
             controller_options_3.SetDefaultBackgroundColor(COREWEBVIEW2_COLOR {
-                A: 255,
-                R: color.red,
-                G: color.green,
-                B: color.blue,
+                A: 0,
+                R: 0,
+                G: 0,
+                B: 0,
             })
         }
-        .context("failed to set WebView2 startup background")?;
+        .context("failed to set transparent WebView2 background")?;
         Ok(controller_options)
     }
 

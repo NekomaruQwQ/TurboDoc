@@ -1,4 +1,5 @@
 use nkcore::prelude::*;
+use winit::window::WindowButtons;
 
 use crate::dev;
 use crate::server::Server;
@@ -6,22 +7,37 @@ use crate::startup::StartupProbe;
 use crate::webview::WebView;
 
 use std::cell::RefCell;
+use std::num::NonZeroU32;
 use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::sync::OnceLock;
 use std::sync::mpsc;
 use std::time::Duration;
 use std::time::Instant;
 use windows::Win32::Foundation::RECT;
+use winit::dpi::LogicalSize;
+use winit::dpi::PhysicalPosition;
 use winit::dpi::PhysicalSize;
+use winit::event::WindowEvent;
+use winit::event_loop::ActiveEventLoop;
+use winit::event_loop::ControlFlow;
+use winit::event_loop::EventLoop;
+use winit::event_loop::EventLoopProxy;
+use winit::window::Theme;
 use winit::window::Window;
+use winit::window::WindowAttributes;
 
 /// Upper bound for the first WebView2 navigation. WebView2 completion events
 /// do not have an intrinsic deadline, so a missing callback must not leave the
 /// native startup surface spinning forever.
 const INITIAL_NAVIGATION_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Compact logical client size reserved for the native startup and failure UI.
+const SPLASH_SIZE: LogicalSize<f64> = LogicalSize::new(560.0, 320.0);
+
+/// Logical client size used when the Mica workbench first becomes visible.
+const WORKBENCH_SIZE: LogicalSize<f64> = LogicalSize::new(1280.0, 800.0);
 
 /// Reserved virtual host used only for executable-adjacent release assets.
 const RELEASE_FRONTEND_HOST: &str = "turbodoc.example";
@@ -134,35 +150,42 @@ fn web_resource_request_filters(api_origin: &str) -> Vec<String> {
         .collect()
 }
 
-/// Run the eframe host while the selected frontend and WebView2 initialize.
+/// Run the two-window native host while the selected frontend initializes.
 ///
-/// eframe owns the root winit window and wgpu surface. WebView2 is created
-/// asynchronously as a child of that same HWND, so egui can keep rendering
-/// startup progress until the selected frontend and controller are ready.
+/// The compact splash is the only wgpu surface. The independently owned,
+/// initially hidden workbench hosts WebView2 directly over its Mica backdrop.
 pub fn run(
     frontend: FrontendSource,
     server: Server,
     startup: StartupProbe) {
+    use nkcore::winit::EventLoopExt as _;
+
+    let mut event_loop = match EventLoop::<HostEvent>::with_user_event().build() {
+        Ok(event_loop) => event_loop,
+        Err(err) => {
+            log::error!("failed to create native event loop: {err:#}");
+            show_native_startup_error(&err);
+            return;
+        },
+    };
+    let event_loop_proxy = event_loop.create_proxy();
     let frontend_kind = frontend.kind();
     let api_origin = frontend.api_origin().to_owned();
     let url = frontend.url().to_owned();
     let release_public_dir = frontend.release_public_dir().map(Path::to_path_buf);
 
-    // Start Vite before eframe initializes wgpu so the two slower dev paths
-    // overlap. Release mode has neither a lifecycle channel nor child process.
-    let frontend_repaint = Arc::new(OnceLock::<eframe::egui::Context>::new());
+    // Start Vite before the splash initializes wgpu so the two slower dev
+    // paths overlap. Release mode has neither a channel nor child process.
     let dev_rx = match frontend {
         FrontendSource::Dev(frontend) => {
             let (dev_tx, dev_rx) = mpsc::channel();
-            let callback_repaint = Arc::clone(&frontend_repaint);
+            let callback_proxy = event_loop_proxy.clone();
             frontend.spawn(startup, move |event| {
                 if dev_tx.send(event).is_err() {
-                    log::debug!("discarding Vite lifecycle event after eframe shutdown");
+                    log::debug!("discarding Vite lifecycle event after native host shutdown");
                     return;
                 }
-                if let Some(context) = callback_repaint.get() {
-                    context.request_repaint();
-                }
+                callback_proxy.send_event(HostEvent::Wake).ok();
             });
             Some(dev_rx)
         },
@@ -179,37 +202,54 @@ pub fn run(
         dev_rx,
     };
 
-    let native_options = eframe::NativeOptions {
-        viewport: eframe::egui::ViewportBuilder::default()
-            .with_inner_size([1280.0, 800.0]),
-        renderer: eframe::Renderer::Wgpu,
-        persist_window: false,
-        ..Default::default()
-    };
-    let eframe_started_at = Instant::now();
-    let creation_repaint = Arc::clone(&frontend_repaint);
-    if let Err(err) = eframe::run_native(
-        "TurboDoc",
-        native_options,
-        Box::new(move |creation_context| {
-            if creation_repaint
-                .set(creation_context.egui_ctx.clone())
-                .is_err()
-            {
-                log::error!("eframe repaint context initialized more than once");
+    let host_proxy = event_loop_proxy.clone();
+    let run_result = event_loop.run_app_with(move |active_event_loop| {
+        let host = TurboDocHost::new(
+            active_event_loop,
+            host_proxy,
+            active_frontend,
+            server,
+            startup);
+        let mut host = match host {
+            Ok(host) => Some(host),
+            Err(err) => {
+                log::error!("native host initialization failed: {err:#}");
+                show_native_startup_error(&err);
+                active_event_loop.exit();
+                None
+            },
+        };
+        move |active_event_loop, event| {
+            if let Some(host) = &mut host {
+                host.handle_event(active_event_loop, event);
             }
-            startup.mark_phase(
-                "eframe window and wgpu ready",
-                eframe_started_at);
-            Ok(Box::new(TurboDocApp::new(
-                creation_context,
-                active_frontend,
-                server,
-                startup)?))
-        }))
-    {
+        }
+    });
+    if let Err(err) = run_result {
         log::error!("native host failed: {err:#}");
         show_native_startup_error(&err);
+    }
+}
+
+/// Cross-thread and platform-adapter messages that wake the native host.
+#[derive(Debug)]
+enum HostEvent {
+    /// One callback slot or lifecycle receiver may now contain new state.
+    Wake,
+    /// egui requested another splash frame at a specific monotonic time.
+    RequestRepaint {
+        /// Earliest time at which the frame should be requested.
+        when: Instant,
+        /// Pass number at the call site, retained to discard stale requests.
+        cumulative_pass_nr: u64,
+    },
+    /// Native accessibility input routed back into the splash integration.
+    AccessKit(egui_winit::accesskit_winit::Event),
+}
+
+impl From<egui_winit::accesskit_winit::Event> for HostEvent {
+    fn from(event: egui_winit::accesskit_winit::Event) -> Self {
+        Self::AccessKit(event)
     }
 }
 
@@ -314,72 +354,372 @@ struct ActiveFrontend {
     dev_rx: Option<mpsc::Receiver<dev::Event>>,
 }
 
-/// Native application state shared by the splash UI and WebView2 host.
-struct TurboDocApp {
-    window: Arc<Window>,
-    frontend: ActiveFrontend,
-    server: Option<Server>,
-    webview_result: Rc<RefCell<Option<anyhow::Result<WebView>>>>,
-    navigation_result: Rc<RefCell<Option<anyhow::Result<()>>>>,
-    webview: Option<WebView>,
-    webview_size: PhysicalSize<u32>,
-    coordinator: StartupCoordinator,
-    failure: Option<StartupFailure>,
-    startup: StartupProbe,
+/// Window visibility policy derived from native startup state.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct WindowPresentation {
+    /// Whether the native egui splash should be visible.
+    splash_visible: bool,
+    /// Whether the Mica WebView2 workbench should be visible.
+    workbench_visible: bool,
 }
 
-impl TurboDocApp {
-    /// Initialize egui styling and begin asynchronous WebView2 creation for
-    /// eframe's root HWND. The callback requests a repaint so startup can
-    /// advance even when no window input occurs.
+/// Select the only visible top-level window for one startup state.
+fn window_presentation(status: StartupStatus) -> WindowPresentation {
+    match status {
+        StartupStatus::Ready => WindowPresentation {
+            splash_visible: false,
+            workbench_visible: true,
+        },
+        StartupStatus::Initializing | StartupStatus::Navigating | StartupStatus::Failed =>
+            WindowPresentation {
+                splash_visible: true,
+                workbench_visible: false,
+            },
+    }
+}
+
+/// One delayed egui repaint request retained until its monotonic deadline.
+#[derive(Clone, Copy, Debug)]
+struct ScheduledRepaint {
+    /// Earliest time at which winit should request a redraw.
+    when: Instant,
+    /// egui pass number that originated this request.
+    cumulative_pass_nr: u64,
+}
+
+/// Opaque winit/egui/wgpu surface used only while startup needs native UI.
+struct SplashSurface {
+    /// Compact top-level splash window.
+    window: Arc<Window>,
+    /// Immediate-mode UI context shared by input and painting integrations.
+    context: egui::Context,
+    /// Converts splash window input and platform output for egui.
+    state: egui_winit::State,
+    /// Owns the splash's only wgpu surface and renderer.
+    painter: egui_wgpu::winit::Painter,
+    /// Nearest delayed repaint not yet turned into `RedrawRequested`.
+    scheduled_repaint: Option<ScheduledRepaint>,
+    /// Tracked visibility avoids rendering a hidden splash on Windows.
+    visible: bool,
+}
+
+impl SplashSurface {
+    /// Create and center the fixed native splash, then initialize its renderer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when winit cannot create the window or wgpu cannot
+    /// create a DX12-compatible surface for it.
     fn new(
-        creation_context: &eframe::CreationContext<'_>,
+        event_loop: &ActiveEventLoop,
+        event_loop_proxy: EventLoopProxy<HostEvent>)
+     -> anyhow::Result<Self> {
+        let window_started_at = Instant::now();
+        let window = Arc::new(event_loop.create_window(
+            WindowAttributes::default()
+                .with_title("TurboDoc")
+                .with_inner_size(SPLASH_SIZE)
+                .with_enabled_buttons(WindowButtons::CLOSE)
+                .with_resizable(false)
+                .with_visible(false)
+                .with_theme(Some(Theme::Dark)))
+                .context("failed to create native splash window")?);
+        center_window(event_loop, &window);
+
+        let context = egui::Context::default();
+        let mut visuals = egui::Visuals::dark();
+        visuals.panel_fill = startup_background();
+        visuals.window_fill = startup_background();
+        visuals.extreme_bg_color = egui::Color32::from_rgb(22, 24, 30);
+        context.set_visuals(visuals);
+
+        let repaint_proxy = event_loop_proxy.clone();
+        context.set_request_repaint_callback(move |info| {
+            let event = HostEvent::RequestRepaint {
+                when: Instant::now() + info.delay,
+                cumulative_pass_nr: info.current_cumulative_pass_nr,
+            };
+            repaint_proxy.send_event(event).ok();
+        });
+
+        let mut painter = pollster::block_on(egui_wgpu::winit::Painter::new(
+            context.clone(),
+            egui_wgpu::WgpuConfiguration::default(),
+            false,
+            egui_wgpu::RendererOptions::default()));
+        pollster::block_on(painter.set_window(
+            egui::ViewportId::ROOT,
+            Some(Arc::clone(&window))))
+            .context("failed to create the splash wgpu surface")?;
+
+        let mut state = egui_winit::State::new(
+            context.clone(),
+            egui::ViewportId::ROOT,
+            event_loop,
+            Some(window.scale_factor() as f32),
+            Some(Theme::Dark),
+            painter.max_texture_side());
+        state.init_accesskit(event_loop, &window, event_loop_proxy);
+        // AccessKit requires adapter installation before the first visible
+        // frame; showing earlier panics inside its Windows initialization.
+        window.set_visible(true);
+        window.focus_window();
+        log::debug!(
+            "native splash and wgpu initialized in {:?}",
+            window_started_at.elapsed());
+        window.request_redraw();
+
+        Ok(Self {
+            window,
+            context,
+            state,
+            painter,
+            scheduled_repaint: None,
+            visible: true,
+        })
+    }
+
+    /// Feed one splash window event into egui and service render requests.
+    fn handle_window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        event: WindowEvent,
+        status: StartupStatus,
+        failure: Option<&StartupFailure>) {
+        let response = self.state.on_window_event(&self.window, &event);
+        if response.repaint && self.visible {
+            self.window.request_redraw();
+        }
+
+        match event {
+            WindowEvent::CloseRequested => {
+                log::debug!("splash close requested during {status:?}");
+                event_loop.exit();
+            },
+            WindowEvent::Resized(size) => self.resize(size),
+            WindowEvent::RedrawRequested if self.visible =>
+                self.paint(event_loop, status, failure),
+            _ => {},
+        }
+    }
+
+    /// Resize the wgpu surface while tolerating Windows' zero-sized minimize.
+    fn resize(&mut self, size: PhysicalSize<u32>) {
+        let Some(width) = NonZeroU32::new(size.width) else { return; };
+        let Some(height) = NonZeroU32::new(size.height) else { return; };
+        self.painter.on_window_resized(
+            egui::ViewportId::ROOT,
+            width,
+            height);
+    }
+
+    /// Run one egui frame and present it to the opaque splash swapchain.
+    fn paint(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        status: StartupStatus,
+        failure: Option<&StartupFailure>) {
+        let raw_input = self.state.take_egui_input(&self.window);
+        let mut exit_requested = false;
+        let mut output = self.context.run_ui(raw_input, |ui| {
+            exit_requested = render_splash(ui, status, failure);
+        });
+        self.state.handle_platform_output_with_event_loop(
+            &self.window,
+            event_loop,
+            output.platform_output);
+        let clipped_primitives = self.context.tessellate(
+            output.shapes,
+            output.pixels_per_point);
+        self.painter.paint_and_update_textures(
+            egui::ViewportId::ROOT,
+            output.pixels_per_point,
+            startup_clear_color(),
+            &clipped_primitives,
+            &mut output.textures_delta,
+            Vec::new(),
+            &self.window);
+        if exit_requested {
+            event_loop.exit();
+        }
+    }
+
+    /// Route an AccessKit adapter event back into egui's splash state.
+    fn handle_accesskit_event(&mut self, event: egui_winit::accesskit_winit::Event) {
+        use egui_winit::accesskit_winit::WindowEvent as AccessKitWindowEvent;
+
+        if event.window_id != self.window.id() {
+            return;
+        }
+        match event.window_event {
+            AccessKitWindowEvent::InitialTreeRequested => {
+                self.context.enable_accesskit();
+                self.window.request_redraw();
+            },
+            AccessKitWindowEvent::ActionRequested(request) => {
+                self.state.on_accesskit_action_request(request);
+                self.window.request_redraw();
+            },
+            AccessKitWindowEvent::AccessibilityDeactivated =>
+                self.context.disable_accesskit(),
+        }
+    }
+
+    /// Retain a current egui repaint request, preferring the nearest deadline.
+    fn schedule_repaint(&mut self, repaint: ScheduledRepaint) {
+        let current_pass_nr = self.context.cumulative_pass_nr_for(egui::ViewportId::ROOT);
+        if current_pass_nr != repaint.cumulative_pass_nr
+            && current_pass_nr != repaint.cumulative_pass_nr + 1
+        {
+            return;
+        }
+        if repaint.when <= Instant::now() {
+            if self.visible {
+                self.window.request_redraw();
+            }
+            return;
+        }
+        if self.scheduled_repaint
+            .is_none_or(|scheduled| repaint.when < scheduled.when)
+        {
+            self.scheduled_repaint = Some(repaint);
+        }
+    }
+
+    /// Request a due repaint and discard requests superseded by newer frames.
+    fn flush_due_repaint(&mut self, now: Instant) {
+        let Some(repaint) = self.scheduled_repaint
+            .filter(|repaint| repaint.when <= now)
+        else {
+            return;
+        };
+        self.scheduled_repaint = None;
+        let current_pass_nr = self.context.cumulative_pass_nr_for(egui::ViewportId::ROOT);
+        let is_current = current_pass_nr == repaint.cumulative_pass_nr
+            || current_pass_nr == repaint.cumulative_pass_nr + 1;
+        if self.visible && is_current {
+            self.window.request_redraw();
+        }
+    }
+
+    /// Return the next relevant repaint deadline for winit's control flow.
+    fn repaint_deadline(&self) -> Option<Instant> {
+        self.visible
+            .then_some(self.scheduled_repaint)
+            .flatten()
+            .map(|repaint| repaint.when)
+    }
+
+    /// Change splash visibility and request its first restored frame.
+    fn set_visible(&mut self, visible: bool) {
+        if self.visible == visible {
+            return;
+        }
+        self.visible = visible;
+        self.window.set_visible(visible);
+        if visible {
+            self.window.request_redraw();
+        }
+    }
+
+    /// Release painter-owned renderer state before the event loop disappears.
+    fn destroy(&mut self) {
+        self.painter.destroy();
+    }
+}
+
+/// Native application state captured by nkcore's closure-oriented event loop.
+struct TurboDocHost {
+    /// Hidden-until-ready Mica workbench that owns the WebView2 child HWND.
+    workbench_window: Arc<Window>,
+    /// Compact native startup and error surface.
+    splash: SplashSurface,
+    /// Selected frontend source and any dev lifecycle receiver.
+    frontend: ActiveFrontend,
+    /// In-process backend moved into WebView2 handlers exactly once.
+    server: Option<Server>,
+    /// Completion slot for asynchronous WebView2 construction.
+    webview_result: Rc<RefCell<Option<anyhow::Result<WebView>>>>,
+    /// Completion slot for the first top-level frontend navigation.
+    navigation_result: Rc<RefCell<Option<anyhow::Result<()>>>>,
+    /// Configured WebView2 wrapper after asynchronous construction succeeds.
+    webview: Option<WebView>,
+    /// Last client size applied to the WebView2 child controller.
+    webview_size: PhysicalSize<u32>,
+    /// Pure readiness state shared with deterministic unit tests.
+    coordinator: StartupCoordinator,
+    /// User-facing failure retained for splash rendering.
+    failure: Option<StartupFailure>,
+    /// Monotonic startup telemetry recorder.
+    startup: StartupProbe,
+    /// Event-loop proxy used by WebView2 completion callbacks.
+    event_loop_proxy: EventLoopProxy<HostEvent>,
+    /// Ensures controller and painter teardown is idempotent.
+    shutdown: bool,
+}
+
+impl TurboDocHost {
+    /// Create both top-level windows and begin hidden WebView2 construction.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the splash renderer, workbench window, or native
+    /// workbench handle cannot be initialized.
+    fn new(
+        event_loop: &ActiveEventLoop,
+        event_loop_proxy: EventLoopProxy<HostEvent>,
         frontend: ActiveFrontend,
         server: Server,
         startup: StartupProbe)
      -> anyhow::Result<Self> {
         use nkcore::prelude::RawWindowHandleExt as _;
+        use winit::platform::windows::BackdropType;
+        use winit::platform::windows::WindowAttributesExtWindows as _;
         use winit::raw_window_handle::HasWindowHandle as _;
-        use winit::window::Theme;
 
-        let window = Arc::clone(
-            creation_context
-                .winit_window()
-                .context("eframe did not expose its root winit window")?);
-        window.set_theme(Some(Theme::Dark));
-        let hwnd =
-            window
-                .window_handle()
-                .context("failed to get eframe window handle")?
-                .as_raw()
-                .as_hwnd();
+        let native_started_at = Instant::now();
+        let splash = SplashSurface::new(event_loop, event_loop_proxy.clone())?;
+        startup.mark("native startup surface shown");
 
-        let background = startup_background();
-        let mut visuals = eframe::egui::Visuals::dark();
-        visuals.panel_fill = background;
-        visuals.window_fill = background;
-        visuals.extreme_bg_color = eframe::egui::Color32::from_rgb(22, 24, 30);
-        creation_context.egui_ctx.set_visuals(visuals);
+        let workbench_window = Arc::new(event_loop.create_window(
+            WindowAttributes::default()
+                .with_title("TurboDoc")
+                .with_inner_size(WORKBENCH_SIZE)
+                .with_visible(false)
+                .with_theme(Some(Theme::Dark))
+                .with_system_backdrop(BackdropType::MainWindow)
+                // WebView2 alpha-zero pixels reveal this parent HWND. Winit's
+                // DWM transparency path makes that backing participate in the
+                // system backdrop without turning the workbench into a wgpu surface.
+                .with_transparent(true)
+                .with_clip_children(true))
+                .context("failed to create Mica workbench window")?);
+        center_window(event_loop, &workbench_window);
+        let hwnd = workbench_window
+            .window_handle()
+            .context("failed to get workbench window handle")?
+            .as_raw()
+            .as_hwnd();
+        startup.mark_phase("winit windows and splash wgpu ready", native_started_at);
 
         let webview_result = Rc::new(RefCell::new(None));
         let result_slot = Rc::clone(&webview_result);
-        let repaint_context = creation_context.egui_ctx.clone();
-        let webview_started_at = std::time::Instant::now();
+        let callback_proxy = event_loop_proxy.clone();
+        let webview_started_at = Instant::now();
         let begin_webview_result = WebView::begin_create(hwnd, startup, move |result| {
             if result_slot.replace(Some(result)).is_some() {
                 log::error!("WebView2 creation completed more than once");
             }
-            repaint_context.request_repaint();
+            callback_proxy.send_event(HostEvent::Wake).ok();
         });
-
         startup.mark_phase(
             "WebView2 asynchronous creation requested",
             webview_started_at);
-        startup.mark("native startup surface shown");
 
-        let mut app = Self {
-            webview_size: window.inner_size(),
-            window,
+        let mut host = Self {
+            webview_size: workbench_window.inner_size(),
+            workbench_window,
+            splash,
             server: Some(server),
             coordinator: StartupCoordinator::new(frontend.kind),
             frontend,
@@ -388,34 +728,111 @@ impl TurboDocApp {
             webview: None,
             failure: None,
             startup,
+            event_loop_proxy,
+            shutdown: false,
         };
         if let Err(err) = begin_webview_result {
-            app.fail("WebView2 could not be initialized.", err);
+            host.fail("WebView2 could not be initialized.", err);
         }
-        Ok(app)
+        Ok(host)
     }
 
-    /// Advance all callback-driven startup paths without blocking eframe's
-    /// render loop.
-    fn poll_startup(&mut self, context: &eframe::egui::Context) {
+    /// Dispatch one nkcore event without exposing winit lifecycle plumbing.
+    fn handle_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        event: nkcore::winit::AppEvent<HostEvent>) {
+        match event {
+            nkcore::winit::AppEvent::WindowEvent(window_id, event) => {
+                if window_id == self.splash.window.id() {
+                    self.splash.handle_window_event(
+                        event_loop,
+                        event,
+                        self.coordinator.status,
+                        self.failure.as_ref());
+                } else if window_id == self.workbench_window.id() {
+                    self.handle_workbench_event(event_loop, event);
+                }
+            },
+            nkcore::winit::AppEvent::UserEvent(HostEvent::Wake) => {},
+            nkcore::winit::AppEvent::UserEvent(HostEvent::RequestRepaint {
+                when,
+                cumulative_pass_nr,
+            }) => self.splash.schedule_repaint(ScheduledRepaint {
+                when,
+                cumulative_pass_nr,
+            }),
+            nkcore::winit::AppEvent::UserEvent(HostEvent::AccessKit(event)) =>
+                self.splash.handle_accesskit_event(event),
+            nkcore::winit::AppEvent::DeviceEvent(_, _) => {},
+            nkcore::winit::AppEvent::Idle => self.idle(event_loop),
+            nkcore::winit::AppEvent::Exit => {
+                log::debug!(
+                    "native event loop exiting during {:?}",
+                    self.coordinator.status);
+                self.shutdown();
+            },
+        }
+    }
+
+    /// Handle workbench close and resize events without a wgpu integration.
+    fn handle_workbench_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        event: WindowEvent) {
+        match event {
+            WindowEvent::CloseRequested => {
+                log::debug!(
+                    "workbench close requested during {:?}",
+                    self.coordinator.status);
+                event_loop.exit();
+            },
+            WindowEvent::Resized(size) => self.resize_webview(size),
+            _ => {},
+        }
+    }
+
+    /// Advance startup, service repaint deadlines, and park the event loop.
+    fn idle(&mut self, event_loop: &ActiveEventLoop) {
+        self.poll_startup();
+        let now = Instant::now();
+        self.splash.flush_due_repaint(now);
+
+        let navigation_deadline = if self.coordinator.status == StartupStatus::Navigating {
+            self.coordinator.navigation_started_at
+                .map(|started_at| started_at + INITIAL_NAVIGATION_TIMEOUT)
+        } else {
+            None
+        };
+        let deadline = [self.splash.repaint_deadline(), navigation_deadline]
+            .into_iter()
+            .flatten()
+            .min();
+        event_loop.set_control_flow(match deadline {
+            Some(deadline) => ControlFlow::WaitUntil(deadline),
+            None => ControlFlow::Wait,
+        });
+    }
+
+    /// Advance all callback-driven startup paths without blocking winit.
+    fn poll_startup(&mut self) {
         if self.coordinator.status == StartupStatus::Failed {
             return;
         }
 
         self.poll_dev_frontend();
-        if self.coordinator.status == StartupStatus::Failed {
-            return;
-        }
-        if self.coordinator.status == StartupStatus::Ready {
+        if matches!(
+            self.coordinator.status,
+            StartupStatus::Failed | StartupStatus::Ready)
+        {
             return;
         }
 
         let webview_result = self.webview_result.borrow_mut().take();
         if let Some(result) = webview_result {
             match result {
-                Ok(webview) => self.accept_webview(context, webview),
-                Err(err) =>
-                    self.fail("WebView2 could not be initialized.", err),
+                Ok(webview) => self.accept_webview(webview),
+                Err(err) => self.fail("WebView2 could not be initialized.", err),
             }
         }
         if self.coordinator.status == StartupStatus::Failed {
@@ -425,12 +842,18 @@ impl TurboDocApp {
         let navigation_result = self.navigation_result.borrow_mut().take();
         if let Some(result) = navigation_result {
             match result {
-                Ok(()) => self.coordinator.mark_ready(),
-                Err(err) =>
-                    self.fail("TurboDoc could not load its frontend.", err),
+                Ok(()) => {
+                    self.coordinator.mark_ready();
+                    self.apply_window_presentation();
+                    self.startup.mark("Mica workbench shown; native splash hidden");
+                },
+                Err(err) => self.fail("TurboDoc could not load its frontend.", err),
             }
         }
-        if self.coordinator.status == StartupStatus::Failed {
+        if matches!(
+            self.coordinator.status,
+            StartupStatus::Failed | StartupStatus::Ready)
+        {
             return;
         }
 
@@ -448,24 +871,18 @@ impl TurboDocApp {
 
         if self.coordinator.begin_navigation_if_ready(Instant::now()) {
             self.startup.mark("frontend and WebView2 synchronized");
-            let navigate_result =
-                self.webview
-                    .as_ref()
-                    .expect("coordinator marked a missing WebView2 ready")
-                    .navigate(&self.frontend.url);
+            let navigate_result = self.webview
+                .as_ref()
+                .expect("coordinator marked a missing WebView2 ready")
+                .navigate(&self.frontend.url);
             match navigate_result {
-                Ok(()) => {
-                    self.startup.mark("initial navigation requested");
-                    context.request_repaint_after(INITIAL_NAVIGATION_TIMEOUT);
-                },
-                Err(err) =>
-                    self.fail("TurboDoc could not begin navigation.", err),
+                Ok(()) => self.startup.mark("initial navigation requested"),
+                Err(err) => self.fail("TurboDoc could not begin navigation.", err),
             }
         }
     }
 
-    /// Drain dev-mode Vite lifecycle events so an exit queued immediately
-    /// after readiness wins over beginning or retaining a navigation.
+    /// Drain dev lifecycle events so queued exits win over new navigation.
     fn poll_dev_frontend(&mut self) {
         if self.frontend.dev_rx.is_none() {
             return;
@@ -502,12 +919,8 @@ impl TurboDocApp {
         }
     }
 
-    /// Configure a newly created WebView2 controller, including its one-shot
-    /// navigation completion callback, before marking it ready to navigate.
-    fn accept_webview(
-        &mut self,
-        context: &eframe::egui::Context,
-        webview: WebView) {
+    /// Configure a newly created WebView2 controller before navigation.
+    fn accept_webview(&mut self, webview: WebView) {
         if let Err(err) = webview.set_bounds(webview_bounds(self.webview_size)) {
             self.fail("WebView2 could not be sized.", err);
             return;
@@ -521,9 +934,9 @@ impl TurboDocApp {
         }
 
         let result_slot = Rc::clone(&self.navigation_result);
-        let repaint_context = context.clone();
+        let callback_proxy = self.event_loop_proxy.clone();
         let setup_result = handler::setup(
-            &self.window,
+            &self.workbench_window,
             &webview,
             &self.frontend.api_origin,
             self.frontend.kind,
@@ -533,7 +946,7 @@ impl TurboDocApp {
                 if result_slot.replace(Some(result)).is_some() {
                     log::error!("initial navigation completed more than once");
                 }
-                repaint_context.request_repaint();
+                callback_proxy.send_event(HostEvent::Wake).ok();
             });
         if let Err(err) = setup_result {
             self.fail("WebView2 event handlers could not be installed.", err);
@@ -545,12 +958,9 @@ impl TurboDocApp {
         self.startup.mark("WebView2 wrapper ready");
     }
 
-    /// Record an unrecoverable startup error for the extensible egui error
-    /// surface. The full chain remains available through "Show details".
+    /// Record an unrecoverable error and restore the native splash surface.
     fn fail(&mut self, summary: &'static str, error: anyhow::Error) {
         log::error!("{summary} {error:#}");
-        // A post-startup Vite exit happens while the child controller covers
-        // egui; hide it so the persistent native failure UI becomes visible.
         if let Some(webview) = &self.webview
             && let Err(err) = webview.set_visible(false)
         {
@@ -561,11 +971,31 @@ impl TurboDocApp {
             details: format!("{error:#}"),
         });
         self.coordinator.mark_failed();
+        self.apply_window_presentation();
     }
 
-    /// Keep the child controller exactly aligned with eframe's client area.
-    fn resize_webview(&mut self) {
-        let size = self.window.inner_size();
+    /// Apply the visibility policy after a terminal startup transition.
+    fn apply_window_presentation(&mut self) {
+        let presentation = window_presentation(self.coordinator.status);
+        log::debug!(
+            "applying {:?} presentation: splash {:?} visible={}, workbench {:?} visible={}",
+            self.coordinator.status,
+            self.splash.window.id(),
+            presentation.splash_visible,
+            self.workbench_window.id(),
+            presentation.workbench_visible);
+        self.workbench_window
+            .set_visible(presentation.workbench_visible);
+        self.splash.set_visible(presentation.splash_visible);
+        if presentation.workbench_visible {
+            self.workbench_window.focus_window();
+        } else if presentation.splash_visible {
+            self.splash.window.focus_window();
+        }
+    }
+
+    /// Keep the WebView2 child controller aligned with workbench client area.
+    fn resize_webview(&mut self, size: PhysicalSize<u32>) {
         if size == self.webview_size {
             return;
         }
@@ -577,147 +1007,142 @@ impl TurboDocApp {
         }
     }
 
-    /// Render the visible startup or failure state beneath the hidden child
-    /// controller. The child becomes visible only after successful navigation.
-    fn render_startup(&self, ui: &mut eframe::egui::Ui) {
-        use eframe::egui::Align2;
-        use eframe::egui::Area;
-        use eframe::egui::Id;
-        use eframe::egui::RichText;
-
-        // An anchored Area sizes itself to its contents before centering.
-        // `Ui::centered_and_justified` instead stretches a nested Ui to the
-        // full client height, which leaves that nested content at the top.
-        Area::new(Id::new("native_startup"))
-            .anchor(Align2::CENTER_CENTER, eframe::egui::Vec2::ZERO)
-            .movable(false)
-            .interactable(false)
-            .show(ui.ctx(), |ui| {
-                ui.take_available_width();
-                ui.vertical_centered(|ui| {
-                    ui.add(eframe::egui::Spinner::new().size(28.0));
-                    ui.add_space(14.0);
-                    let message = match self.coordinator.status {
-                        StartupStatus::Initializing => "Starting TurboDoc...",
-                        StartupStatus::Navigating => "Loading Workspace...",
-                        StartupStatus::Ready | StartupStatus::Failed => "",
-                    };
-                    ui.label(
-                        RichText::new(message)
-                            .size(15.0)
-                            .color(eframe::egui::Color32::from_rgb(
-                                190,
-                                194,
-                                204)));
-                });
-            });
-    }
-
-    /// Render an in-window startup error with copyable diagnostic details.
-    fn render_failure(
-        &self,
-        ui: &mut eframe::egui::Ui,
-        failure: &StartupFailure) {
-        use eframe::egui::Align2;
-        use eframe::egui::Area;
-        use eframe::egui::Id;
-        use eframe::egui::RichText;
-
-        Area::new(Id::new("native_startup_failure"))
-            .anchor(Align2::CENTER_CENTER, eframe::egui::Vec2::ZERO)
-            .movable(false)
-            .show(ui.ctx(), |ui| {
-                ui.set_max_width(640.0);
-                ui.vertical_centered(|ui| {
-                    ui.heading(
-                        RichText::new("TurboDoc couldn't start").size(24.0));
-                    ui.add_space(10.0);
-                    ui.label(
-                        RichText::new(failure.summary)
-                            .size(15.0)
-                            .color(eframe::egui::Color32::from_rgb(
-                                205,
-                                208,
-                                216)));
-                    ui.add_space(18.0);
-                    eframe::egui::CollapsingHeader::new("Show details")
-                        .show(ui, |ui| {
-                            ui.label(
-                                RichText::new(&failure.details)
-                                    .monospace()
-                                    .color(eframe::egui::Color32::from_rgb(
-                                        175,
-                                        179,
-                                        190)));
-                        });
-                    ui.add_space(14.0);
-                    ui.horizontal(|ui| {
-                        if ui.button("Copy details").clicked() {
-                            ui.ctx().copy_text(failure.details.clone());
-                        }
-                        if ui.button("Exit").clicked() {
-                            ui.ctx().send_viewport_cmd(
-                                eframe::egui::ViewportCommand::Close);
-                        }
-                    });
-                });
-            });
-    }
-}
-
-impl eframe::App for TurboDocApp {
-    fn logic(
-        &mut self,
-        context: &eframe::egui::Context,
-        _frame: &mut eframe::Frame) {
-        self.poll_startup(context);
-        self.resize_webview();
-    }
-
-    fn ui(
-        &mut self,
-        ui: &mut eframe::egui::Ui,
-        _frame: &mut eframe::Frame) {
-        ui.painter().rect_filled(ui.max_rect(), 0.0, startup_background());
-        match (&self.coordinator.status, &self.failure) {
-            (StartupStatus::Failed, Some(failure)) =>
-                self.render_failure(ui, failure),
-            (StartupStatus::Ready, _) => {},
-            _ => self.render_startup(ui),
+    /// Close any completed controller and release renderer state exactly once.
+    fn shutdown(&mut self) {
+        if self.shutdown {
+            return;
         }
-    }
-
-    fn clear_color(&self, _visuals: &eframe::egui::Visuals) -> [f32; 4] {
-        let color = crate::startup::STARTUP_BACKGROUND;
-        [
-            f32::from(color.red) / 255.0,
-            f32::from(color.green) / 255.0,
-            f32::from(color.blue) / 255.0,
-            1.0,
-        ]
-    }
-
-    fn on_exit(&mut self) {
-        // Creation may complete after the last logic pass but before eframe
-        // begins shutdown, leaving the new controller in the callback slot.
-        let pending_webview =
-            self.webview_result
-                .borrow_mut()
-                .take()
-                .and_then(Result::ok);
+        self.shutdown = true;
+        let pending_webview = self.webview_result
+            .borrow_mut()
+            .take()
+            .and_then(Result::ok);
         let webview = self.webview.take().or(pending_webview);
         if let Some(webview) = webview
             && let Err(err) = webview.close()
         {
             log::error!("failed to close WebView2 during host shutdown: {err:#}");
         }
+        self.splash.destroy();
     }
 }
 
-/// Convert the shared startup color token into egui's packed sRGB color.
-fn startup_background() -> eframe::egui::Color32 {
+/// Center one newly created top-level window on the primary monitor.
+fn center_window(event_loop: &ActiveEventLoop, window: &Window) {
+    let Some(monitor) = window.current_monitor().or_else(|| event_loop.primary_monitor()) else {
+        return;
+    };
+    let monitor_position = monitor.position();
+    let monitor_size = monitor.size();
+    let window_size = window.outer_size();
+    let x = i64::from(monitor_position.x)
+        + (i64::from(monitor_size.width) - i64::from(window_size.width)) / 2;
+    let y = i64::from(monitor_position.y)
+        + (i64::from(monitor_size.height) - i64::from(window_size.height)) / 2;
+    window.set_outer_position(PhysicalPosition::new(
+        x.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32,
+        y.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32));
+}
+
+/// Render the startup or failure contents and report an Exit button click.
+fn render_splash(
+    ui: &mut egui::Ui,
+    status: StartupStatus,
+    failure: Option<&StartupFailure>)
+ -> bool {
+    let mut exit_requested = false;
+    egui::CentralPanel::default()
+        .frame(egui::Frame::NONE.fill(startup_background()))
+        .show(ui, |ui| {
+            if let Some(failure) = failure {
+                exit_requested = render_failure(ui, failure);
+            } else {
+                render_startup(ui, status);
+            }
+        });
+    exit_requested
+}
+
+/// Render centered startup progress inside the compact splash.
+fn render_startup(ui: &mut egui::Ui, status: StartupStatus) {
+    egui::Area::new(egui::Id::new("native_startup"))
+        .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+        .movable(false)
+        .interactable(false)
+        .show(ui.ctx(), |ui| {
+            ui.take_available_width();
+            ui.vertical_centered(|ui| {
+                ui.add(egui::Spinner::new().size(28.0));
+                ui.add_space(14.0);
+                let message = match status {
+                    StartupStatus::Initializing => "Starting TurboDoc...",
+                    StartupStatus::Navigating => "Loading Workspace...",
+                    StartupStatus::Ready | StartupStatus::Failed => "",
+                };
+                ui.label(
+                    egui::RichText::new(message)
+                        .size(15.0)
+                        .color(egui::Color32::from_rgb(190, 194, 204)));
+            });
+        });
+}
+
+/// Render a copyable startup error and return whether Exit was clicked.
+fn render_failure(ui: &mut egui::Ui, failure: &StartupFailure) -> bool {
+    let mut exit_requested = false;
+    egui::Area::new(egui::Id::new("native_startup_failure"))
+        .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+        .movable(false)
+        .show(ui.ctx(), |ui| {
+            ui.set_max_width(500.0);
+            ui.vertical_centered(|ui| {
+                ui.heading(egui::RichText::new("TurboDoc couldn't start").size(24.0));
+                ui.add_space(10.0);
+                ui.label(
+                    egui::RichText::new(failure.summary)
+                        .size(15.0)
+                        .color(egui::Color32::from_rgb(205, 208, 216)));
+                ui.add_space(14.0);
+                egui::CollapsingHeader::new("Show details")
+                    .show(ui, |ui| {
+                        egui::ScrollArea::vertical()
+                            .max_height(96.0)
+                            .show(ui, |ui| {
+                                ui.label(
+                                    egui::RichText::new(&failure.details)
+                                        .monospace()
+                                        .color(egui::Color32::from_rgb(175, 179, 190)));
+                            });
+                    });
+                ui.add_space(12.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Copy details").clicked() {
+                        ui.ctx().copy_text(failure.details.clone());
+                    }
+                    if ui.button("Exit").clicked() {
+                        exit_requested = true;
+                    }
+                });
+            });
+        });
+    exit_requested
+}
+
+/// Convert the shared startup token into egui's packed sRGB color.
+fn startup_background() -> egui::Color32 {
     let color = crate::startup::STARTUP_BACKGROUND;
-    eframe::egui::Color32::from_rgb(color.red, color.green, color.blue)
+    egui::Color32::from_rgb(color.red, color.green, color.blue)
+}
+
+/// Convert the shared startup token into an opaque wgpu clear color.
+fn startup_clear_color() -> [f32; 4] {
+    let color = crate::startup::STARTUP_BACKGROUND;
+    [
+        f32::from(color.red) / 255.0,
+        f32::from(color.green) / 255.0,
+        f32::from(color.blue) / 255.0,
+        1.0,
+    ]
 }
 
 /// Convert a physical client size into WebView2 child-window coordinates.
@@ -747,7 +1172,7 @@ fn configure_release_frontend(webview: &WebView, public_dir: &Path) -> anyhow::R
 }
 
 /// Report failures that happen before egui's error surface can exist.
-fn show_native_startup_error(error: &eframe::Error) {
+fn show_native_startup_error(error: &impl std::fmt::Display) {
     use native_dialog::*;
 
     if let Err(dialog_error) = MessageDialogBuilder::default()
@@ -986,7 +1411,7 @@ mod handler {
                 call_frontend(webview, "frontendShown", None)?;
                 if is_initial {
                     startup.mark(&format!(
-                        "WebView2 NavigationCompleted #{}; controller shown; document loading released",
+                        "WebView2 NavigationCompleted #{}; controller prepared; document loading released",
                         result.navigation_id));
                 }
                 Ok(())
@@ -1418,6 +1843,7 @@ mod tests {
     use super::RELEASE_FRONTEND_ORIGIN;
     use super::StartupCoordinator;
     use super::StartupStatus;
+    use super::window_presentation;
     use super::web_resource_request_filters;
 
     #[test]
@@ -1455,6 +1881,31 @@ mod tests {
         failed.mark_failed();
         assert_eq!(failed.status, StartupStatus::Failed);
         assert!(!failed.begin_navigation_if_ready(now));
+    }
+
+    #[test]
+    fn ready_state_shows_only_the_mica_workbench() {
+        assert_eq!(
+            window_presentation(StartupStatus::Ready),
+            super::WindowPresentation {
+                splash_visible: false,
+                workbench_visible: true,
+            });
+    }
+
+    #[test]
+    fn incomplete_or_failed_startup_shows_only_the_native_splash() {
+        let expected = super::WindowPresentation {
+            splash_visible: true,
+            workbench_visible: false,
+        };
+        assert_eq!(
+            [
+                window_presentation(StartupStatus::Initializing),
+                window_presentation(StartupStatus::Navigating),
+                window_presentation(StartupStatus::Failed),
+            ],
+            [expected; 3]);
     }
 
     #[test]

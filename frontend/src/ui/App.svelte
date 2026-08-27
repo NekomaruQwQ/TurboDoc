@@ -284,7 +284,7 @@
         width: 100%;
         height: 100%;
         flex-direction: column;
-        background-color: var(--color-workbench);
+        background-color: transparent;
     }
 
     :global(.workbench-pane-group) {
@@ -308,7 +308,7 @@
         overflow: hidden;
         border: 1px solid var(--color-workbench-divider);
         border-radius: var(--radius-lg);
-        background-color: var(--color-sidebar);
+        background-color: var(--color-sidebar-chrome);
     }
 
     .explorer-pane {

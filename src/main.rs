@@ -3,14 +3,15 @@
 //! Lifecycle:
 //! 1. Build a multi-thread tokio runtime (backend handlers run on worker
 //!    threads via `Server::fetch`/`Server::dispatch_api`, so the main thread
-//!    is free for eframe/WebView2).
+//!    is free for winit, egui, and WebView2).
 //! 2. Start the in-process backend and open the SQLite cache.
 //! 3. In release mode, map the built frontend beside the executable. In dev
-//!    mode, spawn Vite while eframe creates the native window.
-//! 4. Create WebView2 asynchronously as a hidden child of that window.
+//!    mode, spawn Vite while winit creates the compact egui splash.
+//! 4. Create WebView2 asynchronously as a hidden child of an independent,
+//!    initially hidden Mica workbench window.
 //!    Navigate only after its selected frontend source is ready. The first
-//!    top-level completion reveals the Svelte workbench and releases its
-//!    initially blank documentation iframe on the next animation frame.
+//!    top-level completion releases the initially blank documentation iframe,
+//!    reveals the workbench, and hides the splash.
 //! 5. Drop the runtime, which cancels in-flight tokio tasks. A dev-mode Vite
 //!    child also dies via its Job Object on host exit.
 

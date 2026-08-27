@@ -48,7 +48,7 @@
         flex-direction: column;
         overflow-y: auto;
         border-right: 1px solid var(--color-workbench-divider);
-        background-color: var(--color-workbench);
+        background-color: transparent;
     }
 
     .topic-destination {
