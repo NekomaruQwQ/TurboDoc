@@ -46,8 +46,7 @@ export function parseResourceExistsHeader(value: string | null): boolean {
     throw new Error(`Persistence response has invalid ${RESOURCE_EXISTS_HEADER} metadata.`);
 }
 
-/** Load one generic root-level data file such as Explorer UI state or legacy
- * migration input. */
+/** Load one generic root-level application data file such as Explorer UI state. */
 export async function loadDataFile(dataId: string): Promise<PersistedResource> {
     return loadResource(
         `/api/data/${encodeURIComponent(dataId)}`,

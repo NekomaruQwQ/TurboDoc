@@ -6,7 +6,7 @@
 //! - **Docs URLs** (`PROXIED_URL` prefixes) → [`Server::fetch`] → proxy
 //!   pipeline with caching + dark-mode injection.
 //! - **`/api/data/*` and `/api/sources/*`** → [`Server::dispatch_api`] →
-//!   generic UI/migration and per-source persistence.
+//!   generic application and per-source persistence.
 //! - **Unknown `/api/*`** → [`Server::dispatch_api`] → explicit rejection.
 //! - **Everything else** → passed through to the selected frontend source.
 //!
@@ -35,7 +35,7 @@ pub(crate) const USER_AGENT: &str = "TurboDoc/0.4 (documentation viewer)";
 
 /// In-process backend configuration. Built from the host's CLI args.
 pub struct Config {
-    /// Runtime data directory. Houses generic UI/migration TOML, per-source
+    /// Runtime data directory. Houses generic application TOML, per-source
     /// TOML under `sources/`, and `cache.sqlite`. Created on startup if needed.
     pub data_dir: PathBuf,
 }

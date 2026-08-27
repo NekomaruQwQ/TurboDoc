@@ -89,9 +89,6 @@ Source files live at:
 │   ├── minecraft-wiki.toml
 │   └── wikipedia.toml
 ├── ui.explorer.toml
-├── rust.toml             # optional read-only legacy Crates input
-├── rust-docs.toml        # optional read-only legacy Docs input
-├── rust-doc.toml         # accepted historical spelling; not alongside above
 └── cache.sqlite
 ```
 
@@ -140,7 +137,7 @@ The HTTP wire format remains JSON:
 1. `GET|PUT /api/sources/{source_id}` maps to
    `<dataDir>/sources/<source_id>.toml`.
 2. `GET|PUT /api/data/{data_id}` maps to `<dataDir>/<data_id>.toml` and is
-   retained for `ui.explorer` plus the removable migration inputs.
+   used by `ui.explorer`.
 3. Both IDs use the same strict lowercase, single-path-segment contract.
 4. A missing GET returns `200 {}` with
    `x-turbodoc-resource-exists: false`; release CORS explicitly exposes that
@@ -218,53 +215,18 @@ snapshots. Wiki definitions use exact origins. Rustdoc matching remains inside
 `RustCrateAdapter`. Registry order is the documented tie-breaker if future
 source matchers overlap.
 
-## 8. Legacy Rust provider migration and removal
+## 8. Persistence compatibility policy
 
-`migrations/rust-providers-v1.ts` is the only compatibility bridge. It handles
-the former Rust Crates and multi-site Rust Docs providers.
+There is no runtime migration from provider-era persistence. Root-level
+`rust.toml`, `rust-docs.toml`, and `rust-doc.toml` are outside the active data
+model: TurboDoc does not read, modify, or delete them. Current installations
+load only `ui.explorer.toml` and the independently authoritative files under
+`sources/`.
 
-On startup, before any new store can create a target, it:
-
-1. Checks `sources/rust-crates.toml`, `ui.explorer.toml`, and both accepted
-   Rust Docs legacy names in parallel. If no Docs input exists, it does not
-   probe the fifteen book source targets.
-2. Treats every existing source file and every existing Explorer topic record
-   as independently authoritative. Source files are never parsed or replaced;
-   existing topic records are preserved while other workspace topics may be
-   added.
-3. Reads root `rust.toml` only when the Rust Crates source or topic is absent.
-   `rust-docs.toml` and historical `rust-doc.toml` are equivalent accepted
-   inputs, but simultaneous presence fails rather than guessing authority.
-4. Migrates `rust.toml` `data.crates` to flat Rust Crates source data.
-5. Splits legacy Rust Docs `data.sites` across the fifteen book sources. A
-   known book omitted from the legacy map receives an explicit empty pin list;
-   malformed book data blocks only that source write.
-6. Migrates provider groups into the `rust-crates` and `rust-books` topics,
-   converting crate IDs and book IDs to their correct composite item keys.
-   Unknown retired book IDs are discarded.
-7. Safely merges only missing topic records into a validated existing
-   `ui.explorer.toml`, preserving unrelated topics. Invalid legacy groups do
-   not authorize a partial workspace write.
-8. Runs independent source/workspace writes with `Promise.allSettled`, then
-   reports every validation or write failure.
-9. Never changes or deletes a legacy file.
-
-A migration failure blocks source/workspace initialization and presents Retry.
-This prevents starter crates or empty UI state from becoming authoritative
-after a transient or malformed migration. Missing legacy files are a normal
-fresh install. The new empty `ui.explorer.toml` is materialized once, and the
-default Rust Crates topic materializes its starter source. Book source targets
-are inspected and materialized by the compatibility bridge only when a legacy
-Rust Docs file exists.
-
-When legacy support is no longer required, removal is local:
-
-1. Delete `frontend/src/migrations/rust-providers-v1.ts` and its test.
-2. Remove its one import and pre-workspace call from `App.svelte`; call
-   `workspace.load()` directly on mount.
-3. Keep `/api/data/{data_id}` because `ui.explorer.toml` still uses it. No
-   adapter, source model, topic, or per-source persistence code depends on the
-   legacy `rust` ID.
+A genuinely missing current source follows that adapter's initialization
+policy: Rust Crates seed the default starter crates, while Rust books and Web
+sources begin with empty pins. Existing malformed current files surface their
+normal scoped load errors and are never replaced with defaults.
 
 ## 9. Adding another code-defined source
 

@@ -14,8 +14,7 @@ const explorerTopicDataSchema = z.object({
     groupOrder: z.array(z.string()),
 });
 
-/** Complete schema shared by the workspace store and compatibility migrations. */
-export const explorerWorkspaceDataSchema = z.object({
+const explorerWorkspaceDataSchema = z.object({
     schemaVersion: z.literal(1),
     topics: z.record(z.string(), explorerTopicDataSchema),
 });
@@ -99,12 +98,6 @@ export class ExplorerWorkspaceStore {
         if (this.status === "ready") this.#saveQueue.request(this.data);
     }
 
-    /** Retry a failed load. */
-    retryLoad(): Promise<void> {
-        if (this.status !== "error") return Promise.resolve();
-        return this.load();
-    }
-
     /** Retry a retained dirty write immediately. */
     retrySave(): void {
         this.#saveQueue.retryNow();
@@ -124,8 +117,8 @@ export class ExplorerWorkspaceStore {
                 : { schemaVersion: 1, topics: {} };
             this.#saveQueue.markPersisted(resource.exists ? this.data : {});
             this.status = "ready";
-            // Materialize the migration target on a fresh workspace so the
-            // removable legacy probe does not repeat on every later launch.
+            // Materialize a fresh workspace so explicit empty state remains
+            // distinguishable from a resource that has never been persisted.
             if (!resource.exists) this.#saveQueue.request(this.data);
         } catch (error) {
             this.status = "error";

@@ -1,6 +1,6 @@
 //! JSON-over-HTTP persistence backed by TOML files.
 //!
-//! Generic UI and migration resources live at `${dataDir}/{data_id}.toml`.
+//! Generic application resources live at `${dataDir}/{data_id}.toml`.
 //! Independently compiled sources live at
 //! `${dataDir}/sources/{source_id}.toml`. The dispatcher validates every ID
 //! before this module maps it to the filesystem.
@@ -17,7 +17,7 @@ const RESOURCE_EXISTS_HEADER: &str = "x-turbodoc-resource-exists";
 /// Persistence namespace selected by the API route.
 #[derive(Clone, Copy)]
 enum DataLocation {
-    /// Root-level generic UI or migration data.
+    /// Root-level generic application data.
     Root,
     /// Per-source data under the dedicated `sources` directory.
     Sources,
@@ -212,7 +212,7 @@ mod tests {
     }
 
     #[test]
-    fn generic_data_resources_remain_at_root_for_removable_migration() {
+    fn explorer_workspace_resource_remains_at_root() {
         assert_eq!(
             relative_path("ui.explorer", DataLocation::Root),
             PathBuf::from("ui.explorer.toml"));

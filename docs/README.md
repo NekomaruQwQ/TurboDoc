@@ -7,7 +7,7 @@ TurboDoc is a universal documentation viewer with local caching and workspace ma
 The frontend uses independently persisted **Sources** compiled by reusable
 **Adapters**. The navigation rail and Explorer compose those source views into
 UI-only **Topics**. See [M7-SourceAdapterTopics.md](M7-SourceAdapterTopics.md)
-for the complete architecture and legacy Rust provider migration contract.
+for the complete source, adapter, topic, and persistence architecture.
 
 **Key Features:**
 - Topic-composed documentation viewing over independently persisted sources
@@ -116,7 +116,7 @@ TurboDoc is an "enhanced tabbed browser with inactive tab resources released" �
 | **Component** | **Tech Stack** | **Role** | **Key Responsibilities** |
 |---|---|---|---|
 | **Host** | Rust (eframe/egui + wgpu/DX12 + WebView2) | **The Shell** | Native window management and startup/error surfaces. Intercepts configured upstream GETs for proxy/cache handling. Rust owns `/api/data/{data_id}`, `/api/sources/{source_id}`, and rejection of unknown `/api` paths; dev-only `/api/ready` passes through to Vite. Release assets use an executable-adjacent virtual-host mapping and persistence uses a separate exact-CORS API origin. |
-| **Backend** | Rust (rusqlite + reqwest + `http-cache-semantics`), in-process — no axum or bound listener | **The Brain** | Generic UI/migration TOML persistence plus one TOML file per source under `sources/`. Also provides the site-agnostic SQLite HTTP cache, conditional revalidation, stale-while-revalidate, LRU eviction, reviewed response-header forwarding, and serve-time Rustdoc dark-mode injection. |
+| **Backend** | Rust (rusqlite + reqwest + `http-cache-semantics`), in-process — no axum or bound listener | **The Brain** | Generic application TOML persistence plus one TOML file per source under `sources/`. Also provides the site-agnostic SQLite HTTP cache, conditional revalidation, stale-while-revalidate, LRU eviction, reviewed response-header forwarding, and serve-time Rustdoc dark-mode injection. |
 | **Frontend** | Svelte 5 + Vite | **The Face** | Compiles source definitions through adapters, derives source views, composes them into UI-only topics, and renders the generic Explorer. Rust crate metadata is lazy and remains source-owned. Release uses built Vite artifacts; dev uses Vite directly for HMR. |
 
 ### Request Flow
@@ -171,7 +171,7 @@ WebView2 request under /api
   └─ every other /api request
        │  host: server.dispatch_api(request)  → api::dispatch
        └─ api::dispatch routes by (method, path):
-            ├─ GET|PUT /api/data/{data_id}       → root UI/migration TOML
+            ├─ GET|PUT /api/data/{data_id}       → root application TOML
             ├─ GET|PUT /api/sources/{source_id}  → sources/<source_id>.toml
             ├─ known route + wrong method     → 405
             └─ unknown /api path              → 404
@@ -229,7 +229,7 @@ Rust file server or reverse proxy is involved.
 
 ```
 frontend/index.ts (entry point: mount(App, ...))
-└── App.svelte (owns active topic, migration gate, SourceStoreRegistry,
+└── App.svelte (owns active topic, SourceStoreRegistry,
                 ExplorerWorkspaceStore, native lifecycle functions,
                 topic-home navigation, and the resizable workbench layout)
     ├── WorkbenchToolbar.svelte (product identity + read-only current URL)
@@ -390,22 +390,18 @@ Topic composition makes item IDs globally unique and reversible:
 history use these composite keys. Cleanup removes an orphan only when its owner
 is ready; references owned by loading, failed, or unknown sources are preserved.
 
-#### Persistence and Migration
+#### Persistence
 
 Each source maps to `<dataDir>/sources/<sourceId>.toml`; Explorer groups map
 to root `<dataDir>/ui.explorer.toml`. Data is flat, with no `[state]` table.
 Serialized save queues snapshot, coalesce, order, retain, and retry writes.
 
-The removable startup migration reads legacy root `rust.toml` plus either
-`rust-docs.toml` or the historical `rust-doc.toml`. It treats source files and
-topic records as independently authoritative, splits Rust Docs pins across the
-book sources, converts both providers' groups to composite keys, and never
-changes or deletes legacy files. Validation or write failure blocks new-store
-initialization and exposes Retry, preventing defaults from replacing data after
-a failed migration.
+There is no runtime migration from provider-era root files. Legacy files are
+ignored and never changed or deleted automatically; current source files and
+`ui.explorer.toml` are the only authoritative TOML inputs.
 
 See [M7-SourceAdapterTopics.md](M7-SourceAdapterTopics.md) for schemas,
-invariants, edge cases, extension steps, and the exact migration-removal path.
+invariants, compatibility policy, edge cases, and extension steps.
 
 ## Development Workflow
 
@@ -592,12 +588,8 @@ WebView2 message protocol, or generic frontend event dispatcher.
    object.
 2. `<dataDir>/ui.explorer.toml` stores topic groups and group order using
    composite item keys.
-3. `<dataDir>/rust.toml` is optional read-only Rust Crates migration input.
-4. `<dataDir>/rust-docs.toml` or historical `<dataDir>/rust-doc.toml` is
-   optional read-only Rust Docs migration input; simultaneous files are an
-   ambiguity error.
-5. `<dataDir>/cache.sqlite` stores generic HTTP cache entries.
-6. localStorage holds `activeTopicId`, `currentUrl`, topic-scoped composite
+3. `<dataDir>/cache.sqlite` stores generic HTTP cache entries.
+4. localStorage holds `activeTopicId`, `currentUrl`, topic-scoped composite
    recent items, and topic/composite expansion keys.
 
 Source and data IDs are validated as lowercase ASCII path-segment-safe keys of
@@ -666,13 +658,11 @@ intent.
 3. Ready siblings remain renderable/searchable when one source fails.
 4. Persistence queues serialize writes, coalesce to the newest immutable JSON
    snapshot, retain dirty state after failure, and use bounded backoff.
-5. The migration gate runs before either target store and exposes a retryable
-   blocking error so failed compatibility work cannot be overwritten.
 
 **Root and local state**
 
 `App.svelte` owns active topic selection, the source-store registry, Explorer
-workspace, migration gate, and native document lifecycle. `uiState.svelte.ts`
+workspace, and native document lifecycle. `uiState.svelte.ts`
 initializes and reconciles validated localStorage before exposing `currentUrl`,
 expansion, and recent-item reactive bridges. The shared iframe reference and
 deferred `navigateTo(url)` gate remain in `core/context.svelte.ts`.
@@ -769,8 +759,6 @@ TurboDoc/
 │       ├── topics/
 │       │   ├── index.ts          # UI-only topic registry and validation
 │       │   └── rust.svg
-│       ├── migrations/
-│       │   └── rust-providers-v1.ts
 │       ├── core/
 │       │   ├── source.ts         # Definition → Adapter → Model contracts
 │       │   ├── explorer.ts       # SourceView and composed ExplorerView types
@@ -785,7 +773,7 @@ TurboDoc/
 │       │   ├── localStorage.ts
 │       │   └── uiState.svelte.ts
 │       └── ui/
-│           ├── App.svelte        # migration, app stores, active topic
+│           ├── App.svelte        # app stores, active topic, native lifecycle
 │           ├── NavBar.svelte     # topic rail
 │           └── explorer/         # generic composed Explorer components
 ├── src/
@@ -840,7 +828,6 @@ TurboDoc/
 - [x] Automatic cross-crate navigation via direct native lifecycle calls
 - [x] Topic-composed Explorer search with source dispatch and composite recent items
 - [x] Serialized/coalescing per-source and Explorer UI persistence with retry
-- [x] Read-only legacy Rust provider migration with per-source/topic authority
 - [x] HTTP proxy with SQLite cache and dark mode injection (v0.3)
 - [x] Rust host with native egui startup UI and WebView2 (eframe/wgpu + webview2-com)
 - [x] Release frontend from executable-adjacent Vite artifacts, with opt-in Vite dev mode
@@ -854,6 +841,10 @@ TurboDoc/
 
 ## Change History
 
+- **2026-08**: Remove the completed provider-era runtime compatibility bridge.
+  Startup now loads current Explorer and source persistence directly; legacy
+  root provider TOML is ignored and left untouched. Remove migration-specific
+  frontend state, retry UI, tests, schema exports, and backend terminology.
 - **2026-08**: Centralize local UI-state reconciliation under
   `uiState.svelte.ts`. Treat the registered `turbodoc:` slots as the complete
   namespace allowlist, remove every other namespaced key at startup, repair and
@@ -865,8 +856,8 @@ TurboDoc/
   `SourceModel`, and `SourceView` layers. Add UI-only topics, composite item
   identity, application-owned source stores, per-source TOML under `sources/`,
   independent reliable saves/errors, RustBook/Web adapter separation, four
-  topic destinations, and a removable read-only migration for the legacy Rust
-  Crates and Rust Docs provider files.
+  topic destinations, and an initially removable read-only compatibility
+  bridge for the legacy Rust Crates and Rust Docs provider files.
 - **2026-08**: Make item grouping standard Explorer functionality for every
   provider. Remove the provider grouping opt-out, restore Add Group for Doc
   providers, always expand the containing group during navigation reveals, and

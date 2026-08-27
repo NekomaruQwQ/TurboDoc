@@ -21,7 +21,6 @@
         initializeUiState,
         setActiveTopicId,
     } from "@/core/uiState.svelte";
-    import { migrateRustProvidersV1 } from "@/migrations/rust-providers-v1";
     import topics from "@/topics";
 
     import WorkbenchToolbar from "./WorkbenchToolbar.svelte";
@@ -99,33 +98,16 @@
 
     const workspace = new ExplorerWorkspaceStore();
     const sourceStores = new SourceStoreRegistry();
-    let migrationStatus = $state<"loading" | "ready" | "error">("loading");
-    let migrationError = $state<string | null>(null);
-    let migrationAttempt: Promise<void> | undefined;
     let disposed = false;
 
-    /** Run the removable legacy Rust compatibility bridge before any new store
-     * can initialize or persist its target resource. */
+    /** Load and reconcile Explorer state through one path shared by startup
+     * and retry, while ignoring completion after component teardown. */
     function initializeWorkspace(): void {
-        if (migrationAttempt || disposed) return;
-        migrationStatus = "loading";
-        migrationError = null;
-        migrationAttempt = (async () => {
-            try {
-                await migrateRustProvidersV1();
-                if (disposed) return;
-                await workspace.load();
-                if (disposed) return;
-                if (workspace.status === "ready")
-                    workspace.reconcileTopics(topics.map(topic => topic.id));
-                migrationStatus = "ready";
-            } catch (error) {
-                if (disposed) return;
-                console.error("Legacy Rust providers migration failed:", error);
-                migrationStatus = "error";
-                migrationError = error instanceof Error ? error.message : String(error);
-            }
-        })().finally(() => migrationAttempt = undefined);
+        if (disposed) return;
+        void workspace.load().then(() => {
+            if (!disposed && workspace.status === "ready")
+                workspace.reconcileTopics(topics.map(topic => topic.id));
+        });
     }
 
     onMount(initializeWorkspace);
@@ -187,19 +169,7 @@
                 <section
                     class="explorer-pane"
                     aria-label="Documentation explorer">
-                    {#if migrationStatus === "error"}
-                        <div class="workspace-status" role="alert">
-                            <span title={migrationError ?? undefined}>
-                                Rust data migration failed. The old files were left unchanged.
-                            </span>
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                onclick={initializeWorkspace}>
-                                Retry
-                            </Button>
-                        </div>
-                    {:else if migrationStatus === "ready" && workspace.status === "ready"}
+                    {#if workspace.status === "ready"}
                         <!-- Topic descendants capture UI grouping context at
                              initialization, so recreate this subtree only at
                              the topic ownership boundary. -->
@@ -216,7 +186,7 @@
                             <Button
                                 variant="ghost"
                                 size="sm"
-                                onclick={() => workspace.retryLoad()}>
+                                onclick={initializeWorkspace}>
                                 Retry
                             </Button>
                         </div>
