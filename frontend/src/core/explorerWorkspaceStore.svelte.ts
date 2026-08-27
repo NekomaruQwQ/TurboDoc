@@ -60,7 +60,10 @@ export class ExplorerWorkspaceStore {
 
     /** Return mutable state for a topic, creating its UI-only container lazily. */
     topicData(topicId: string): ExplorerTopicData {
-        return this.data.topics[topicId] ??= { groups: {}, groupOrder: [] };
+        this.data.topics[topicId] ??= { groups: {}, groupOrder: [] };
+        // Re-read through the $state proxy because the assignment expression
+        // itself yields its raw right-hand value for a newly created topic.
+        return this.data.topics[topicId];
     }
 
     /** Queue changed workspace state after a deep reactive read. */

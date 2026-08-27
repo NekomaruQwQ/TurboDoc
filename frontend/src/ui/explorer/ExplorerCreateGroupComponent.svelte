@@ -14,7 +14,7 @@
 
     let inputMode = $state(false);
     let inputText = $state("");
-    let inputElement: HTMLInputElement | undefined = $state();
+    let inputElement: HTMLInputElement | null = $state(null);
 
     /** Enter creation mode and focus its conditionally rendered input. */
     async function beginCreatingGroup(): Promise<void> {
