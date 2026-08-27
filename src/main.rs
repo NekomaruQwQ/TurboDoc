@@ -27,34 +27,6 @@ mod server;
 mod startup;
 mod webview;
 
-/// URL prefixes that the host can navigate to instead of opening in
-/// external browser.
-const HOSTED_URL: &[&str] = &[
-    "https://docs.rs/",
-    "https://doc.rust-lang.org/",
-    "https://rust-analyzer.github.io/book/",
-    "https://rustc-dev-guide.rust-lang.org/",
-    "https://rust-lang.github.io/rustup/",
-    "https://microsoft.github.io/windows-docs-rs/doc/",
-    "https://en.wikipedia.org/",
-    "https://minecraft.wiki/",
-];
-
-/// URL prefixes that the host intercepts and proxies to the server,
-/// instead of letting WebView2 handle them directly.
-const PROXIED_URL: &[&str] = &[
-    "https://docs.rs/",
-    "https://doc.rust-lang.org/",
-    "https://rust-analyzer.github.io/book/",
-    "https://rustc-dev-guide.rust-lang.org/",
-    "https://rust-lang.github.io/rustup/",
-    "https://microsoft.github.io/windows-docs-rs/doc/",
-    "https://en.wikipedia.org/",
-    "https://minecraft.wiki/",
-    "https://index.crates.io/",
-    "https://crates.io/api/v1/crates/",
-];
-
 fn main() {
     let startup = startup::StartupProbe::start();
     pretty_env_logger::init();
