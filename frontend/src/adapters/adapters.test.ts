@@ -8,6 +8,7 @@ import { RustBookSource } from "@/sources/rust-books";
 import { RustCrateSource } from "@/sources/rust-crates";
 import {
     MinecraftWikiSource,
+    MinecraftWikiChineseSource,
     WikipediaSource,
 } from "@/sources/web-sources";
 
@@ -57,13 +58,23 @@ describe("per-source persistence initialization", () => {
 
     test("keeps each web source state flat and independent", () => {
         const minecraft = MinecraftWikiSource.initializeData({}, false);
+        const chinese = MinecraftWikiChineseSource.initializeData({
+            schemaVersion: 1,
+            pinnedPages: ["https://zh.minecraft.wiki/w/Redstone?variant=zh-cn"],
+            collections: { Mechanics: { pages: ["https://zh.minecraft.wiki/w/Redstone?variant=zh-cn"] } },
+        }, true);
         const wikipedia = WikipediaSource.initializeData({
             schemaVersion: 1,
             pinnedPages: ["https://en.wikipedia.org/wiki/Logic"],
         }, true);
 
-        expect({ minecraft: minecraft.data, wikipedia: wikipedia.data }).toEqual({
+        expect({ minecraft: minecraft.data, chinese: chinese.data, wikipedia: wikipedia.data }).toEqual({
             minecraft: { schemaVersion: 1, pinnedPages: [] },
+            chinese: {
+                schemaVersion: 1,
+                pinnedPages: ["https://zh.minecraft.wiki/w/Redstone?variant=zh-cn"],
+                collections: { Mechanics: { pages: ["https://zh.minecraft.wiki/w/Redstone?variant=zh-cn"] } },
+            },
             wikipedia: {
                 schemaVersion: 1,
                 pinnedPages: ["https://en.wikipedia.org/wiki/Logic"],
@@ -118,7 +129,7 @@ describe("WebAdapter source models", () => {
     test("bulk imports pages in input order without replacing pins or collections", async () => {
         const redstone = "https://minecraft.wiki/w/Redstone#Power";
         const stone = "https://minecraft.wiki/w/Stone";
-        const brewing = "https://zh.minecraft.wiki/w/%E8%8D%AF%E6%B0%B4%E9%85%BF%E9%80%A0?variant=zh-cn";
+        const brewing = "https://minecraft.wiki/w/Brewing?oldid=123";
         const creeper = "https://minecraft.wiki/w/Creeper#Drops";
         const data: WebSourceData = {
             schemaVersion: 1,
@@ -129,7 +140,7 @@ describe("WebAdapter source models", () => {
         const view = MinecraftWikiSource.render(sourceContext);
 
         await view.search?.emptyAction?.invoke([
-            "", " https://zh.minecraft.wiki/w/药水酿造?variant=zh-cn#Ingredients ",
+            "", ` ${brewing}#Ingredients `,
             `${brewing}#Equipment`, "https://minecraft.wiki/w/Redstone#Circuits",
             creeper, creeper, "",
         ].join("\r\n"));
@@ -155,6 +166,7 @@ describe("WebAdapter source models", () => {
         await view.search?.emptyAction?.invoke([
             "not a URL", "/w/Redstone", "javascript:alert(1)",
             "https://en.wikipedia.org/wiki/Redstone", "https://minecraft.wiki/#Home",
+            "https://zh.minecraft.wiki/w/Redstone?variant=zh-cn",
             "http://zh.minecraft.wiki/w/Redstone",
             "https://zh.minecraft.wiki:8443/w/Redstone",
             "https://user:password@zh.minecraft.wiki/w/Redstone",
@@ -208,12 +220,14 @@ describe("WebAdapter source models", () => {
         const data: WebSourceData = { schemaVersion: 1, pinnedPages: [] };
         const { context: sourceContext } = context(data, `${brewing}?variant=zh-cn#Other`);
 
-        await MinecraftWikiSource.render(sourceContext).search?.emptyAction?.invoke([
-            simplified, `${brewing}?variant=zh-cn#Other`, traditional,
+        await MinecraftWikiChineseSource.render(sourceContext).search?.emptyAction?.invoke([
+            "https://zh.minecraft.wiki/", "https://minecraft.wiki/w/Brewing",
+            "https://zh.minecraft.wiki/w/药水酿造?variant=zh-cn#Ingredients",
+            `${brewing}?variant=zh-cn#Other`, traditional,
             `${brewing}?variant=zh-cn&oldid=123#History`,
             `${brewing}?oldid=123&variant=zh-cn#Duplicate`,
         ].join("\n"));
-        const item = MinecraftWikiSource.render(sourceContext).items["minecraft-wiki"];
+        const item = MinecraftWikiChineseSource.render(sourceContext).items["minecraft-wiki-zh"];
 
         expect({
             pins: data.pinnedPages,

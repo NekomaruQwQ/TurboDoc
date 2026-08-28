@@ -57,7 +57,7 @@ This keeps the two reuse axes separate:
 |---|---|---|---|
 | `RustCrateAdapter` | `rust-crates` | crates, versions, pinned Rustdoc pages | Rust Crates |
 | `RustBookAdapter` | 15 checked-in Rust book definitions | one book's pinned pages | Rust Books |
-| `WebAdapter` | `minecraft-wiki`, `wikipedia` | one site's pinned pages and user collections | one topic per site |
+| `WebAdapter` | `minecraft-wiki`, `minecraft-wiki-zh`, `wikipedia` | one language site's pinned pages and user collections | Minecraft Wiki (both languages), Wikipedia |
 
 `RustBookAdapter` only implements immutable checked-in book sections. It does
 not expose collection editing. `WebAdapter` is the general page adapter and
@@ -68,7 +68,9 @@ The current UI topic registry is:
 1. Rust Crates → `rust-crates`.
 2. Rust Books → the 15 book sources in catalog order, with `rust-book` as the
    explicit landing source.
-3. Minecraft Wiki → `minecraft-wiki`.
+3. Minecraft Wiki → English `minecraft-wiki` and Chinese `minecraft-wiki-zh`,
+   with English as the explicit landing source. Each source has its own Home,
+   pins, collections, and labeled Import action.
 4. Wikipedia → `wikipedia`.
 
 Every source belongs to exactly one topic. Registry validation rejects empty or
@@ -87,6 +89,7 @@ Source files live at:
 │   ├── cargo-book.toml
 │   ├── ... one file per remaining book ...
 │   ├── minecraft-wiki.toml
+│   ├── minecraft-wiki-zh.toml
 │   └── wikipedia.toml
 ├── ui.explorer.toml
 └── cache.sqlite
@@ -107,6 +110,12 @@ pinnedPages = ["https://minecraft.wiki/w/Redstone_Dust"]
 
 [collections.Mechanics]
 pages = ["https://minecraft.wiki/w/Redstone_Dust"]
+```
+
+```toml
+# sources/minecraft-wiki-zh.toml
+schemaVersion = 1
+pinnedPages = ["https://zh.minecraft.wiki/w/药水酿造?variant=zh-cn"]
 ```
 
 ```toml
@@ -211,18 +220,21 @@ Page-oriented adapters compile a source-private routing pipeline:
 6. Derive a page identity, defaulting to the canonical URL without its fragment.
 
 Rust book definitions use exact origin/path boundaries and checked-in outline
-snapshots. Wiki definitions use exact origins: Minecraft Wiki accepts
-`https://minecraft.wiki` and `https://zh.minecraft.wiki` as one persisted source,
-while Wikipedia accepts `https://en.wikipedia.org`. The native hosted/proxied
-allowlists mirror those origins; other subdomains are not implicitly trusted.
+snapshots. Wiki definitions use disjoint exact origins: English Minecraft Wiki
+accepts `https://minecraft.wiki`, Chinese Minecraft Wiki accepts
+`https://zh.minecraft.wiki`, and Wikipedia accepts `https://en.wikipedia.org`.
+The two Minecraft Wiki sources share a topic but not persistence or Home URLs.
+Native hosted/proxied allowlists mirror those origins; other subdomains are
+not implicitly trusted.
 Query variants and section targets survive navigation and persistence, with
-only fragments excluded from default page identity. Rustdoc matching remains inside
-`RustCrateAdapter`. Registry order is the documented tie-breaker if future
-source matchers overlap.
+only fragments excluded from default page identity. Rustdoc matching remains
+inside `RustCrateAdapter`. Registry order is the documented tie-breaker if
+future source matchers overlap.
 
-Web sources reuse the generic input dialog for empty-search bulk Import. Each
-submitted line passes through the same routing and pin-normalization pipeline;
-existing pins win duplicate identities, new pins append in input order, and
+Web sources reuse the generic input dialog for empty-search bulk Import, with
+source names in action labels to distinguish languages within one topic. Each
+submitted line passes through that source's routing and pin-normalization
+pipeline; existing pins win duplicate identities, new pins append in input order, and
 collections keep their membership. Import merges with current source state at
 submission time and performs no write when no new page is accepted. It does
 not fetch article content or change the current navigation.
@@ -239,6 +251,10 @@ A genuinely missing current source follows that adapter's initialization
 policy: Rust Crates seed the default starter crates, while Rust books and Web
 sources begin with empty pins. Existing malformed current files surface their
 normal scoped load errors and are never replaced with defaults.
+
+English Minecraft Wiki retains the `minecraft-wiki` persistence ID. Chinese
+pages belong in `minecraft-wiki-zh`; a previously mixed file must be split
+explicitly, because the runtime does not move pages between source files.
 
 ## 9. Adding another code-defined source
 

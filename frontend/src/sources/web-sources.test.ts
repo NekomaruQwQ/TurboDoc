@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-    MinecraftWikiDefinition,
     MinecraftWikiSource,
+    MinecraftWikiChineseDefinition,
+    MinecraftWikiChineseSource,
     WikipediaDefinition,
     WikipediaSource,
 } from "./web-sources";
@@ -13,9 +14,10 @@ describe("configured source ownership", () => {
         expect(WikipediaSource.matchUrl(
             "https://en.wikipedia.org/wiki/Rust_(programming_language)",
         )).toBeTrue();
-        expect(MinecraftWikiSource.matchUrl(
-            "https://minecraft.wiki/w/Redstone",
-        )).toBeTrue();
+        expect([
+            MinecraftWikiSource.matchUrl("https://minecraft.wiki/w/Redstone"),
+            MinecraftWikiChineseSource.matchUrl("https://minecraft.wiki/w/Redstone"),
+        ]).toEqual([true, false]);
     });
 
     test("rejects a lookalike Wikipedia hostname", () => {
@@ -28,8 +30,11 @@ describe("configured source ownership", () => {
         "https://zh.minecraft.wiki/w/%E8%8D%AF%E6%B0%B4%E9%85%BF%E9%80%A0?variant=zh-cn",
         "https://zh.minecraft.wiki/w/药水酿造?variant=zh-tw#材料",
         "https://zh.minecraft.wiki/w/index.php?title=药水酿造&variant=zh-cn",
-    ])("accepts Chinese Minecraft Wiki URL %j", url => {
-        expect(MinecraftWikiSource.matchUrl(url)).toBeTrue();
+    ])("routes Chinese Minecraft Wiki URL %j only to the Chinese source", url => {
+        expect([
+            MinecraftWikiSource.matchUrl(url),
+            MinecraftWikiChineseSource.matchUrl(url),
+        ]).toEqual([false, true]);
     });
 
     test.each([
@@ -43,7 +48,10 @@ describe("configured source ownership", () => {
         "https://user:password@zh.minecraft.wiki/w/Redstone",
         "https://zh.minecraft.wiki@evil.example/w/Redstone",
     ])("rejects unsafe or unconfigured Minecraft Wiki URL %j", url => {
-        expect(MinecraftWikiSource.matchUrl(url)).toBeFalse();
+        expect([
+            MinecraftWikiSource.matchUrl(url),
+            MinecraftWikiChineseSource.matchUrl(url),
+        ]).toEqual([false, false]);
     });
 
     test("accepts Rust Book paths without claiming standard-library docs", () => {
@@ -85,7 +93,7 @@ describe("configured page-name policies", () => {
     });
 
     test("decodes the Chinese Minecraft Wiki title without its variant or fragment", () => {
-        expect(MinecraftWikiDefinition.rules.resolvePageName(new URL(
+        expect(MinecraftWikiChineseDefinition.rules.resolvePageName(new URL(
             "https://zh.minecraft.wiki/w/%E8%8D%AF%E6%B0%B4%E9%85%BF%E9%80%A0?variant=zh-cn#材料",
         ))).toBe("药水酿造");
     });

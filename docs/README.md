@@ -76,7 +76,7 @@ for the complete source, adapter, topic, and persistence architecture.
 - Move items between groups via menu
 - Import crates from docs.rs URLs
 - Bulk-import Minecraft Wiki and Wikipedia page URLs as pins from empty-search Import
-- English and Chinese Minecraft Wiki URLs, preserving language variants and section targets
+- Separate English and Chinese Minecraft Wiki sources, preserving language variants and section targets
 - Rust Crate source (docs.rs + doc.rust-lang.org + windows-docs-rs)
 - Fifteen independently persisted Rust Book sources plus Wiki sources
 - Automatic cross-topic routing for accepted documentation navigation
@@ -343,9 +343,11 @@ siblings.
    pins. Fifteen book definitions compile into fifteen independently persisted
    source models.
 3. `WebAdapter` handles general HTTPS page sources with user-owned
-   collections and bulk URL import. Minecraft Wiki and Wikipedia are separate
-   definitions/files. English and Chinese Minecraft Wiki pages share the
-   `minecraft-wiki` source; its default home remains the English site.
+   collections and bulk URL import. English Minecraft Wiki (`minecraft-wiki`),
+   Chinese Minecraft Wiki (`minecraft-wiki-zh`), and Wikipedia are separate
+   definitions/files. Both Minecraft Wiki sources share one topic, with the
+   English site as its default landing page. Each language has its own Home,
+   pins, collections, and import action.
 
 **Current topics:**
 
@@ -582,12 +584,15 @@ reuses one input action for empty-search Import and the Explorer action row.
 Generic components own dialogs and menus; sources provide text, icons, and
 callbacks rather than Svelte components.
 
-`WebAdapter` exposes Import in the empty-search menu for Minecraft Wiki and
-Wikipedia. Paste one page URL per line to append loose pins in input order;
-existing pins and collections are preserved. Import reads current state when
-submitted, skips blanks, invalid/unsupported targets, duplicate identities, and
-the fixed home page, and leaves persistence untouched when nothing new is
-accepted. It stores references only, without fetching pages or navigating.
+`WebAdapter` exposes source-named Import actions in the empty-search menu for
+Minecraft Wiki and Wikipedia. The Minecraft Wiki topic distinguishes
+`Import Minecraft Wiki (English)` and `Import Minecraft Wiki (中文)`; each
+accepts only its own origin. Paste one page URL per line to append loose pins
+in input order; existing pins and collections are preserved. Import reads
+current state when submitted, skips blanks, invalid/unsupported targets,
+duplicate identities, and the source's fixed home page, and leaves persistence
+untouched when nothing new is accepted. It stores references only, without
+fetching pages or navigating.
 Query parameters such as `variant=zh-cn` and section targets are retained;
 fragments do not distinguish pages, while language variants remain distinct.
 

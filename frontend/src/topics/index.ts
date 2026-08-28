@@ -8,6 +8,7 @@ import { RustBookSource, RustBookSources } from "@/sources/rust-books";
 import { RustCrateSource } from "@/sources/rust-crates";
 import {
     MinecraftWikiSource,
+    MinecraftWikiChineseSource,
     WikipediaSource,
 } from "@/sources/web-sources";
 
@@ -43,7 +44,7 @@ const topics: readonly Topic[] = [
         name: "Minecraft Wiki",
         icon: { type: "lucide", icon: Blocks },
         homeSourceId: MinecraftWikiSource.id,
-        sources: [MinecraftWikiSource],
+        sources: [MinecraftWikiSource, MinecraftWikiChineseSource],
         search: {
             placeholder: "Search Minecraft Wiki",
             invalidText: "No Minecraft Wiki item matches that name.",

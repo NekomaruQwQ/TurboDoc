@@ -226,7 +226,7 @@
                                 label={`${action.name}…`}
                                 class="explorer-search-action">
                                 <Icon icon={action.icon} size="sm" />
-                                <span>{action.name}…</span>
+                                <span class="option-name" title={action.name}>{action.name}…</span>
                             </Combobox.Item>
                         {/each}
                     {/if}

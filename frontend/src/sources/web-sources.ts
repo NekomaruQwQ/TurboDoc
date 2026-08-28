@@ -17,22 +17,36 @@ export const WikipediaDefinition = {
     },
 } satisfies WebSourceDefinition;
 
-/** Community Minecraft Wiki definition for the English and Chinese origins. */
+/** English Minecraft Wiki definition, retaining its existing persistence ID. */
 export const MinecraftWikiDefinition = {
     id: "minecraft-wiki",
-    name: "Minecraft Wiki",
+    name: "Minecraft Wiki (English)",
     adapter: WebAdapter,
     rules: {
         homeUrl: "https://minecraft.wiki/",
         // Keep exact origins aligned with native HOSTED_URL and PROXIED_URL.
-        ownsUrl: (url: URL) => url.origin === "https://minecraft.wiki" ||
-            url.origin === "https://zh.minecraft.wiki",
+        ownsUrl: (url: URL) => url.origin === "https://minecraft.wiki",
         resolvePageName: resolveMediaWikiPageName,
     },
 } satisfies WebSourceDefinition;
 
-/** Independently persisted Minecraft Wiki source model. */
+/** Chinese Minecraft Wiki definition; query variants remain within this source. */
+export const MinecraftWikiChineseDefinition = {
+    id: "minecraft-wiki-zh",
+    name: "Minecraft Wiki (中文)",
+    adapter: WebAdapter,
+    rules: {
+        homeUrl: "https://zh.minecraft.wiki/",
+        ownsUrl: (url: URL) => url.origin === "https://zh.minecraft.wiki",
+        resolvePageName: resolveMediaWikiPageName,
+    },
+} satisfies WebSourceDefinition;
+
+/** Independently persisted English Minecraft Wiki source model. */
 export const MinecraftWikiSource = resolveSource(MinecraftWikiDefinition);
+
+/** Independently persisted Chinese Minecraft Wiki source model. */
+export const MinecraftWikiChineseSource = resolveSource(MinecraftWikiChineseDefinition);
 
 /** Independently persisted English Wikipedia source model. */
 export const WikipediaSource = resolveSource(WikipediaDefinition);

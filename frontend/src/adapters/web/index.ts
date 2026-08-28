@@ -91,7 +91,7 @@ export const WebAdapter: Adapter<WebSourceData, WebRules> = {
                 if (view.search) {
                     view.search.emptyAction = {
                         type: "input",
-                        name: "Import",
+                        name: `Import ${definition.name}`,
                         icon: { type: "lucide", icon: ImportIcon },
                         dialogTitle: `Import ${definition.name} pages`,
                         dialogDescription:
