@@ -1,4 +1,5 @@
 import * as z from "zod";
+import ImportIcon from "@lucide/svelte/icons/import";
 
 import type { Adapter, SourceDefinition, SourceModel } from "@/core/source";
 import {
@@ -64,7 +65,7 @@ export const WebAdapter: Adapter<WebSourceData, WebRules> = {
                         context.data.collections,
                         runtime.resolvePage);
                 };
-                return renderPageSource(
+                const view = renderPageSource(
                     context,
                     definition.id,
                     definition.name,
@@ -87,6 +88,30 @@ export const WebAdapter: Adapter<WebSourceData, WebRules> = {
                                 context.data.collections = state.collections;
                             }, runtime.resolvePage),
                     });
+                if (view.search) {
+                    view.search.emptyAction = {
+                        type: "input",
+                        name: "Import",
+                        icon: { type: "lucide", icon: ImportIcon },
+                        dialogTitle: `Import ${definition.name} pages`,
+                        dialogDescription:
+                            "Paste one page URL per line. Invalid, unsupported, duplicate, and home URLs are skipped.",
+                        placeholder: "One HTTPS page URL per line",
+                        multiline: true,
+                        confirmLabel: "Import",
+                        /** Merge against current pins so an open dialog cannot overwrite later edits.
+                         * Existing targets win duplicate identities; empty or rejected input is a no-op. */
+                        invoke(text) {
+                            const current = readPinnedPages();
+                            const pages = readNormalizedPinnedPages(runtime, [
+                                ...current,
+                                ...text.split("\n").map(line => line.trim()),
+                            ]);
+                            if (pages.length > current.length) writePinnedPages(pages);
+                        },
+                    };
+                }
+                return view;
             },
         };
     },

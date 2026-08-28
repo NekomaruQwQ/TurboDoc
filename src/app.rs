@@ -1262,20 +1262,28 @@ mod handler {
 
         #[test]
         fn general_documentation_urls_remain_hosted() {
-            assert_eq!(
-                (
-                    classify_frame_navigation(
-                        "https://en.wikipedia.org/wiki/Rust_(programming_language)"),
-                    classify_frame_navigation("https://minecraft.wiki/w/Redstone")),
-                (FrameNavigationKind::Hosted, FrameNavigationKind::Hosted));
+            for url in [
+                "https://en.wikipedia.org/wiki/Rust_(programming_language)",
+                "https://minecraft.wiki/w/Redstone",
+                concat!(
+                    "https://zh.minecraft.wiki/w/",
+                    "%E8%8D%AF%E6%B0%B4%E9%85%BF%E9%80%A0?variant=zh-cn#Ingredients"),
+            ] {
+                assert_eq!(classify_frame_navigation(url), FrameNavigationKind::Hosted);
+            }
         }
 
         #[test]
         fn lookalike_documentation_hostname_remains_external() {
-            assert_eq!(
-                classify_frame_navigation(
-                    "https://docs.rs.example.com/serde/latest/serde/"),
-                FrameNavigationKind::External);
+            for url in [
+                "https://docs.rs.example.com/serde/latest/serde/",
+                "https://minecraft.wiki.example.com/w/Redstone",
+                "https://zh.minecraft.wiki.example.com/w/Redstone",
+                "https://other.zh.minecraft.wiki/w/Redstone",
+                "https://zh.minecraft.wiki@evil.example/w/Redstone",
+            ] {
+                assert_eq!(classify_frame_navigation(url), FrameNavigationKind::External);
+            }
         }
 
         #[test]
@@ -1485,6 +1493,7 @@ mod tests {
                 "https://microsoft.github.io/windows-docs-rs/doc/*",
                 "https://en.wikipedia.org/*",
                 "https://minecraft.wiki/*",
+                "https://zh.minecraft.wiki/*",
                 "https://index.crates.io/*",
                 "https://crates.io/api/v1/crates/*",
                 "http://localhost:5173/api",
@@ -1492,14 +1501,23 @@ mod tests {
             ]);
     }
 
-    /// New book hosts must not admit sibling projects or lookalike origins.
+    /// Documentation hosts must not admit sibling projects, lookalikes or credentials.
     #[test]
-    fn book_url_scopes_reject_siblings_and_lookalikes() {
+    fn documentation_url_scopes_reject_siblings_and_lookalikes() {
         for url in [
             "https://rust-analyzer.github.io/bookshop/",
             "https://rust-analyzer.github.io.example.com/book/",
             "https://rust-lang.github.io/other-project/",
             "https://rustc-dev-guide.rust-lang.org.example.com/",
+            "https://minecraft.wiki.example.com/w/Redstone",
+            "https://zh.minecraft.wiki.example.com/w/Redstone",
+            "https://evilzh.minecraft.wiki/w/Redstone",
+            "https://other.zh.minecraft.wiki/w/Redstone",
+            "https://de.minecraft.wiki/w/Redstone",
+            "http://zh.minecraft.wiki/w/Redstone",
+            "https://zh.minecraft.wiki:8443/w/Redstone",
+            "https://user:password@zh.minecraft.wiki/w/Redstone",
+            "https://zh.minecraft.wiki@evil.example/w/Redstone",
         ] {
             assert!(!crate::HOSTED_URL.iter().any(|prefix| url.starts_with(prefix)));
             assert!(!crate::PROXIED_URL.iter().any(|prefix| url.starts_with(prefix)));

@@ -17,14 +17,16 @@ export const WikipediaDefinition = {
     },
 } satisfies WebSourceDefinition;
 
-/** Community Minecraft Wiki definition, matched by exact HTTPS origin. */
+/** Community Minecraft Wiki definition for the English and Chinese origins. */
 export const MinecraftWikiDefinition = {
     id: "minecraft-wiki",
     name: "Minecraft Wiki",
     adapter: WebAdapter,
     rules: {
         homeUrl: "https://minecraft.wiki/",
-        ownsUrl: (url: URL) => url.origin === "https://minecraft.wiki",
+        // Keep exact origins aligned with native HOSTED_URL and PROXIED_URL.
+        ownsUrl: (url: URL) => url.origin === "https://minecraft.wiki" ||
+            url.origin === "https://zh.minecraft.wiki",
         resolvePageName: resolveMediaWikiPageName,
     },
 } satisfies WebSourceDefinition;

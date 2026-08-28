@@ -211,9 +211,21 @@ Page-oriented adapters compile a source-private routing pipeline:
 6. Derive a page identity, defaulting to the canonical URL without its fragment.
 
 Rust book definitions use exact origin/path boundaries and checked-in outline
-snapshots. Wiki definitions use exact origins. Rustdoc matching remains inside
+snapshots. Wiki definitions use exact origins: Minecraft Wiki accepts
+`https://minecraft.wiki` and `https://zh.minecraft.wiki` as one persisted source,
+while Wikipedia accepts `https://en.wikipedia.org`. The native hosted/proxied
+allowlists mirror those origins; other subdomains are not implicitly trusted.
+Query variants and section targets survive navigation and persistence, with
+only fragments excluded from default page identity. Rustdoc matching remains inside
 `RustCrateAdapter`. Registry order is the documented tie-breaker if future
 source matchers overlap.
+
+Web sources reuse the generic input dialog for empty-search bulk Import. Each
+submitted line passes through the same routing and pin-normalization pipeline;
+existing pins win duplicate identities, new pins append in input order, and
+collections keep their membership. Import merges with current source state at
+submission time and performs no write when no new page is accepted. It does
+not fetch article content or change the current navigation.
 
 ## 8. Persistence compatibility policy
 

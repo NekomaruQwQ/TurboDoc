@@ -114,6 +114,137 @@ describe("WebAdapter source models", () => {
 
         expect(navigations).toEqual(["https://en.wikipedia.org/wiki/Main_Page"]);
     });
+
+    test("bulk imports pages in input order without replacing pins or collections", async () => {
+        const redstone = "https://minecraft.wiki/w/Redstone#Power";
+        const stone = "https://minecraft.wiki/w/Stone";
+        const brewing = "https://zh.minecraft.wiki/w/%E8%8D%AF%E6%B0%B4%E9%85%BF%E9%80%A0?variant=zh-cn";
+        const creeper = "https://minecraft.wiki/w/Creeper#Drops";
+        const data: WebSourceData = {
+            schemaVersion: 1,
+            pinnedPages: [redstone, stone],
+            collections: { Wiring: { pages: [redstone] }, Empty: { pages: [] } },
+        };
+        const { context: sourceContext, navigations } = context(data, "");
+        const view = MinecraftWikiSource.render(sourceContext);
+
+        await view.search?.emptyAction?.invoke([
+            "", " https://zh.minecraft.wiki/w/药水酿造?variant=zh-cn#Ingredients ",
+            `${brewing}#Equipment`, "https://minecraft.wiki/w/Redstone#Circuits",
+            creeper, creeper, "",
+        ].join("\r\n"));
+
+        expect({ data, navigations }).toEqual({
+            data: {
+                schemaVersion: 1,
+                pinnedPages: [redstone, stone, `${brewing}#Ingredients`, creeper],
+                collections: { Wiring: { pages: [redstone] }, Empty: { pages: [] } },
+            },
+            navigations: [],
+        });
+        expect(MinecraftWikiSource.render(sourceContext).items["minecraft-wiki"]
+            ?.pageLayout?.blocks.find(block => block.id === "")?.pageUrls)
+            .toEqual([stone, `${brewing}#Ingredients`, creeper]);
+    });
+
+    test("bulk import skips invalid, foreign, unsafe, and fixed-home URLs", async () => {
+        const data: WebSourceData = { schemaVersion: 1, pinnedPages: [] };
+        const { context: sourceContext } = context(data, "");
+        const view = MinecraftWikiSource.render(sourceContext);
+
+        await view.search?.emptyAction?.invoke([
+            "not a URL", "/w/Redstone", "javascript:alert(1)",
+            "https://en.wikipedia.org/wiki/Redstone", "https://minecraft.wiki/#Home",
+            "http://zh.minecraft.wiki/w/Redstone",
+            "https://zh.minecraft.wiki:8443/w/Redstone",
+            "https://user:password@zh.minecraft.wiki/w/Redstone",
+            "https://zh.minecraft.wiki.example.com/w/Redstone",
+            "https://other.zh.minecraft.wiki/w/Redstone",
+            "https://minecraft.wiki/w/Stone", "",
+        ].join("\n"));
+
+        expect(data.pinnedPages).toEqual(["https://minecraft.wiki/w/Stone"]);
+    });
+
+    test("bulk import leaves persistence untouched when no new page is accepted", async () => {
+        const redstone = "https://minecraft.wiki/w/Redstone#Power";
+        const data: WebSourceData = { schemaVersion: 1, pinnedPages: [redstone] };
+        const { context: sourceContext } = context(data, "");
+        const view = MinecraftWikiSource.render(sourceContext);
+
+        await view.search?.emptyAction?.invoke(" \r\n\t\n");
+        await view.search?.emptyAction?.invoke([
+            "invalid", "https://en.wikipedia.org/wiki/Logic",
+            "https://minecraft.wiki/", "https://minecraft.wiki/w/Redstone#Circuits",
+        ].join("\n"));
+
+        expect(data).toEqual({ schemaVersion: 1, pinnedPages: [redstone] });
+    });
+
+    test("an open import dialog merges with the latest pins and collections", async () => {
+        const removed = "https://minecraft.wiki/w/Redstone";
+        const stone = "https://minecraft.wiki/w/Stone";
+        const creeper = "https://minecraft.wiki/w/Creeper";
+        const data: WebSourceData = { schemaVersion: 1, pinnedPages: [removed] };
+        const { context: sourceContext } = context(data, "");
+        const action = MinecraftWikiSource.render(sourceContext).search?.emptyAction;
+
+        // Another interaction replaces pins and creates a collection before submission.
+        data.pinnedPages = [stone];
+        data.collections = { Building: { pages: [stone] } };
+        await action?.invoke([stone, creeper].join("\n"));
+
+        expect(data).toEqual({
+            schemaVersion: 1,
+            pinnedPages: [stone, creeper],
+            collections: { Building: { pages: [stone] } },
+        });
+    });
+
+    test("preserves Chinese variants and section targets while matching pinned pages", async () => {
+        const brewing = "https://zh.minecraft.wiki/w/%E8%8D%AF%E6%B0%B4%E9%85%BF%E9%80%A0";
+        const simplified = `${brewing}?variant=zh-cn#Ingredients`;
+        const traditional = `${brewing}?variant=zh-tw#Equipment`;
+        const data: WebSourceData = { schemaVersion: 1, pinnedPages: [] };
+        const { context: sourceContext } = context(data, `${brewing}?variant=zh-cn#Other`);
+
+        await MinecraftWikiSource.render(sourceContext).search?.emptyAction?.invoke([
+            simplified, `${brewing}?variant=zh-cn#Other`, traditional,
+            `${brewing}?variant=zh-cn&oldid=123#History`,
+            `${brewing}?oldid=123&variant=zh-cn#Duplicate`,
+        ].join("\n"));
+        const item = MinecraftWikiSource.render(sourceContext).items["minecraft-wiki"];
+
+        expect({
+            pins: data.pinnedPages,
+            pages: item?.pages.filter(page => page.pinned !== null).map(page => ({
+                name: page.name, url: page.url, current: page.current, pinned: page.pinned,
+            })),
+        }).toEqual({
+            pins: [simplified, traditional, `${brewing}?oldid=123&variant=zh-cn#History`],
+            pages: [
+                { name: { type: "text", text: "药水酿造" }, url: simplified, current: true, pinned: true },
+                { name: { type: "text", text: "药水酿造" }, url: traditional, current: false, pinned: true },
+                {
+                    name: { type: "text", text: "药水酿造" },
+                    url: `${brewing}?oldid=123&variant=zh-cn#History`, current: false, pinned: true,
+                },
+            ],
+        });
+    });
+
+    test("Wikipedia uses the same importer with its own ownership rules", async () => {
+        const logic = "https://en.wikipedia.org/wiki/Logic#History";
+        const data: WebSourceData = { schemaVersion: 1, pinnedPages: [] };
+        const { context: sourceContext } = context(data, "");
+
+        await WikipediaSource.render(sourceContext).search?.emptyAction?.invoke([
+            "https://minecraft.wiki/w/Redstone", "https://en.wikipedia.org/wiki/Main_Page",
+            logic, "https://en.wikipedia.org/wiki/Logic#Other",
+        ].join("\n"));
+
+        expect(data.pinnedPages).toEqual([logic]);
+    });
 });
 
 describe("RustBookAdapter source models", () => {

@@ -37,6 +37,7 @@ const HOSTED_URL: &[&str] = &[
     "https://microsoft.github.io/windows-docs-rs/doc/",
     "https://en.wikipedia.org/",
     "https://minecraft.wiki/",
+    "https://zh.minecraft.wiki/",
 ];
 
 /// URL prefixes that the host intercepts and proxies to the server,
@@ -50,6 +51,7 @@ const PROXIED_URL: &[&str] = &[
     "https://microsoft.github.io/windows-docs-rs/doc/",
     "https://en.wikipedia.org/",
     "https://minecraft.wiki/",
+    "https://zh.minecraft.wiki/",
     "https://index.crates.io/",
     "https://crates.io/api/v1/crates/",
 ];

@@ -79,6 +79,21 @@ describe("topic routing", () => {
             "https://example.com/reference")?.source).toBe(first);
     });
 
+    test("routes Chinese Minecraft Wiki navigation into the existing topic", () => {
+        const match = findTopicForUrl(topics,
+            "https://zh.minecraft.wiki/w/%E8%8D%AF%E6%B0%B4%E9%85%BF%E9%80%A0?variant=zh-cn");
+
+        expect({
+            topicId: match?.topic.id,
+            sourceId: match?.source.id,
+            home: match && getTopicHomeUrl(match.topic),
+        }).toEqual({
+            topicId: "minecraft-wiki",
+            sourceId: "minecraft-wiki",
+            home: "https://minecraft.wiki/",
+        });
+    });
+
     test("every configured source belongs to exactly one topic", () => {
         const sourceIds = topics.flatMap(candidate =>
             candidate.sources.map(model => model.id));
