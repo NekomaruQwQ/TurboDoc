@@ -229,6 +229,18 @@ impl WebView {
         api_call!(unsafe { self.controller.SetBounds(bounds) })
     }
 
+    /// Set the default content zoom, retained across navigations and restored
+    /// by Ctrl+0. `zoom_factor` must be a finite, positive multiplier; `1.0`
+    /// means 100%. WebView2 normalizes it to its internally supported range.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if WebView2 rejects the factor or the COM call fails.
+    pub fn set_zoom_factor(&self, zoom_factor: f64) -> anyhow::Result<()> {
+        // SAFETY: The Rc-owned wrapper keeps the controller on its creation thread.
+        api_call!(unsafe { self.controller.SetZoomFactor(zoom_factor) })
+    }
+
     /// Map one virtual HTTPS host to a local static-resource directory.
     ///
     /// Cross-origin access is denied because TurboDoc's release frontend only

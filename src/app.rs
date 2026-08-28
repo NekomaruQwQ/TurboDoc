@@ -139,9 +139,11 @@ fn web_resource_request_filters(api_origin: &str) -> Vec<String> {
 /// eframe owns the root winit window and wgpu surface. WebView2 is created
 /// asynchronously as a child of that same HWND, so egui can keep rendering
 /// startup progress until the selected frontend and controller are ready.
+/// `scale_factor` is the CLI-validated content zoom, independent of native DPI.
 pub fn run(
     frontend: FrontendSource,
     server: Server,
+    scale_factor: f64,
     startup: StartupProbe) {
     let frontend_kind = frontend.kind();
     let api_origin = frontend.api_origin().to_owned();
@@ -181,7 +183,7 @@ pub fn run(
 
     let native_options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
-            .with_inner_size([1280.0, 800.0]),
+            .with_inner_size([1680.0, 1050.0]),
         renderer: eframe::Renderer::Wgpu,
         persist_window: false,
         ..Default::default()
@@ -205,6 +207,7 @@ pub fn run(
                 creation_context,
                 active_frontend,
                 server,
+                scale_factor,
                 startup)?))
         }))
     {
@@ -323,6 +326,8 @@ struct TurboDocApp {
     navigation_result: Rc<RefCell<Option<anyhow::Result<()>>>>,
     webview: Option<WebView>,
     webview_size: PhysicalSize<u32>,
+    /// CLI-validated content zoom applied while the controller is still hidden.
+    scale_factor: f64,
     coordinator: StartupCoordinator,
     failure: Option<StartupFailure>,
     startup: StartupProbe,
@@ -336,6 +341,7 @@ impl TurboDocApp {
         creation_context: &eframe::CreationContext<'_>,
         frontend: ActiveFrontend,
         server: Server,
+        scale_factor: f64,
         startup: StartupProbe)
      -> anyhow::Result<Self> {
         use nkcore::prelude::RawWindowHandleExt as _;
@@ -386,6 +392,7 @@ impl TurboDocApp {
             webview_result,
             navigation_result: Rc::new(RefCell::new(None)),
             webview: None,
+            scale_factor,
             failure: None,
             startup,
         };
@@ -510,6 +517,13 @@ impl TurboDocApp {
         webview: WebView) {
         if let Err(err) = webview.set_bounds(webview_bounds(self.webview_size)) {
             self.fail("WebView2 could not be sized.", err);
+            return;
+        }
+
+        // Configure the default zoom before navigation so the first visible
+        // frontend paint already uses the requested scale.
+        if let Err(err) = webview.set_zoom_factor(self.scale_factor) {
+            self.fail("WebView2 content scale could not be configured.", err);
             return;
         }
 

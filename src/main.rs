@@ -93,6 +93,26 @@ mod main {
         /// Spawn the Vite development server instead of loading built assets.
         #[arg(long = "dev", default_value_t = false)]
         dev: bool,
+
+        /// WebView2 content scale multiplier (1.0 = 100%, 1.1 = 110%).
+        #[arg(
+            short = 's',
+            long = "scale-factor",
+            default_value_t = 1.0,
+            value_parser = parse_scale_factor)]
+        scale_factor: f64,
+    }
+
+    /// Parse the content scale before startup so invalid values receive a CLI
+    /// error instead of reaching WebView2. Reject malformed, nonfinite, and
+    /// nonpositive numbers; WebView2 owns its supported positive zoom range.
+    fn parse_scale_factor(value: &str) -> Result<f64, &'static str> {
+        let scale_factor = value.parse::<f64>()
+            .map_err(|_| "scale factor must be a number")?;
+        if !scale_factor.is_finite() || scale_factor <= 0.0 {
+            return Err("scale factor must be finite and greater than zero");
+        }
+        Ok(scale_factor)
     }
 
     pub fn main(startup: StartupProbe) {
@@ -143,6 +163,7 @@ mod main {
         crate::app::run(
             frontend,
             server,
+            args.scale_factor,
             startup);
 
         // -- Cleanup --
@@ -163,12 +184,14 @@ mod main {
                 .mut_arg("port", |arg| arg.env(None::<&str>))
         }
 
+        /// Release startup needs no port and defaults to 100% content scale.
         #[test]
-        fn release_mode_does_not_require_a_port() {
-            let result = command_without_port_environment()
-                .try_get_matches_from(["turbodoc", "--data", "data"]);
+        fn release_mode_uses_default_scale_without_a_port() {
+            let matches = command_without_port_environment()
+                .try_get_matches_from(["turbodoc", "--data", "data"])
+                .expect("release CLI should not require a port or scale factor");
 
-            assert!(result.is_ok(), "release CLI failed: {result:?}");
+            assert_eq!(matches.get_one::<f64>("scale_factor"), Some(&1.0));
         }
 
         #[test]
@@ -182,6 +205,61 @@ mod main {
                 .expect_err("dev CLI should reject a missing port");
 
             assert_eq!(error.kind(), ErrorKind::MissingRequiredArgument);
+        }
+
+        /// Both spellings accept zooming out, zooming in, and scientific
+        /// notation without duplicating WebView2's internal range limits.
+        #[test]
+        fn scale_factor_accepts_positive_finite_values_with_both_flags() {
+            for flag in ["--scale-factor", "-s"] {
+                for (value, expected) in [
+                    ("0.9", 0.9),
+                    ("1", 1.0),
+                    ("1.1", 1.1),
+                    ("1e1", 10.0),
+                ] {
+                    let matches = command_without_port_environment()
+                        .try_get_matches_from([
+                            "turbodoc", "--data", "data", flag, value])
+                        .expect("positive finite scale factor should be accepted");
+
+                    assert_eq!(
+                        matches.get_one::<f64>("scale_factor"),
+                        Some(&expected),
+                        "unexpected value for {flag} {value}");
+                }
+            }
+        }
+
+        /// The same scale option is available when Vite supplies the frontend.
+        #[test]
+        fn dev_mode_accepts_a_scale_factor() {
+            let matches = command_without_port_environment()
+                .try_get_matches_from([
+                    "turbodoc", "--data", "data", "--dev", "--port", "5173",
+                    "-s", "1.1"])
+                .expect("dev CLI should accept a scale factor with its port");
+
+            assert_eq!(matches.get_one::<f64>("scale_factor"), Some(&1.1));
+        }
+
+        /// Invalid scales fail in argument parsing, before any runtime,
+        /// backend data, or native window is initialized.
+        #[test]
+        fn scale_factor_rejects_invalid_values() {
+            for value in ["", "abc", "0", "-0", "-1", "NaN", "inf", "-inf", "1e309"] {
+                // `=` ensures negative values reach the value parser instead
+                // of being interpreted as another CLI option by Clap.
+                let argument = format!("--scale-factor={value}");
+                let error = command_without_port_environment()
+                    .try_get_matches_from(["turbodoc", "--data", "data", &argument])
+                    .expect_err("invalid scale factor should be rejected");
+
+                assert_eq!(
+                    error.kind(),
+                    ErrorKind::ValueValidation,
+                    "unexpected error for {argument}: {error}");
+            }
         }
     }
 }

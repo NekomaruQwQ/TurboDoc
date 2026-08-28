@@ -435,6 +435,16 @@ just run --data data     # Run the assembled release frontend
 just dev                 # Run Vite with HMR on port 5173
 ```
 
+Both modes accept `--scale-factor <FACTOR>` or `-s <FACTOR>`, defaulting to
+`1.0` (100%). For example, `just run --data data -s 1.1` starts the workbench
+and documentation at 110% content scale. Clap rejects malformed, nonfinite,
+zero, and negative values before startup; WebView2 normalizes valid positive
+values to its internally supported zoom range. The host sets this default on
+the hidden controller before the first navigation, avoiding a visible scale
+change. It persists across navigations, and Ctrl+0 restores it after manual
+zooming. Native window sizing, Windows DPI scaling, and egui startup surfaces
+are unaffected.
+
 Release mode is the CLI default and is unrelated to Cargo's `release` profile. `just release` happens to use the optimized Cargo profile because that is the project-wide build policy: it builds the host, runs `vite build`, removes the previous assembled `target/release/public`, and copies `frontend/dist` beside the executable. At runtime the host verifies `public/index.html`, maps that directory to `https://turbodoc.example` with WebView2's virtual-host API, and navigates to `/index.html`. Release persistence requests target the separate, unmapped `https://api.turbodoc.example` origin so `WebResourceRequested` can dispatch them to Rust; exact-origin CORS and a narrow preflight policy expose the API only to the mapped frontend. No Job Object, child process, readiness polling, or bound port exists in this mode. Release and dev have distinct frontend origins, so localStorage UI state is intentionally separate; source TOML and SQLite cache state remain shared through `--data`.
 
 `--dev` activates the development-only module in `src/dev.rs`. It discovers the repository from Cargo's executable layout, creates a kill-on-close Job Object, starts Vite on the required `--port`, and monitors the child for its complete lifetime. Each launch receives a unique `TURBODOC_VITE_READY_TOKEN`; Vite owns `GET /api/ready` and returns that token only after its middleware stack is listening. The host polls for at most five seconds, rejects stale Vite processes, and navigates to the matching IPv4 loopback origin only after both Vite and WebView2 are ready. HMR's WebSocket talks to Vite directly on the same port—there is no `hmr.clientPort` override or reverse proxy.

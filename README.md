@@ -60,6 +60,11 @@ just dev
 
 The directory passed to `--data` stores the workspace files and HTTP cache. Release mode is the default and loads `public/` beside the executable without opening a local port. `--dev` starts Vite; its required `--port` also accepts the `TURBODOC_PORT` environment variable. `--data` accepts `TURBODOC_DATA` in both modes. Runtime mode is independent of Cargo's build profile.
 
+Use `--scale-factor 1.1` (or `-s 1.1`) for 110% content scale in either mode,
+for example `just run --data data -s 1.1`. The default is `1.0` (100%). This
+scales the workbench and documentation together without changing native window
+or DPI settings. Normal zoom shortcuts still work; Ctrl+0 restores this default.
+
 ## Architecture
 
 The desktop shell and backend live in one Rust process. By default, WebView2 maps the built frontend from `public/` beside the executable to a private HTTPS origin. Development mode instead owns a Vite child process for hot-module replacement. There is no loopback HTTP server for documentation or application data: WebView2 requests are intercepted and dispatched directly to the in-process backend.
