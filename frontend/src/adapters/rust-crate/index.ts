@@ -30,6 +30,7 @@ import { parseUrl, buildUrl, getBaseUrlForCrate } from "./url";
 import { setupRustCrateEffects } from "./effects.svelte";
 import { addCrate, ensureCrate, navigateToCrateRoot } from "./crate-add";
 import { deleteCrate } from "./crate-delete";
+import { createWindowsPageLayout } from "./windows-page-layout";
 import {
     type CrateCache,
     getCrateCache,
@@ -228,11 +229,13 @@ function renderItem(
         }
     }
 
+    const pages = getCratePages(ctx, crateName, crateData);
     return {
         id: crateName,
         name: crateName,
         sortKey: getSortKey(crateName),
-        pages: getCratePages(ctx, crateName, crateData),
+        pages,
+        pageLayout: crateName === "windows" ? createWindowsPageLayout(pages) : undefined,
         links: getBaseUrlForCrate(crateName) === "https://doc.rust-lang.org/"
             ? undefined
             : getCrateLinks(crateName, crateCache),
@@ -347,10 +350,18 @@ function getCratePages(
     crateName: string,
     crateData: ReadonlyDeep<CrateData>): Page[] {
     function getPageNameFromPath(path: string): PageName {
+        /** Keep the full identifier path even when module blocks supply the
+         * visible namespace, so abbreviation cannot change sorting or identity. */
         function createSymbol(segments: string[], type: IdentType): PageName {
+            // Only valid, non-root module paths have the heading that gives
+            // the dot context. Root aliases and unclassified paths keep their names.
+            const isModulePage = crateName === "windows" && type === "namespace" &&
+                /^windows(?:\/[A-Za-z_][A-Za-z0-9_]*)+(?:\/index\.html|\/)?$/.test(path);
             return {
                 type: "symbol",
                 separator: "::",
+                display: isModulePage ? { type, name: "." }
+                    : crateName === "windows" ? "leaf" : undefined,
                 path: [
                     ...segments
                         .slice(0, -1)

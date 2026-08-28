@@ -16,6 +16,7 @@ for the complete source, adapter, topic, and persistence architecture.
 - Pin/unpin documentation pages (VS Code-style tabs)
 - Alphabetical page collections with drag-reordering within/between collections
 - Ordered section spans and URL-derived page names across 15 Rust books
+- Read-only module-path blocks for visible Windows crate pages
 - Named groups for organizing items
 - Data persistence via HTTP API
 - Automatic cross-crate navigation
@@ -356,7 +357,7 @@ source, nonempty source lists, and a valid explicit landing source.
 
 The shared `PageLayout` / `PageBlock` view model contains ordered URL
 references and capability-driven edit callbacks. The generic renderer does not
-know whether a block is a collection or a book section.
+know whether a block is a collection, book section, or Rust module.
 
 1. Wiki sources use `WebAdapter` collections: Home, loose pins, preview, then
    alphabetically sorted user collections. Complete cross-block permutations
@@ -364,8 +365,22 @@ know whether a block is a collection or a book section.
 2. Rust book sources use `RustBookAdapter` sections: Home, unknown loose pages,
    then checked-in outline spans in reading order. Users can pin pages but
    cannot edit section structure.
-3. Rust crate items retain adapter-defined `sortKey` order and Rust symbol
-   presentation.
+3. The `windows` crate derives read-only blocks from the exact modules of its
+   pinned and preview pages. Home stays first, unclassifiable pages remain in
+   an unnamed fallback block, and nonempty module blocks follow in alphabetical
+   path order. Case-preserving breadcrumbs omit the redundant crate prefix,
+   showing `Win32 › Graphics › Dxgi`; nested modules receive separate blocks
+   and root-level blocks stay untitled. The home row remains `windows`, symbol
+   rows show only their final identifier, and module overview rows use a plain
+   `.` placeholder in the normal text color. Root aliases and unclassifiable
+   paths keep their own names. Full name paths remain available for sorting,
+   hover tooltips and screen-reader labels.
+   Pins and previews share `sortKey` order within each block. No namespace
+   catalog is fetched or persisted, and no empty ancestor blocks are created.
+4. Other Rust crate items retain flat adapter-defined `sortKey` order and Rust
+   symbol presentation, including full visible page names. All crates retain
+   their existing pin/navigation behavior. Windows directory and `index.html`
+   aliases share module placement without changing their existing page identities.
 
 All page sources require credential-free HTTPS, apply exact structural
 ownership, normalize on private URL copies, and re-check ownership after
@@ -703,6 +718,13 @@ deferred `navigateTo(url)` gate remain in `core/context.svelte.ts`.
 - `PageName.type = "symbol"` with `path: { type: IdentType, name: string }[]`
 - Language-agnostic `IdentType` mapped to One Dark colors via `getIdentColor()`
 - Module path in default color, symbol name colored by type
+- Optional `PageName.display = "leaf"` abbreviates only visible symbol text;
+  the full `path` still supplies tooltip/accessibility text and ordering,
+  and the leaf keeps its original identifier color. Windows alone opts in.
+- A typed `PageName.display` identifier provides a visual alias without
+  changing the canonical path. Windows module overviews use
+  `{ type: "namespace", name: "." }` to retain the normal module text color;
+  other crates keep their existing names.
 
 **Hover States**
 - Page pin and row-action visibility are derived from semantic parent
@@ -841,6 +863,13 @@ TurboDoc/
 
 ## Change History
 
+- **2026-08**: Group visible Windows crate pins and previews into adapter-owned,
+  read-only module-path blocks. Omit the repeated crate prefix in headings and
+  use generic leaf-only display and plain module dot aliases for compact rows,
+  retaining full paths for sorting, tooltips and accessibility. Preserve original
+  page targets, share placement across module URL aliases, retain unclassifiable
+  pages, and leave other Rust crates flat. No new dependencies, network requests,
+  or persistence changes.
 - **2026-08**: Remove the completed provider-era runtime compatibility bridge.
   Startup now loads current Explorer and source persistence directly; legacy
   root provider TOML is ignored and left untouched. Remove migration-specific

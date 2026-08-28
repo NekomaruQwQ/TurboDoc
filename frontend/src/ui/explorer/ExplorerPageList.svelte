@@ -25,6 +25,7 @@
         PageBlockNameAction,
     } from "@/core/explorer";
     import ExplorerPageBlockHeader from "./ExplorerPageBlockHeader.svelte";
+    import { getDisplayedSymbolPath, getFullPageName } from "./page-name";
 
     /** Shape required by svelte-dnd-action; URLs are stable page identities. */
     type DraggablePage = {
@@ -60,13 +61,6 @@
                 return page?.pinned === true ? [{ id: url, page }] : [];
             })]));
     });
-
-    /** Flatten either page-name representation for accessible drag labels. */
-    function pageAccessibleName(page: Page): string {
-        return page.name.type === "symbol"
-            ? page.name.path.map(segment => segment.name).join(page.name.separator)
-            : page.name.text;
-    }
 
     /** Mirror pointer/keyboard consideration so the action can make room. */
     function considerPageOrder(id: string, event: CustomEvent<DndEvent<DraggablePage>>): void {
@@ -176,7 +170,7 @@
                         {#each zones[block.id] ?? [] as entry (entry.id)}
                             <div
                                 class="page-entry"
-                                aria-label={entry.page && pageAccessibleName(entry.page)}
+                                aria-label={entry.page && getFullPageName(entry.page.name)}
                                 animate:flip={{ duration: flipDurationMs }}>
                                 {#if entry.page}
                                     {@render PageItemRenderer(entry.page, true)}
@@ -265,6 +259,8 @@
 {/if}
 
 {#snippet PageItemRenderer(page: Page, draggable: boolean)}
+    {@const fullName = page.name.type === "symbol" && page.name.display !== undefined && page.name.display !== "full"
+        ? getFullPageName(page.name) : undefined}
     <div
         class="page-row"
         data-current={page.current}>
@@ -274,7 +270,7 @@
                     <span
                         class="drag-handle"
                         use:dragHandle
-                        aria-label={`Move ${pageAccessibleName(page)}`}>
+                        aria-label={`Move ${getFullPageName(page.name)}`}>
                         <GripVertical aria-hidden="true" />
                     </span>
                 {/if}
@@ -283,11 +279,13 @@
         <button
             onclick={() => navigateTo(page.url)}
             aria-current={page.current ? "page" : undefined}
+            aria-label={fullName}
+            title={fullName}
             class="page-link"
             data-code-name={item.presentation.renderPageNameAsCode}
             data-preview={page.pinned === false}>
             {#if page.name.type === "symbol"}
-                {#each page.name.path as ident, i (i)}
+                {#each getDisplayedSymbolPath(page.name) as ident, i (i)}
                     {#if i > 0}<span>{page.name.separator}</span>{/if}
                     <span class="identifier" data-ident-type={ident.type}>{ident.name}</span>
                 {/each}

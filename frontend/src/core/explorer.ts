@@ -243,7 +243,7 @@ export interface ItemVersions {
 
 /** A documentation page rendered under one item. */
 export interface Page {
-    /** Display name. */
+    /** Full name metadata with optional visual abbreviation or alias. */
     name: PageName;
     /** Adapter-owned ordering key. */
     sortKey: string;
@@ -266,6 +266,10 @@ export type PageName =
         path: { type: IdentType; name: string }[];
         /** Separator between symbol path segments. */
         separator: string;
+        /** Optional visual abbreviation or single-identifier alias; the full
+         * path remains authoritative for ordering, tooltips and accessible
+         * labels. Defaults to full; aliases use their identifier type's color. */
+        display?: "full" | "leaf" | { type: IdentType; name: string };
     };
 
 /** Language-neutral identifier category used by syntax coloring. */
